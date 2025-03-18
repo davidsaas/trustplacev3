@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { User, Session, AuthChangeEvent } from '@supabase/supabase-js'
+import { User } from '@supabase/supabase-js'
 import { createClient } from '@/lib/supabase'
 import { signInWithEmail, signUpWithEmail, signOut, signInWithGoogle } from '@/lib/supabase/auth'
 
@@ -15,7 +15,7 @@ export const useAuth = () => {
     const supabase = createClient()
 
     // Get initial session
-    supabase.auth.getSession().then(({ data: { session } }: { data: { session: Session | null } }) => {
+    supabase.auth.getSession().then(({ data: { session } }) => {
       setUser(session?.user ?? null)
       setLoading(false)
     })
@@ -23,7 +23,7 @@ export const useAuth = () => {
     // Listen for auth changes
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event: AuthChangeEvent, session: Session | null) => {
+    } = supabase.auth.onAuthStateChange((_event, session) => {
       setUser(session?.user ?? null)
       setLoading(false)
     })

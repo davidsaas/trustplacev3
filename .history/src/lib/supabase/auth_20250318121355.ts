@@ -1,4 +1,4 @@
-import { createClient } from '.'
+import { createClient } from './client'
 
 export type AuthError = {
   message: string
