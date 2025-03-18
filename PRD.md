@@ -208,7 +208,7 @@ Travelers—especially those visiting large cities like LA—face uncertainty wh
    - ✅ Supabase authentication integration
    - ✅ Protected routes
    - ✅ Authentication state management
-   - ✅ Navigation with auth state
+   - ✅ Navigation with auth states
 
 ### Phase 3: Data Processing and Storage (Next Up)
 1. Create Python script for crime data processing
