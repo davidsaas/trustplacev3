@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "public": {
+      "hero-section": ["find"],
+      "partner-logo": ["find", "findOne"],
+      "testimonial": ["find", "findOne"],
+      "feature": ["find", "findOne"]
+    }
+  }
+} 

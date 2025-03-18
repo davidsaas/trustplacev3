@@ -1,0 +1,35 @@
+{
+  "kind": "singleType",
+  "collectionName": "hero_sections",
+  "info": {
+    "singularName": "hero-section",
+    "pluralName": "hero-sections",
+    "displayName": "Hero Section"
+  },
+  "options": {
+    "draftAndPublish": true
+  },
+  "attributes": {
+    "title": {
+      "type": "string",
+      "required": true
+    },
+    "description": {
+      "type": "richtext",
+      "required": true
+    },
+    "image": {
+      "type": "media",
+      "multiple": false,
+      "required": true
+    },
+    "ctaText": {
+      "type": "string",
+      "required": true
+    },
+    "ctaLink": {
+      "type": "string",
+      "required": true
+    }
+  }
+} 
