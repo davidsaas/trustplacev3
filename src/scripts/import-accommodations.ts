@@ -242,7 +242,11 @@ async function importAccommodations() {
   
   // Check for duplicates before merging
   const duplicateCheck = new Set()
-  const checkDuplicates = (items: any[], source: string) => {
+  type AccommodationItem = {
+    external_id: string;
+    [key: string]: unknown;
+  }
+  const checkDuplicates = (items: AccommodationItem[], source: string) => {
     items.forEach(item => {
       if (item) {
         const key = `${source}-${item.external_id}`
