@@ -1,6 +1,12 @@
 import { NextResponse } from 'next/server'
-import { findAccommodationBySourceAndExternalId } from '@/lib/db/accommodations'
-import type { AccommodationSource } from '@/lib/utils/url'
+import { createClient } from '@supabase/supabase-js'
+import type { Database } from '@/lib/supabase'
+
+// Initialize Supabase client
+const supabase = createClient<Database>(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+)
 
 export async function POST(request: Request) {
   try {
@@ -15,28 +21,31 @@ export async function POST(request: Request) {
 
     console.log('Searching for accommodation:', { source, externalId })
 
-    // Check if the accommodation exists in our database using server client
-    const accommodation = await findAccommodationBySourceAndExternalId(
-      source as AccommodationSource,
-      externalId,
-      true // Use server client
-    )
+    // Check if the accommodation exists in our database
+    const { data, error } = await supabase
+      .from('accommodations')
+      .select('id')
+      .eq('source', source)
+      .eq('external_id', externalId)
+      .single()
 
-    if (!accommodation) {
-      console.log('Accommodation not found')
+    if (error || !data) {
+      console.log('Accommodation not found:', { source, externalId })
       return NextResponse.json(
         { 
           exists: false,
-          error: 'This accommodation is not in our database yet'
+          error: 'This accommodation is not in our database yet',
+          notFound: true
         },
         { status: 404 }
       )
     }
 
-    console.log('Accommodation found:', accommodation.id)
+    console.log('Accommodation found:', data.id)
     return NextResponse.json({
+      success: true,
       exists: true,
-      id: accommodation.id
+      reportId: data.id
     })
   } catch (error) {
     console.error('Error processing URL:', error)

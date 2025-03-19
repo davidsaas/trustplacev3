@@ -19,13 +19,27 @@ export interface Database {
       accommodations: {
         Row: {
           id: string
+          source: 'airbnb' | 'booking'
+          external_id: string
           url: string
           name: string
-          image_url: string
+          image_url?: string
+          image?: string
           price: number
-          location: {
+          price_per_night?: number
+          latitude?: string
+          longitude?: string
+          location?: {
             lat: number
             lng: number
+          }
+          rating?: number
+          total_reviews?: number
+          property_type?: string
+          type?: string
+          neighborhood?: string
+          address?: {
+            full: string
           }
           safety_score: number
           last_updated: string
@@ -33,13 +47,27 @@ export interface Database {
         }
         Insert: {
           id?: string
+          source: 'airbnb' | 'booking'
+          external_id: string
           url: string
           name: string
-          image_url: string
+          image_url?: string
+          image?: string
           price: number
-          location: {
+          price_per_night?: number
+          latitude?: string
+          longitude?: string
+          location?: {
             lat: number
             lng: number
+          }
+          rating?: number
+          total_reviews?: number
+          property_type?: string
+          type?: string
+          neighborhood?: string
+          address?: {
+            full: string
           }
           safety_score?: number
           last_updated?: string
@@ -47,13 +75,27 @@ export interface Database {
         }
         Update: {
           id?: string
+          source?: 'airbnb' | 'booking'
+          external_id?: string
           url?: string
           name?: string
           image_url?: string
+          image?: string
           price?: number
+          price_per_night?: number
+          latitude?: string
+          longitude?: string
           location?: {
             lat: number
             lng: number
+          }
+          rating?: number
+          total_reviews?: number
+          property_type?: string
+          type?: string
+          neighborhood?: string
+          address?: {
+            full: string
           }
           safety_score?: number
           last_updated?: string

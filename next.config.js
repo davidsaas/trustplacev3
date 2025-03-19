@@ -3,7 +3,8 @@ const nextConfig = {
   images: {
     domains: [
       'images.unsplash.com',
-      'a0.muscache.com' // Airbnb image domain
+      'a0.muscache.com', // Airbnb image domain
+      'cf.bstatic.com'  // Booking.com image domain
     ],
   },
 

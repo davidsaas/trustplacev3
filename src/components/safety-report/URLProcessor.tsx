@@ -7,42 +7,6 @@ import { Button } from '@/components/ui/button'
 import { toast } from 'sonner'
 import { parseAccommodationURL } from '@/lib/utils/url'
 
-const processURL = async (url: string) => {
-  try {
-    console.log('Processing URL:', url)
-    const parsedURL = parseAccommodationURL(url)
-    console.log('Parsed URL:', parsedURL)
-    
-    if (!parsedURL) {
-      return { success: false, error: 'Invalid URL format' }
-    }
-
-    const response = await fetch('/api/process-url', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        source: parsedURL.source,
-        externalId: parsedURL.externalId
-      })
-    })
-
-    const data = await response.json()
-    console.log('API Response:', data)
-
-    if (!response.ok) {
-      if (response.status === 404) {
-        return { success: false, error: 'This accommodation is not in our database yet', notFound: true }
-      }
-      throw new Error(data.error || 'Failed to process URL')
-    }
-
-    return { success: true, reportId: data.id }
-  } catch (error) {
-    console.error('Error in processURL:', error)
-    return { success: false, error: error instanceof Error ? error.message : 'Failed to process URL' }
-  }
-}
-
 export const URLProcessor = () => {
   const [url, setUrl] = useState('')
   const [isLoading, setIsLoading] = useState(false)
@@ -53,23 +17,43 @@ export const URLProcessor = () => {
     setIsLoading(true)
     
     try {
-      const response = await processURL(url)
-      console.log('Process URL response:', response)
+      console.log('Processing URL:', url)
+      const parsedUrl = parseAccommodationURL(url)
+      console.log('Parsed URL:', parsedUrl)
       
-      if (!response.success) {
-        if (response.notFound) {
-          // Show a specific message for accommodations not in our database
-          toast.error(response.error, {
+      if (!parsedUrl) {
+        toast.error('Invalid URL', {
+          description: 'Please enter a valid Airbnb or Booking.com URL'
+        })
+        setIsLoading(false)
+        return
+      }
+
+      console.log('Sending to API:', parsedUrl)
+      const response = await fetch('/api/process-url', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(parsedUrl)
+      })
+
+      const data = await response.json()
+      console.log('API Response:', data)
+
+      if (!response.ok) {
+        if (response.status === 404) {
+          toast.error(data.error, {
             description: 'We only have data for certain accommodations in Los Angeles at the moment.'
           })
         } else {
-          toast.error(response.error)
+          toast.error('Failed to process URL')
         }
         setIsLoading(false)
         return
       }
 
-      router.push(`/safety-report/${response.reportId}`)
+      router.push(`/safety-report/${data.reportId}`)
     } catch (error) {
       console.error('Error in handleSubmit:', error)
       toast.error('Failed to process URL')
@@ -103,4 +87,4 @@ export const URLProcessor = () => {
       </p>
     </form>
   )
-} 
+}
