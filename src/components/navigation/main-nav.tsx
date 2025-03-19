@@ -26,7 +26,7 @@ export function MainNav() {
           {user ? (
             <Button 
               variant="outline" 
-              onClick={() => signOut()}
+              onClick={() => signOut(pathname)}
             >
               Sign Out
             </Button>

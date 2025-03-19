@@ -3,7 +3,6 @@
 import { useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
-import { ROUTES } from '@/lib/constants'
 
 export default function AuthCallback() {
   const router = useRouter()
@@ -14,10 +13,16 @@ export default function AuthCallback() {
     const handleAuthCallback = async () => {
       const { searchParams } = new URL(window.location.href)
       const code = searchParams.get('code')
-      const next = searchParams.get('next') || ROUTES.HOME
+      const next = searchParams.get('next')
 
       if (code) {
         await supabase.auth.exchangeCodeForSession(code)
+      }
+
+      // If no next parameter or it's an auth page, redirect to home
+      if (!next || next.startsWith('/auth/')) {
+        router.push('/')
+        return
       }
 
       // Ensure we're using the full URL for the redirect

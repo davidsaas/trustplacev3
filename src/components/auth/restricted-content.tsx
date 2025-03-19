@@ -3,6 +3,7 @@
 import Link from 'next/link'
 import { useSupabase } from '@/components/providers/supabase-provider'
 import { Button } from '@/components/ui/button'
+import { usePathname } from 'next/navigation'
 
 interface RestrictedContentProps {
   children: React.ReactNode
@@ -10,6 +11,7 @@ interface RestrictedContentProps {
 
 export const RestrictedContent = ({ children }: RestrictedContentProps) => {
   const { user } = useSupabase()
+  const pathname = usePathname()
 
   if (user) {
     return <>{children}</>
@@ -33,10 +35,10 @@ export const RestrictedContent = ({ children }: RestrictedContentProps) => {
           </p>
           <div className="space-x-4">
             <Button asChild>
-              <Link href="/auth/sign-up">Sign Up</Link>
+              <Link href={`/auth/sign-up?next=${pathname}`}>Sign Up</Link>
             </Button>
             <Button variant="outline" asChild>
-              <Link href="/auth/sign-in">Sign In</Link>
+              <Link href={`/auth/sign-in?next=${pathname}`}>Sign In</Link>
             </Button>
           </div>
         </div>

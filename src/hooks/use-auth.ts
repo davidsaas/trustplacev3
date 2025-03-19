@@ -46,15 +46,14 @@ export const useAuth = () => {
 
       if (error) throw error
       
-      // Stay on the current page after sign in
-      router.refresh()
+      // Let the sign-in page handle the redirection
       return { error: null }
     } catch (error) {
       return { error: error instanceof Error ? error.message : 'Sign in failed' }
     } finally {
       setLoading(false)
     }
-  }, [router])
+  }, [])
 
   const handleSignUp = useCallback(async (email: string, password: string) => {
     setLoading(true)
@@ -65,26 +64,32 @@ export const useAuth = () => {
         email,
         password,
         options: {
-          emailRedirectTo: `${window.location.origin}${AUTH_REDIRECT_URLS.OAUTH_CALLBACK}`,
+          emailRedirectTo: `${window.location.origin}${AUTH_REDIRECT_URLS.OAUTH_CALLBACK}?next=${pathname}`,
         },
       })
 
       if (error) throw error
 
+      router.push(AUTH_REDIRECT_URLS.AFTER_SIGN_UP)
       return { success: true }
     } catch (error) {
       return { error: error instanceof Error ? error.message : 'Sign up failed' }
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [router, pathname])
 
-  const handleSignOut = useCallback(async () => {
+  const handleSignOut = useCallback(async (returnUrl?: string) => {
     const supabase = createClient()
     
     try {
       await supabase.auth.signOut()
-      router.push(AUTH_REDIRECT_URLS.AFTER_SIGN_OUT)
+      // Use returnUrl if provided, otherwise stay on current page
+      if (returnUrl) {
+        router.push(returnUrl)
+      } else {
+        router.refresh()
+      }
     } catch (error) {
       console.error('Error signing out:', error)
       return { error: 'Error signing out' }
