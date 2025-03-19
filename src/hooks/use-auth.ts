@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { useRouter, usePathname } from 'next/navigation'
 import { User, Session, AuthChangeEvent } from '@supabase/supabase-js'
 import { createClient } from '@/lib/supabase/client'
-import { ROUTES } from '@/lib/constants'
+import { ROUTES, AUTH_REDIRECT_URLS } from '@/lib/constants'
 
 export const useAuth = () => {
   const router = useRouter()
@@ -65,7 +65,7 @@ export const useAuth = () => {
         email,
         password,
         options: {
-          emailRedirectTo: `${window.location.origin}${ROUTES.AUTH_CALLBACK}`,
+          emailRedirectTo: `${window.location.origin}${AUTH_REDIRECT_URLS.OAUTH_CALLBACK}`,
         },
       })
 
@@ -84,7 +84,7 @@ export const useAuth = () => {
     
     try {
       await supabase.auth.signOut()
-      router.push(ROUTES.AUTH_REDIRECT_URLS.AFTER_SIGN_OUT)
+      router.push(AUTH_REDIRECT_URLS.AFTER_SIGN_OUT)
     } catch (error) {
       console.error('Error signing out:', error)
       return { error: 'Error signing out' }
@@ -99,7 +99,7 @@ export const useAuth = () => {
       const { data, error } = await supabase.auth.signInWithOAuth({
         provider: 'google',
         options: {
-          redirectTo: `${window.location.origin}${ROUTES.AUTH_CALLBACK}?next=${pathname}`,
+          redirectTo: `${window.location.origin}${AUTH_REDIRECT_URLS.OAUTH_CALLBACK}?next=${pathname}`,
         },
       })
 
