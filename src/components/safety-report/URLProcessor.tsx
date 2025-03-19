@@ -51,7 +51,7 @@ const processURL = async (url: string): Promise<ProcessURLResponse> => {
 
     const data = await response.json()
     return { success: true, reportId: data.id }
-  } catch (_error) {
+  } catch {
     return { success: false, error: 'Failed to process URL' }
   }
 }
