@@ -5,54 +5,41 @@ import { useRouter } from 'next/navigation'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { toast } from 'sonner'
+import { parseAccommodationURL } from '@/lib/utils/url'
 
-type ValidationResult = {
-  isValid: boolean
-  platform?: 'airbnb' | 'booking'
-}
-
-type ProcessURLResponse = {
-  success: boolean
-  reportId?: string
-  error?: string
-}
-
-const validateURL = (url: string): ValidationResult => {
-  const airbnbRegex = /^https?:\/\/(www\.)?airbnb\.[a-z]+\/rooms\/\d+/i
-  const bookingRegex = /^https?:\/\/(www\.)?booking\.com\/hotel/i
-
-  if (airbnbRegex.test(url)) {
-    return { isValid: true, platform: 'airbnb' }
-  }
-
-  if (bookingRegex.test(url)) {
-    return { isValid: true, platform: 'booking' }
-  }
-
-  return { isValid: false }
-}
-
-const processURL = async (url: string): Promise<ProcessURLResponse> => {
+const processURL = async (url: string) => {
   try {
-    const validation = validateURL(url)
-    if (!validation.isValid) {
-      return { success: false, error: 'Invalid URL' }
+    console.log('Processing URL:', url)
+    const parsedURL = parseAccommodationURL(url)
+    console.log('Parsed URL:', parsedURL)
+    
+    if (!parsedURL) {
+      return { success: false, error: 'Invalid URL format' }
     }
 
     const response = await fetch('/api/process-url', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ url, platform: validation.platform })
+      body: JSON.stringify({
+        source: parsedURL.source,
+        externalId: parsedURL.externalId
+      })
     })
 
+    const data = await response.json()
+    console.log('API Response:', data)
+
     if (!response.ok) {
-      throw new Error('Failed to process URL')
+      if (response.status === 404) {
+        return { success: false, error: 'This accommodation is not in our database yet', notFound: true }
+      }
+      throw new Error(data.error || 'Failed to process URL')
     }
 
-    const data = await response.json()
     return { success: true, reportId: data.id }
-  } catch {
-    return { success: false, error: 'Failed to process URL' }
+  } catch (error) {
+    console.error('Error in processURL:', error)
+    return { success: false, error: error instanceof Error ? error.message : 'Failed to process URL' }
   }
 }
 
@@ -66,20 +53,27 @@ export const URLProcessor = () => {
     setIsLoading(true)
     
     try {
-      const validation = validateURL(url)
+      const response = await processURL(url)
+      console.log('Process URL response:', response)
       
-      if (!validation.isValid) {
-        toast.error('Please enter a valid Airbnb or Booking.com URL')
+      if (!response.success) {
+        if (response.notFound) {
+          // Show a specific message for accommodations not in our database
+          toast.error(response.error, {
+            description: 'We only have data for certain accommodations in Los Angeles at the moment.'
+          })
+        } else {
+          toast.error(response.error)
+        }
+        setIsLoading(false)
         return
       }
 
-      const response = await processURL(url)
-      if (response.success) {
-        router.push(`/safety-report/${response.reportId}`)
-      }
-    } catch {
-      setIsLoading(false)
+      router.push(`/safety-report/${response.reportId}`)
+    } catch (error) {
+      console.error('Error in handleSubmit:', error)
       toast.error('Failed to process URL')
+      setIsLoading(false)
     }
   }
 
@@ -105,7 +99,7 @@ export const URLProcessor = () => {
         </Button>
       </div>
       <p className="text-sm text-gray-500">
-        Enter a valid Airbnb or Booking.com listing URL to generate a safety report
+        Enter a valid Airbnb or Booking.com listing URL to check if we have safety data
       </p>
     </form>
   )
