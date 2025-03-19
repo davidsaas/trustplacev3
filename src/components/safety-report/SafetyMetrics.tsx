@@ -1,11 +1,41 @@
 'use client'
 
 import { Card } from '@/components/ui/card'
-import { MOCK_SAFETY_METRICS } from '@/lib/mock/safety-report'
 
-export const SafetyMetrics = () => {
-  const { overallScore, metrics } = MOCK_SAFETY_METRICS
+type SafetyMetricsProps = {
+  data: {
+    overallScore: number
+    metrics: {
+      nightSafety: {
+        score: number
+        label: string
+        description: string
+      }
+      carSafety: {
+        score: number
+        label: string
+        description: string
+      }
+      kidsSafety: {
+        score: number
+        label: string
+        description: string
+      }
+      transportSafety: {
+        score: number
+        label: string
+        description: string
+      }
+      womenSafety: {
+        score: number
+        label: string
+        description: string
+      }
+    }
+  }
+}
 
+export const SafetyMetrics = ({ data }: SafetyMetricsProps) => {
   return (
     <Card className="p-6">
       <div className="mb-6">
@@ -13,7 +43,7 @@ export const SafetyMetrics = () => {
         <div className="flex items-center gap-4">
           <div className="relative h-24 w-24">
             <div className="absolute inset-0 flex items-center justify-center">
-              <span className="text-3xl font-bold">{overallScore}</span>
+              <span className="text-3xl font-bold">{data.overallScore}</span>
             </div>
             <svg className="transform -rotate-90" width="96" height="96">
               <circle
@@ -32,7 +62,7 @@ export const SafetyMetrics = () => {
                 stroke="#3b82f6"
                 strokeWidth="8"
                 strokeDasharray={`${2 * Math.PI * 44}`}
-                strokeDashoffset={`${2 * Math.PI * 44 * (1 - overallScore / 100)}`}
+                strokeDashoffset={`${2 * Math.PI * 44 * (1 - data.overallScore / 100)}`}
                 className="transition-all duration-1000 ease-out"
               />
             </svg>
@@ -45,7 +75,7 @@ export const SafetyMetrics = () => {
       </div>
 
       <div className="space-y-6">
-        {Object.entries(metrics).map(([key, metric]) => (
+        {Object.entries(data.metrics).map(([key, metric]) => (
           <div key={key} className="space-y-2">
             <div className="flex justify-between items-center">
               <div>

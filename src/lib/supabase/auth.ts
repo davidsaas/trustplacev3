@@ -1,12 +1,17 @@
 import { createClient } from './client'
 import { AUTH_REDIRECT_URLS } from '@/lib/constants'
+import { AuthError, User, Provider } from '@supabase/supabase-js'
 
-export type AuthError = {
-  message: string
-  status: number
+type AuthResponse = {
+  error: AuthError | null
+  data?: {
+    user?: User | null
+    provider?: Provider
+    url?: string
+  } | null
 }
 
-export const signInWithEmail = async (email: string, password: string) => {
+export const signInWithEmail = async (email: string, password: string): Promise<AuthResponse> => {
   const supabase = createClient()
   
   try {
@@ -17,83 +22,57 @@ export const signInWithEmail = async (email: string, password: string) => {
 
     if (error) throw error
 
-    return { data, error: null }
-  } catch (error: any) {
-    return {
-      data: null,
-      error: {
-        message: error.message || 'An error occurred during sign in',
-        status: error.status || 500,
-      } as AuthError,
-    }
+    return { error: null, data }
+  } catch (error) {
+    return { error: error as AuthError, data: null }
   }
 }
 
-export const signUpWithEmail = async (email: string, password: string) => {
+export const signUpWithEmail = async (email: string, password: string): Promise<AuthResponse> => {
   const supabase = createClient()
   
   try {
     const { data, error } = await supabase.auth.signUp({
       email,
       password,
-      options: {
-        emailRedirectTo: AUTH_REDIRECT_URLS.OAUTH_CALLBACK,
-      },
     })
 
     if (error) throw error
 
-    return { data, error: null }
-  } catch (error: any) {
-    return {
-      data: null,
-      error: {
-        message: error.message || 'An error occurred during sign up',
-        status: error.status || 500,
-      } as AuthError,
-    }
+    return { error: null, data }
+  } catch (error) {
+    return { error: error as AuthError, data: null }
   }
 }
 
-export const signOut = async () => {
+export const signOut = async (): Promise<AuthResponse> => {
   const supabase = createClient()
   
   try {
     const { error } = await supabase.auth.signOut()
     if (error) throw error
 
-    return { error: null }
-  } catch (error: any) {
-    return {
-      error: {
-        message: error.message || 'An error occurred during sign out',
-        status: error.status || 500,
-      } as AuthError,
-    }
+    return { error: null, data: null }
+  } catch (error) {
+    return { error: error as AuthError, data: null }
   }
 }
 
-export const signInWithGoogle = async () => {
+export const signInWithGoogle = async (): Promise<AuthResponse> => {
   const supabase = createClient()
   
   try {
     const { data, error } = await supabase.auth.signInWithOAuth({
       provider: 'google',
       options: {
-        redirectTo: AUTH_REDIRECT_URLS.OAUTH_CALLBACK,
+        redirectTo: `${window.location.origin}${AUTH_REDIRECT_URLS.OAUTH_CALLBACK}`,
       },
     })
 
     if (error) throw error
 
-    return { data, error: null }
-  } catch (error: any) {
-    return {
-      data: null,
-      error: {
-        message: error.message || 'An error occurred during Google sign in',
-        status: error.status || 500,
-      } as AuthError,
-    }
+    return { error: null, data }
+  } catch (error) {
+    return { error: error as AuthError, data: null }
   }
 } 
