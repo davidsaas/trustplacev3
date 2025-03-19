@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { useRouter, usePathname } from 'next/navigation'
 import { User, Session, AuthChangeEvent } from '@supabase/supabase-js'
 import { createClient } from '@/lib/supabase/client'
-import { ROUTES, AUTH_REDIRECT_URLS } from '@/lib/constants'
+import { AUTH_REDIRECT_URLS } from '@/lib/constants'
 
 export const useAuth = () => {
   const router = useRouter()
@@ -96,7 +96,7 @@ export const useAuth = () => {
     const supabase = createClient()
     
     try {
-      const { data, error } = await supabase.auth.signInWithOAuth({
+      const { error } = await supabase.auth.signInWithOAuth({
         provider: 'google',
         options: {
           redirectTo: `${window.location.origin}${AUTH_REDIRECT_URLS.OAUTH_CALLBACK}?next=${pathname}`,
