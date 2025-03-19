@@ -23,17 +23,17 @@ export default function SignUp() {
       return
     }
 
-    const { error } = await signUp(email, password)
-    if (error) {
-      setError(error.message)
+    const { error: signUpError } = await signUp(email, password)
+    if (signUpError) {
+      setError(signUpError)
     }
   }
 
   const handleGoogleSignIn = async () => {
     setError('')
-    const { error } = await signInWithGoogle()
-    if (error) {
-      setError(error.message)
+    const { error: googleError } = await signInWithGoogle()
+    if (googleError) {
+      setError(googleError)
     }
   }
 
