@@ -7,12 +7,15 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Icons } from '@/components/icons'
+import { useSearchParams } from 'next/navigation'
 
 export default function SignUp() {
   const { signUp, signInWithGoogle, loading } = useAuth()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
+  const searchParams = useSearchParams()
+  const next = searchParams.get('next')
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault()
@@ -115,7 +118,7 @@ export default function SignUp() {
       <p className="text-center text-sm text-muted-foreground">
         Already have an account?{' '}
         <Link
-          href="/auth/sign-in"
+          href={`/auth/sign-in${next ? `?next=${next}` : ''}`}
           className="text-primary hover:underline"
           tabIndex={0}
         >

@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import Link from 'next/link'
-import { useSearchParams } from 'next/navigation'
+import { useSearchParams, useRouter } from 'next/navigation'
 import { useAuth } from '@/hooks/use-auth'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -15,6 +15,7 @@ export default function SignIn() {
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
   const searchParams = useSearchParams()
+  const router = useRouter()
   const next = searchParams.get('next')
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
@@ -24,6 +25,8 @@ export default function SignIn() {
     const { error } = await signIn(email, password)
     if (error) {
       setError(error)
+    } else if (next && !next.startsWith('/auth/')) {
+      router.push(next)
     }
   }
 
