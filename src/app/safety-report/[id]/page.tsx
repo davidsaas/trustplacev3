@@ -10,11 +10,9 @@ import Image from 'next/image'
 import { MOCK_SAFETY_METRICS, MOCK_SAFETY_REPORT } from '@/lib/mock/safety-report'
 import { Card } from '@/components/ui/card'
 
-interface PageProps {
-  params: {
-    id: string
-  }
-  searchParams?: { [key: string]: string | string[] | undefined }
+interface Props {
+  params: { id: string }
+  searchParams: { [key: string]: string | string[] | undefined }
 }
 
 const validateReportParams = async (id: string) => {
@@ -71,7 +69,7 @@ async function getReportData(id: string) {
   }
 }
 
-export default async function SafetyReportPage({ params }: PageProps) {
+export default async function SafetyReportPage({ params }: Props) {
   // Validate params before proceeding
   const isValid = await validateReportParams(params.id)
   if (!isValid) {
