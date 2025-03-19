@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Inter } from "next/font/google";
 import "./globals.css";
+import "mapbox-gl/dist/mapbox-gl.css";
 import { cn } from "@/lib/utils";
 import { SupabaseProvider } from "@/components/providers/supabase-provider";
 import { MainNav } from "@/components/navigation/main-nav";

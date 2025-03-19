@@ -8,6 +8,7 @@ import Loading from './loading'
 import { supabaseServer } from '@/lib/supabase/server'
 import Image from 'next/image'
 import { MOCK_SAFETY_METRICS, MOCK_SAFETY_REPORT } from '@/lib/mock/safety-report'
+import { Card } from '@/components/ui/card'
 
 interface PageProps {
   params: {
@@ -16,7 +17,7 @@ interface PageProps {
   searchParams?: { [key: string]: string | string[] | undefined }
 }
 
-const validateReportParams = (id: string) => {
+const validateReportParams = async (id: string) => {
   return typeof id === 'string' && id.length > 0
 }
 
@@ -32,44 +33,53 @@ async function getReportData(id: string) {
     return null
   }
 
-  // For Booking.com accommodations, ensure we're using the correct fields
-  const imageUrl = accommodation.image_url // Both sources now use image_url
+  // Parse coordinates safely
+  const latitude = parseFloat(accommodation.latitude || accommodation.location?.lat || '')
+  const longitude = parseFloat(accommodation.longitude || accommodation.location?.lng || '')
 
-  // Ensure we have a valid image URL
+  // Validate coordinates
+  const hasValidCoordinates = 
+    !isNaN(latitude) && 
+    !isNaN(longitude) && 
+    latitude !== 0 && 
+    longitude !== 0 && 
+    Math.abs(latitude) <= 90 && 
+    Math.abs(longitude) <= 180
+
+  // For Booking.com accommodations, ensure we're using the correct fields
+  const imageUrl = accommodation.image_url
   const validImageUrl = imageUrl && imageUrl.startsWith('http') ? imageUrl : null
 
   // Combine real accommodation data with mock safety data
   return {
     ...accommodation,
     ...MOCK_SAFETY_REPORT,
-    // Override mock data with real accommodation data
     id: accommodation.id,
     url: accommodation.url,
     name: accommodation.name,
-    image_url: validImageUrl, // Only use valid URLs
+    image_url: validImageUrl,
     price_per_night: accommodation.price_per_night || null,
     rating: accommodation.rating || null,
     total_reviews: accommodation.total_reviews || null,
-    property_type: accommodation.property_type || accommodation.type || null, // Booking uses 'type'
+    property_type: accommodation.property_type || accommodation.type || null,
     neighborhood: accommodation.neighborhood || (accommodation.address?.full || null),
     source: accommodation.source,
-    location: {
-      lat: parseFloat(accommodation.latitude || accommodation.location?.lat || '0'),
-      lng: parseFloat(accommodation.longitude || accommodation.location?.lng || '0')
-    }
+    location: hasValidCoordinates ? {
+      lat: latitude,
+      lng: longitude
+    } : null
   }
 }
 
 export default async function SafetyReportPage({ params }: PageProps) {
-  const id = params.id
-
   // Validate params before proceeding
-  if (!validateReportParams(id)) {
+  const isValid = await validateReportParams(params.id)
+  if (!isValid) {
     notFound()
   }
 
   // Fetch report data
-  const reportData = await getReportData(id)
+  const reportData = await getReportData(params.id)
 
   // If no data found, show 404
   if (!reportData) {
@@ -171,11 +181,20 @@ export default async function SafetyReportPage({ params }: PageProps) {
               <SafetyMetrics data={MOCK_SAFETY_METRICS} />
             </RestrictedContent>
 
-            <MapView location={reportData.location} />
+            {reportData.location ? (
+              <MapView location={reportData.location} />
+            ) : (
+              <Card className="p-6">
+                <h2 className="text-2xl font-semibold mb-4">Location</h2>
+                <div className="h-[400px] rounded-lg bg-gray-100 flex items-center justify-center">
+                  <p className="text-gray-500">Location coordinates not available</p>
+                </div>
+              </Card>
+            )}
           </div>
 
           <RestrictedContent>
-            <CommunityOpinions reportId={id} />
+            <CommunityOpinions reportId={params.id} />
           </RestrictedContent>
         </section>
       </main>
