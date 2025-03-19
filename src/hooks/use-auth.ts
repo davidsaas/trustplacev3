@@ -1,14 +1,14 @@
 'use client'
 
 import { useCallback, useEffect, useState } from 'react'
-import { useRouter } from 'next/navigation'
+import { useRouter, usePathname } from 'next/navigation'
 import { User, Session, AuthChangeEvent } from '@supabase/supabase-js'
 import { createClient } from '@/lib/supabase/client'
-import { signInWithEmail, signUpWithEmail, signOut, signInWithGoogle } from '@/lib/supabase/auth'
-import { AUTH_REDIRECT_URLS } from '@/lib/constants'
+import { ROUTES } from '@/lib/constants'
 
 export const useAuth = () => {
   const router = useRouter()
+  const pathname = usePathname()
   const [user, setUser] = useState<User | null>(null)
   const [loading, setLoading] = useState(true)
 
@@ -36,46 +36,83 @@ export const useAuth = () => {
 
   const handleSignIn = useCallback(async (email: string, password: string) => {
     setLoading(true)
-    const result = await signInWithEmail(email, password)
-    setLoading(false)
+    const supabase = createClient()
     
-    if (!result.error && result.data) {
-      router.push(AUTH_REDIRECT_URLS.AFTER_SIGN_IN)
+    try {
+      const { error } = await supabase.auth.signInWithPassword({
+        email,
+        password,
+      })
+
+      if (error) throw error
+      
+      // Stay on the current page after sign in
+      router.refresh()
+      return { error: null }
+    } catch (error) {
+      return { error: error instanceof Error ? error.message : 'Sign in failed' }
+    } finally {
+      setLoading(false)
     }
-    
-    return result
   }, [router])
 
   const handleSignUp = useCallback(async (email: string, password: string) => {
     setLoading(true)
-    const result = await signUpWithEmail(email, password)
-    setLoading(false)
+    const supabase = createClient()
     
-    if (!result.error && result.data) {
-      router.push(AUTH_REDIRECT_URLS.AFTER_SIGN_UP)
+    try {
+      const { error } = await supabase.auth.signUp({
+        email,
+        password,
+        options: {
+          emailRedirectTo: `${window.location.origin}${ROUTES.AUTH_CALLBACK}`,
+        },
+      })
+
+      if (error) throw error
+
+      return { success: true }
+    } catch (error) {
+      return { error: error instanceof Error ? error.message : 'Sign up failed' }
+    } finally {
+      setLoading(false)
     }
-    
-    return result
-  }, [router])
+  }, [])
 
   const handleSignOut = useCallback(async () => {
-    setLoading(true)
-    const result = await signOut()
-    setLoading(false)
+    const supabase = createClient()
     
-    if (!result.error) {
-      router.push(AUTH_REDIRECT_URLS.AFTER_SIGN_OUT)
+    try {
+      const { error } = await supabase.auth.signOut()
+      if (error) throw error
+      
+      // Stay on the current page after sign out
+      router.refresh()
+    } catch (error) {
+      console.error('Sign out error:', error)
     }
-    
-    return result
   }, [router])
 
   const handleGoogleSignIn = useCallback(async () => {
     setLoading(true)
-    const result = await signInWithGoogle()
-    setLoading(false)
-    return result
-  }, [])
+    const supabase = createClient()
+    
+    try {
+      const { data, error } = await supabase.auth.signInWithOAuth({
+        provider: 'google',
+        options: {
+          redirectTo: `${window.location.origin}${ROUTES.AUTH_CALLBACK}?next=${pathname}`,
+        },
+      })
+
+      if (error) throw error
+      return { error: null }
+    } catch (error) {
+      return { error: error instanceof Error ? error.message : 'Google sign in failed' }
+    } finally {
+      setLoading(false)
+    }
+  }, [pathname])
 
   return {
     user,

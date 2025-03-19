@@ -25,8 +25,11 @@ export async function middleware(request: NextRequest) {
     (request.nextUrl.pathname.startsWith(ROUTES.SIGN_IN) || 
      request.nextUrl.pathname.startsWith(ROUTES.SIGN_UP))
   ) {
+    // If there's a next parameter, redirect there, otherwise go to home
+    const next = request.nextUrl.searchParams.get('next') || ROUTES.HOME
     const redirectUrl = request.nextUrl.clone()
-    redirectUrl.pathname = ROUTES.HOME
+    redirectUrl.pathname = next
+    redirectUrl.searchParams.delete('next')
     return NextResponse.redirect(redirectUrl)
   }
 
