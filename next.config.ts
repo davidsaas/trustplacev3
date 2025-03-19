@@ -1,15 +1,10 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  // Enable static optimization where possible
-  swcMinify: true,
-  
-  // Add image domains if you're using next/image
   images: {
-    domains: ['images.unsplash.com'], // Add any other domains you use
+    domains: ['images.unsplash.com'],
   },
 
-  // Optional: Add headers for security
   async headers() {
     return [
       {
