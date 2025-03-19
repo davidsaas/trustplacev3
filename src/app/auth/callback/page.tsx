@@ -14,13 +14,15 @@ export default function AuthCallback() {
     const handleAuthCallback = async () => {
       const { searchParams } = new URL(window.location.href)
       const code = searchParams.get('code')
-      const next = searchParams.get('next') ?? ROUTES.HOME
+      const next = searchParams.get('next') || ROUTES.HOME
 
       if (code) {
         await supabase.auth.exchangeCodeForSession(code)
       }
 
-      router.push(next)
+      // Ensure we're using the full URL for the redirect
+      const redirectUrl = next.startsWith('http') ? next : `${window.location.origin}${next}`
+      router.push(redirectUrl)
     }
 
     handleAuthCallback()

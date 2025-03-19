@@ -11,5 +11,5 @@ export const AUTH_REDIRECT_URLS = {
   AFTER_SIGN_IN: ROUTES.HOME,
   AFTER_SIGN_UP: ROUTES.VERIFY,
   AFTER_SIGN_OUT: ROUTES.HOME,
-  OAUTH_CALLBACK: `${typeof window !== 'undefined' ? window.location.origin : ''}/auth/callback`,
+  OAUTH_CALLBACK: '/auth/callback',
 } as const 
