@@ -7,9 +7,11 @@ import { notFound } from 'next/navigation'
 import Loading from './loading'
 import { MOCK_SAFETY_REPORT, MOCK_SAFETY_METRICS } from '@/lib/mock/safety-report'
 
-type Props = {
-  params: { id: string }
-  searchParams: { [key: string]: string | string[] | undefined }
+interface PageProps {
+  params: {
+    id: string
+  }
+  searchParams?: { [key: string]: string | string[] | undefined }
 }
 
 const validateReportParams = (id: string) => {
@@ -21,7 +23,7 @@ async function getReportData() {
   return Promise.resolve(MOCK_SAFETY_REPORT)
 }
 
-export default async function SafetyReportPage({ params }: Props) {
+export default async function SafetyReportPage({ params }: PageProps) {
   const id = params.id
 
   // Validate params before proceeding
