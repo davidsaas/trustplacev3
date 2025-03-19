@@ -32,6 +32,12 @@ async function getReportData(id: string) {
     return null
   }
 
+  // For Booking.com accommodations, ensure we're using the correct fields
+  const imageUrl = accommodation.image_url // Both sources now use image_url
+
+  // Ensure we have a valid image URL
+  const validImageUrl = imageUrl && imageUrl.startsWith('http') ? imageUrl : null
+
   // Combine real accommodation data with mock safety data
   return {
     ...accommodation,
@@ -40,16 +46,16 @@ async function getReportData(id: string) {
     id: accommodation.id,
     url: accommodation.url,
     name: accommodation.name,
-    image_url: accommodation.image_url,
-    price_per_night: accommodation.price_per_night,
-    rating: accommodation.rating,
-    total_reviews: accommodation.total_reviews,
-    property_type: accommodation.property_type,
-    neighborhood: accommodation.neighborhood,
+    image_url: validImageUrl, // Only use valid URLs
+    price_per_night: accommodation.price_per_night || null,
+    rating: accommodation.rating || null,
+    total_reviews: accommodation.total_reviews || null,
+    property_type: accommodation.property_type || accommodation.type || null, // Booking uses 'type'
+    neighborhood: accommodation.neighborhood || (accommodation.address?.full || null),
     source: accommodation.source,
     location: {
-      lat: parseFloat(accommodation.latitude),
-      lng: parseFloat(accommodation.longitude)
+      lat: parseFloat(accommodation.latitude || accommodation.location?.lat || '0'),
+      lng: parseFloat(accommodation.longitude || accommodation.location?.lng || '0')
     }
   }
 }
@@ -77,33 +83,70 @@ export default async function SafetyReportPage({ params }: PageProps) {
           <h1 className="text-4xl font-bold mb-4">Safety Report</h1>
           <div className="bg-white rounded-lg shadow-lg overflow-hidden">
             <div className="relative h-[400px] w-full">
-              <Image
-                src={reportData.image_url}
-                alt={reportData.name}
-                fill
-                className="object-cover"
-                priority
-              />
+              {reportData.image_url ? (
+                <Image
+                  src={reportData.image_url}
+                  alt={reportData.name}
+                  fill
+                  className="object-cover"
+                  priority
+                />
+              ) : (
+                <div className="h-full w-full flex items-center justify-center bg-gray-100">
+                  <div className="text-gray-400 text-center">
+                    <svg 
+                      className="mx-auto h-12 w-12 text-gray-400"
+                      fill="none" 
+                      viewBox="0 0 24 24" 
+                      stroke="currentColor" 
+                      aria-hidden="true"
+                    >
+                      <path 
+                        strokeLinecap="round" 
+                        strokeLinejoin="round" 
+                        strokeWidth={2} 
+                        d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" 
+                      />
+                    </svg>
+                    <p className="mt-2">No image available</p>
+                  </div>
+                </div>
+              )}
             </div>
             <div className="p-6">
               <h2 className="text-2xl font-semibold mb-2">{reportData.name}</h2>
               <div className="flex items-center gap-4 text-gray-600 mb-4">
-                <div className="flex items-center gap-2">
-                  <span className="font-medium">${reportData.price_per_night}</span>
-                  <span>per night</span>
-                </div>
-                {reportData.rating && (
+                {reportData.price_per_night ? (
                   <div className="flex items-center gap-2">
-                    <span>★</span>
-                    <span>{reportData.rating}</span>
-                    <span>({reportData.total_reviews} reviews)</span>
+                    <span className="font-medium">${reportData.price_per_night}</span>
+                    <span>per night</span>
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-2">
+                    <span className="text-gray-500">Price not available</span>
+                  </div>
+                )}
+                {(reportData.rating || reportData.total_reviews) && (
+                  <div className="flex items-center gap-2">
+                    {reportData.rating && (
+                      <>
+                        <span>★</span>
+                        <span>
+                          {reportData.rating.toFixed(1)}
+                          {reportData.source === 'booking' ? '/10' : '/5'}
+                        </span>
+                      </>
+                    )}
+                    {reportData.total_reviews && (
+                      <span>({reportData.total_reviews.toLocaleString()} reviews)</span>
+                    )}
                   </div>
                 )}
               </div>
               <div className="flex items-center gap-2 text-gray-600">
-                <span>{reportData.property_type}</span>
-                <span>•</span>
-                <span>{reportData.neighborhood}</span>
+                {reportData.property_type && <span>{reportData.property_type}</span>}
+                {reportData.property_type && reportData.neighborhood && <span>•</span>}
+                {reportData.neighborhood && <span>{reportData.neighborhood}</span>}
               </div>
               <div className="mt-4">
                 <a 
