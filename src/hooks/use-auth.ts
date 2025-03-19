@@ -83,13 +83,11 @@ export const useAuth = () => {
     const supabase = createClient()
     
     try {
-      const { error } = await supabase.auth.signOut()
-      if (error) throw error
-      
-      // Stay on the current page after sign out
-      router.refresh()
+      await supabase.auth.signOut()
+      router.push(ROUTES.AUTH_REDIRECT_URLS.AFTER_SIGN_OUT)
     } catch (error) {
-      console.error('Sign out error:', error)
+      console.error('Error signing out:', error)
+      return { error: 'Error signing out' }
     }
   }, [router])
 

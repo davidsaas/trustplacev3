@@ -29,29 +29,44 @@ export const MOCK_SAFETY_METRICS = {
   }
 }
 
+export const MOCK_SAFETY_REPORT = {
+  id: 'mock-id-123',
+  url: 'https://www.airbnb.com/rooms/123456',
+  platform: 'airbnb',
+  location: {
+    lat: 34.0522,
+    lng: -118.2437
+  },
+  safety_score: 8.5,
+  nighttime_safety: 7.8,
+  car_parking_safety: 8.2,
+  kids_safety: 9.0,
+  transportation_safety: 8.7,
+  womens_safety: 8.4,
+  created_at: new Date().toISOString(),
+  updated_at: new Date().toISOString()
+}
+
 export const MOCK_COMMUNITY_OPINIONS = [
   {
     id: '1',
-    source: 'reddit',
-    content: "I've lived in this area for 5 years and it's very safe. Great for families!",
-    sentiment: 'positive',
-    date: '2024-02-15'
+    user_id: 'user1',
+    content: 'Very safe neighborhood, well lit streets at night.',
+    created_at: '2024-03-10T10:00:00Z',
+    user: {
+      name: 'John Doe'
+    }
   },
   {
     id: '2',
-    source: 'local',
-    content: "The neighborhood has improved a lot. Just be careful late at night as some streets are not well lit.",
-    sentiment: 'neutral',
-    date: '2024-03-01'
-  },
-  {
-    id: '3',
-    source: 'reddit',
-    content: "Perfect location! Close to everything and very safe during day and night.",
-    sentiment: 'positive',
-    date: '2024-03-10'
+    user_id: 'user2',
+    content: 'Close to public transportation and safe parking available.',
+    created_at: '2024-03-09T15:30:00Z',
+    user: {
+      name: 'Jane Smith'
+    }
   }
-] as const
+]
 
 export const MOCK_LOCATION = {
   lat: 34.0522,

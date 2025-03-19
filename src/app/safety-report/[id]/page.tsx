@@ -5,27 +5,34 @@ import { MapView } from '@/components/safety-report/MapView'
 import { RestrictedContent } from '@/components/auth/restricted-content'
 import { notFound } from 'next/navigation'
 import Loading from './loading'
+import { MOCK_SAFETY_REPORT, MOCK_SAFETY_METRICS } from '@/lib/mock/safety-report'
 
 type Props = {
-  params: {
-    id: string
-  }
+  params: { id: string }
+  searchParams: { [key: string]: string | string[] | undefined }
 }
 
-async function getReportData(id: string) {
-  // TODO: Implement actual data fetching
+const validateReportParams = (id: string) => {
+  return typeof id === 'string' && id.length > 0
+}
+
+async function getReportData() {
   // For now, return mock data
-  return {
-    id,
-    url: 'https://example.com',
-    platform: 'airbnb',
-    timestamp: new Date().toISOString()
-  }
+  return Promise.resolve(MOCK_SAFETY_REPORT)
 }
 
 export default async function SafetyReportPage({ params }: Props) {
-  const reportData = await getReportData(params.id)
+  const id = params.id
 
+  // Validate params before proceeding
+  if (!validateReportParams(id)) {
+    notFound()
+  }
+
+  // Fetch report data
+  const reportData = await getReportData()
+
+  // If no data found, show 404
   if (!reportData) {
     notFound()
   }
@@ -43,14 +50,14 @@ export default async function SafetyReportPage({ params }: Props) {
         <section className="space-y-8">
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
             <RestrictedContent>
-              <SafetyMetrics />
+              <SafetyMetrics data={MOCK_SAFETY_METRICS} />
             </RestrictedContent>
 
-            <MapView />
+            <MapView location={reportData.location} />
           </div>
 
           <RestrictedContent>
-            <CommunityOpinions />
+            <CommunityOpinions reportId={id} />
           </RestrictedContent>
         </section>
       </main>

@@ -1,22 +1,46 @@
-import { createMiddlewareClient } from '@supabase/auth-helpers-nextjs'
+import { createServerClient } from '@supabase/ssr'
 import { NextResponse } from 'next/server'
 import type { NextRequest } from 'next/server'
 import { ROUTES } from '@/lib/constants'
 
 export async function middleware(request: NextRequest) {
-  const res = NextResponse.next()
-  const supabase = createMiddlewareClient({ req: request, res })
+  let response = NextResponse.next({
+    request: {
+      headers: request.headers,
+    },
+  })
 
-  const {
-    data: { session },
-  } = await supabase.auth.getSession()
+  const supabase = createServerClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    {
+      cookies: {
+        get(name: string) {
+          return request.cookies.get(name)?.value
+        },
+        set(name: string, value: string, options: any) {
+          response.cookies.set({
+            name,
+            value,
+            ...options,
+          })
+        },
+        remove(name: string, options: any) {
+          response.cookies.set({
+            name,
+            value: '',
+            ...options,
+          })
+        },
+      },
+    }
+  )
 
-  // If there's no session and the user is trying to access a protected route
-  if (!session && request.nextUrl.pathname.startsWith(ROUTES.REPORT)) {
-    const redirectUrl = request.nextUrl.clone()
-    redirectUrl.pathname = ROUTES.SIGN_IN
-    redirectUrl.searchParams.set('next', request.nextUrl.pathname)
-    return NextResponse.redirect(redirectUrl)
+  const { data: { session } } = await supabase.auth.getSession()
+
+  // If user is not signed in and the current path is protected, redirect to sign in
+  if (!session && request.nextUrl.pathname.startsWith('/report')) {
+    return NextResponse.redirect(new URL('/auth/sign-in', request.url))
   }
 
   // If there's a session and the user is trying to access auth pages
@@ -33,7 +57,7 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(redirectUrl)
   }
 
-  return res
+  return response
 }
 
 export const config = {

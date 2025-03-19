@@ -29,18 +29,18 @@ export const URLProcessor = () => {
   const [isProcessing, setIsProcessing] = useState(false)
   const router = useRouter()
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault()
-    const validation = validateURL(url)
-
-    if (!validation.isValid) {
-      toast.error('Please enter a valid Airbnb or Booking.com URL')
-      return
-    }
-
     setIsProcessing(true)
+    
     try {
-      // TODO: Replace with actual API call when backend is ready
+      const validation = validateURL(url)
+
+      if (!validation.isValid) {
+        toast.error('Please enter a valid Airbnb or Booking.com URL')
+        return
+      }
+
       const response = await fetch('/api/process-url', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
