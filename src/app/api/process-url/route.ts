@@ -1,24 +1,42 @@
 import { NextResponse } from 'next/server'
+import { findAccommodationBySourceAndExternalId } from '@/lib/db/accommodations'
+import type { AccommodationSource } from '@/lib/utils/url'
 
 export async function POST(request: Request) {
   try {
-    const body = await request.json()
-    const { url, platform } = body
+    const { source, externalId } = await request.json()
 
-    if (!url || !platform) {
+    if (!source || !externalId) {
       return NextResponse.json(
-        { error: 'URL and platform are required' },
+        { error: 'Source and externalId are required' },
         { status: 400 }
       )
     }
 
-    // TODO: Implement actual URL processing logic
-    // For now, return a mock response
+    console.log('Searching for accommodation:', { source, externalId })
+
+    // Check if the accommodation exists in our database using server client
+    const accommodation = await findAccommodationBySourceAndExternalId(
+      source as AccommodationSource,
+      externalId,
+      true // Use server client
+    )
+
+    if (!accommodation) {
+      console.log('Accommodation not found')
+      return NextResponse.json(
+        { 
+          exists: false,
+          error: 'This accommodation is not in our database yet'
+        },
+        { status: 404 }
+      )
+    }
+
+    console.log('Accommodation found:', accommodation.id)
     return NextResponse.json({
-      id: 'mock-id-123',
-      url,
-      platform,
-      timestamp: new Date().toISOString()
+      exists: true,
+      id: accommodation.id
     })
   } catch (error) {
     console.error('Error processing URL:', error)
