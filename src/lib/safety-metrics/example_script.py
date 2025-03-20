@@ -19,6 +19,15 @@ import uuid
 import time
 from tqdm import tqdm
 import sys
+import logging
+from census_helper import CensusHelper
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
 
 # Load environment variables
 load_dotenv()
@@ -176,29 +185,27 @@ def process_crime_data(crime_data):
     
     return df
 
-def get_risk_level_description(score, base_description, crimes_count, total_crimes, citywide_rate=None):
-    """Get a detailed description based on the safety score with debug info"""
-    if score >= 8:
-        risk = "Very safe area. "
-    elif score >= 6:
-        risk = "Generally safe area. "
-    elif score >= 4:
-        risk = "Exercise caution. "
-    else:
-        risk = "Extra caution advised. "
-    
-    # Calculate local crime rate
-    local_rate = crimes_count / total_crimes if total_crimes > 0 else 0
-    relative_rate = local_rate / citywide_rate if citywide_rate and citywide_rate > 0 else 0
-    
-    # Add debug info
-    debug_info = (
-        f" [Debug: {crimes_count} incidents in area, "
-        f"{local_rate:.3f} local rate, "
-        f"{relative_rate:.2f}x city average]"
-    )
-    
-    return f"{risk}{base_description}{debug_info}"
+def get_risk_level_description(metric_type: str, score: int, incidents: int, local_rate: float, relative_rate: float) -> str:
+    """Generate a description of the risk level for a safety metric."""
+    try:
+        score = int(score)  # Ensure score is an integer
+        risk_level = "Very safe area" if score >= 8 else \
+                    "Generally safe area" if score >= 6 else \
+                    "Exercise caution" if score >= 4 else \
+                    "Extra caution advised"
+        
+        type_descriptions = {
+            'night': "Safety for pedestrians during evening/night hours",
+            'vehicle': "Risk of vehicle theft and break-ins",
+            'child': "Overall safety concerning crimes that could affect children",
+            'transit': "Safety at and around transit locations",
+            'women': "Assessment of crimes that disproportionately affect women"
+        }
+        
+        return f"{risk_level}. {type_descriptions[metric_type]} [Debug: {incidents} incidents in area, {local_rate:.3f} local rate, {relative_rate:.2f}x city average]"
+    except (ValueError, TypeError) as e:
+        logger.error(f"Error in get_risk_level_description: {str(e)}, score: {score}, type: {type(score)}")
+        return "Unable to determine risk level"
 
 def calculate_safety_score(crimes_count, total_crimes, citywide_rate=None):
     """Calculate a safety score between 2-8"""
@@ -304,8 +311,8 @@ def calculate_safety_metrics(df):
                         
                         # Get detailed description with debug info
                         description = get_risk_level_description(
+                            metric_type,
                             score,
-                            config['description'],
                             len(crimes),
                             len(grid_crimes),
                             citywide_stats[metric_type]
@@ -383,6 +390,100 @@ def upload_to_supabase(metrics):
     except Exception as e:
         print(f"\nError uploading metrics: {str(e)}")
         return False
+
+def process_metrics(crime_data: pd.DataFrame, grid_cells: pd.DataFrame) -> list:
+    """Process crime data and generate safety metrics."""
+    logger.info("\nCalculating Safety Metrics")
+    
+    # Initialize Census helper
+    census = CensusHelper()
+    
+    # Calculate citywide statistics
+    total_crimes = len(crime_data)
+    crime_types = {
+        'night': crime_data[crime_data['is_night'] == True],
+        'vehicle': crime_data[crime_data['is_vehicle'] == True],
+        'child': crime_data[crime_data['is_child'] == True],
+        'transit': crime_data[crime_data['is_transit'] == True],
+        'women': crime_data[crime_data['is_women'] == True]
+    }
+    
+    # Print citywide statistics
+    logger.info("\nCitywide statistics:")
+    for crime_type, data in crime_types.items():
+        rate = len(data) / total_crimes if total_crimes > 0 else 0
+        logger.info(f"{crime_type}: {len(data)} total incidents, {rate:.3f} citywide rate")
+    
+    metrics = []
+    cells_with_crime = set()
+    
+    logger.info("\nProcessing grid cells...")
+    for _, cell in tqdm(grid_cells.iterrows(), total=len(grid_cells)):
+        cell_crimes = get_crimes_in_cell(crime_data, cell)
+        if len(cell_crimes) == 0:
+            continue
+            
+        cells_with_crime.add((cell['latitude'], cell['longitude']))
+        
+        # Calculate metrics for each crime type
+        for metric_type, type_data in crime_types.items():
+            cell_type_crimes = cell_crimes[cell_crimes.index.isin(type_data.index)]
+            if len(cell_type_crimes) == 0:
+                continue
+                
+            local_rate = len(cell_type_crimes) / len(cell_crimes)
+            citywide_rate = len(type_data) / total_crimes if total_crimes > 0 else 0
+            relative_rate = local_rate / citywide_rate if citywide_rate > 0 else 0
+            
+            score = calculate_safety_score(len(cell_type_crimes), local_rate, relative_rate)
+            
+            metric = {
+                'latitude': cell['latitude'],
+                'longitude': cell['longitude'],
+                'metric_type': metric_type,
+                'score': score,
+                'question': get_question_for_type(metric_type),
+                'description': get_risk_level_description(
+                    metric_type, score, len(cell_type_crimes),
+                    local_rate, relative_rate
+                ),
+                'created_at': datetime.now().isoformat(),
+                'expires_at': (datetime.now() + timedelta(days=30)).isoformat()
+            }
+            metrics.append(metric)
+    
+    # Enrich metrics with population data
+    logger.info("\nEnriching metrics with population data...")
+    enriched_metrics = census.enrich_safety_metrics(metrics)
+    
+    # Log metrics generation summary
+    logger.info("\nMetrics Generation Summary:")
+    logger.info(f"Total grid cells: {len(grid_cells)}")
+    logger.info(f"Cells with crime data: {len(cells_with_crime)}")
+    logger.info(f"Total metrics generated: {len(enriched_metrics)}")
+    
+    # Log metrics distribution by type
+    type_counts = {}
+    for metric in enriched_metrics:
+        type_counts[metric['metric_type']] = type_counts.get(metric['metric_type'], 0) + 1
+    
+    logger.info("\nMetrics distribution by type:")
+    for metric_type, count in type_counts.items():
+        percentage = (count / len(enriched_metrics)) * 100
+        logger.info(f"{metric_type}: {count} metrics ({percentage:.1f}%)")
+    
+    # Log score distribution
+    score_counts = {}
+    for metric in enriched_metrics:
+        score_counts[metric['score']] = score_counts.get(metric['score'], 0) + 1
+    
+    logger.info("\nScore distribution:")
+    for score in sorted(score_counts.keys()):
+        count = score_counts[score]
+        percentage = (count / len(enriched_metrics)) * 100
+        logger.info(f"Score {score}: {count} metrics ({percentage:.1f}%)")
+    
+    return enriched_metrics
 
 def main():
     """Main function to process safety metrics"""
