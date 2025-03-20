@@ -185,7 +185,7 @@ def process_crime_data(crime_data):
     
     return df
 
-def get_risk_level_description(metric_type: str, score: int, incidents: int, local_rate: float, relative_rate: float) -> str:
+def get_risk_level_description(metric_type: str, score: int, incidents: int, local_rate: float, relative_rate: float, population_data: dict = None) -> str:
     """Generate a description of the risk level for a safety metric."""
     try:
         score = int(score)  # Ensure score is an integer
@@ -202,7 +202,22 @@ def get_risk_level_description(metric_type: str, score: int, incidents: int, loc
             'women': "Assessment of crimes that disproportionately affect women"
         }
         
-        return f"{risk_level}. {type_descriptions[metric_type]} [Debug: {incidents} incidents in area, {local_rate:.3f} local rate, {relative_rate:.2f}x city average]"
+        # Base description
+        description = f"{risk_level}. {type_descriptions[metric_type]}"
+        
+        # Add debug info
+        debug_info = f"[Debug: {incidents} incidents in area, {local_rate:.3f} local rate, {relative_rate:.2f}x city average"
+        
+        # Add population context if available
+        if population_data and population_data.get('total_population'):
+            pop = population_data['total_population']
+            rate_per_1000 = (incidents / pop) * 1000 if pop > 0 else 0
+            debug_info += f", {pop:,} residents, {rate_per_1000:.1f} incidents per 1000 people"
+        
+        debug_info += "]"
+        
+        return f"{description} {debug_info}"
+        
     except (ValueError, TypeError) as e:
         logger.error(f"Error in get_risk_level_description: {str(e)}, score: {score}, type: {type(score)}")
         return "Unable to determine risk level"
@@ -256,6 +271,14 @@ def calculate_safety_metrics(df):
     
     metrics = []
     
+    # Initialize Census helper
+    try:
+        census = CensusHelper()
+        has_census = True
+    except ValueError as e:
+        print("\nWarning: Census API key not found. Continuing without population data.")
+        has_census = False
+    
     # Grid the area into 0.01 degree squares (roughly 1km)
     lats = np.arange(33.70, 34.83, 0.01)
     lons = np.arange(-118.67, -117.65, 0.01)
@@ -291,6 +314,18 @@ def calculate_safety_metrics(df):
                 if len(grid_crimes) > 0:
                     cells_with_data += 1
                     
+                    # Get Census data if available
+                    census_data = None
+                    if has_census:
+                        try:
+                            census_data = census.get_population_for_location(
+                                float(lat + 0.005),
+                                float(lon + 0.005)
+                            )
+                        except Exception as e:
+                            # Silently continue without Census data
+                            pass
+                    
                     # Calculate metrics for each type
                     for metric_type, config in SAFETY_METRICS.items():
                         crimes = grid_crimes[grid_crimes['crm_cd'].isin(config['crime_codes'])]
@@ -301,6 +336,11 @@ def calculate_safety_metrics(df):
                         
                         if len(crimes) == 0:
                             continue
+                        
+                        # Calculate incidents per 1000 people if population data available
+                        incidents_per_1000 = None
+                        if census_data and census_data.get('total_population', 0) > 0:
+                            incidents_per_1000 = (len(crimes) / census_data['total_population']) * 1000
                         
                         # Calculate score using citywide statistics
                         score = calculate_safety_score(
@@ -314,11 +354,12 @@ def calculate_safety_metrics(df):
                             metric_type,
                             score,
                             len(crimes),
-                            len(grid_crimes),
-                            citywide_stats[metric_type]
+                            len(crimes) / len(grid_crimes) if len(grid_crimes) > 0 else 0,
+                            citywide_stats[metric_type],
+                            census_data
                         )
                         
-                        metrics.append({
+                        metric = {
                             'id': str(uuid.uuid4()),
                             'latitude': float(lat + 0.005),
                             'longitude': float(lon + 0.005),
@@ -328,7 +369,18 @@ def calculate_safety_metrics(df):
                             'description': description,
                             'created_at': datetime.now().isoformat(),
                             'expires_at': (datetime.now() + timedelta(days=30)).isoformat()
-                        })
+                        }
+                        
+                        # Add Census data if available
+                        if census_data:
+                            metric.update({
+                                'total_population': census_data.get('total_population'),
+                                'housing_units': census_data.get('housing_units'),
+                                'median_age': census_data.get('median_age'),
+                                'incidents_per_1000': round(incidents_per_1000, 2) if incidents_per_1000 is not None else None
+                            })
+                        
+                        metrics.append(metric)
                         total_metrics += 1
                 
                 pbar.update(1)
@@ -357,6 +409,10 @@ def calculate_safety_metrics(df):
     for score in sorted(score_counts.keys()):
         count = score_counts[score]
         print(f"Score {score}: {count:,} metrics ({count/total_metrics*100:.1f}%)")
+    
+    # Print Census data coverage
+    census_coverage = len([m for m in metrics if m['total_population'] is not None])
+    print(f"\nCensus data coverage: {census_coverage} metrics ({census_coverage/total_metrics*100:.1f}%)")
     
     return metrics
 
