@@ -34,6 +34,16 @@ interface SafetyMetricWithDistance extends SafetyMetric {
   distance: number
 }
 
+interface SimilarAccommodation {
+  id: string
+  name: string
+  price_per_night: number
+  latitude: number
+  longitude: number
+  overall_score: number
+  source: string
+}
+
 // Function to calculate distance between two points using Haversine formula
 function calculateDistance(lat1: number, lon1: number, lat2: number, lon2: number) {
   const R = 6371 // Earth's radius in kilometers
@@ -80,6 +90,62 @@ async function findClosestSafetyMetrics(latitude: number, longitude: number) {
   return Object.values(metricsByType).map(({ distance, ...metric }) => metric)
 }
 
+// Function to fetch similar accommodations
+async function findSimilarAccommodations(
+  latitude: number,
+  longitude: number,
+  price: number,
+  currentScore: number,
+  excludeId: string
+): Promise<SimilarAccommodation[]> {
+  // Price range: ±30% of current price
+  const minPrice = price * 0.7
+  const maxPrice = price * 1.3
+
+  // Fetch accommodations within 5km and similar price range
+  const { data: accommodations, error } = await supabaseServer
+    .from('accommodations')
+    .select('id, name, price_per_night, latitude, longitude, source')
+    .neq('id', excludeId)
+    .gte('price_per_night', minPrice)
+    .lte('price_per_night', maxPrice)
+    .gte('latitude', latitude - 0.05)
+    .lte('latitude', latitude + 0.05)
+    .gte('longitude', longitude - 0.05)
+    .lte('longitude', longitude + 0.05)
+
+  if (error || !accommodations) {
+    console.error('Error fetching similar accommodations:', error)
+    return []
+  }
+
+  // Fetch safety metrics for each accommodation
+  const similarAccommodations = await Promise.all(
+    accommodations.map(async (acc) => {
+      const metrics = await findClosestSafetyMetrics(acc.latitude, acc.longitude)
+      if (!metrics) return null
+
+      // Calculate overall score
+      const overall_score = Math.round(
+        metrics.reduce((acc, metric) => acc + metric.score, 0) / metrics.length * 10
+      )
+
+      // Only include accommodations with equal or better safety score
+      if (overall_score < currentScore) return null
+
+      return {
+        ...acc,
+        overall_score
+      }
+    })
+  )
+
+  // Filter out null values and sort by safety score
+  return similarAccommodations
+    .filter((acc): acc is SimilarAccommodation => acc !== null)
+    .sort((a, b) => b.overall_score - a.overall_score)
+}
+
 const validateReportParams = async (id: string) => {
   return typeof id === 'string' && id.length > 0
 }
@@ -118,6 +184,22 @@ async function getReportData(id: string) {
     ? await findClosestSafetyMetrics(latitude, longitude)
     : null
 
+  // Calculate overall score
+  const overall_score = safetyMetrics 
+    ? Math.round(safetyMetrics.reduce((acc, metric) => acc + metric.score, 0) / safetyMetrics.length * 10)
+    : 0
+
+  // Fetch similar accommodations if we have valid data
+  const similarAccommodations = (hasValidCoordinates && accommodation.price_per_night && overall_score)
+    ? await findSimilarAccommodations(
+        latitude,
+        longitude,
+        accommodation.price_per_night,
+        overall_score,
+        id
+      )
+    : []
+
   // Return combined data
   return {
     ...accommodation,
@@ -135,7 +217,9 @@ async function getReportData(id: string) {
       lat: latitude,
       lng: longitude
     } : null,
-    safety_metrics: safetyMetrics
+    safety_metrics: safetyMetrics,
+    overall_score,
+    similar_accommodations: similarAccommodations
   }
 }
 
@@ -250,7 +334,15 @@ export default async function SafetyReportPage({ params }: Props) {
             </RestrictedContent>
 
             {reportData.location ? (
-              <MapView location={reportData.location} />
+              <MapView 
+                location={reportData.location}
+                currentAccommodation={{
+                  id: reportData.id,
+                  name: reportData.name,
+                  overall_score: reportData.overall_score
+                }}
+                similarAccommodations={reportData.similar_accommodations}
+              />
             ) : (
               <Card className="p-6">
                 <h2 className="text-2xl font-semibold mb-4">Location</h2>
