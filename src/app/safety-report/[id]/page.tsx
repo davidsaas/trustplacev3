@@ -7,12 +7,77 @@ import { notFound } from 'next/navigation'
 import Loading from './loading'
 import { supabaseServer } from '@/lib/supabase/server'
 import Image from 'next/image'
-import { MOCK_SAFETY_METRICS, MOCK_SAFETY_REPORT } from '@/lib/mock/safety-report'
 import { Card } from '@/components/ui/card'
 
 interface Props {
   params: { id: string }
   searchParams: { [key: string]: string | string[] | undefined }
+}
+
+interface SafetyMetric {
+  id: string
+  latitude: number
+  longitude: number
+  metric_type: string
+  score: number
+  question: string
+  description: string
+  created_at: string
+  expires_at: string
+  total_population: number | null
+  housing_units: number | null
+  median_age: number | null
+  incidents_per_1000: number | null
+}
+
+interface SafetyMetricWithDistance extends SafetyMetric {
+  distance: number
+}
+
+// Function to calculate distance between two points using Haversine formula
+function calculateDistance(lat1: number, lon1: number, lat2: number, lon2: number) {
+  const R = 6371 // Earth's radius in kilometers
+  const dLat = (lat2 - lat1) * Math.PI / 180
+  const dLon = (lon2 - lon1) * Math.PI / 180
+  const a = 
+    Math.sin(dLat/2) * Math.sin(dLat/2) +
+    Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * 
+    Math.sin(dLon/2) * Math.sin(dLon/2)
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a))
+  return R * c // Distance in kilometers
+}
+
+// Function to find closest safety metrics for a location
+async function findClosestSafetyMetrics(latitude: number, longitude: number) {
+  // Fetch safety metrics within a reasonable radius (0.05 degrees ≈ 5.5km)
+  const { data: metrics, error } = await supabaseServer
+    .from('safety_metrics')
+    .select('*')
+    .gte('latitude', latitude - 0.05)
+    .lte('latitude', latitude + 0.05)
+    .gte('longitude', longitude - 0.05)
+    .lte('longitude', longitude + 0.05)
+
+  if (error || !metrics) {
+    console.error('Error fetching safety metrics:', error)
+    return null
+  }
+
+  // Group metrics by type and find the closest for each type
+  const metricsByType = metrics.reduce<Record<string, SafetyMetricWithDistance>>((acc, metric: SafetyMetric) => {
+    const distance = calculateDistance(latitude, longitude, metric.latitude, metric.longitude)
+    
+    if (!acc[metric.metric_type] || distance < acc[metric.metric_type].distance) {
+      acc[metric.metric_type] = {
+        ...metric,
+        distance
+      }
+    }
+    return acc
+  }, {})
+
+  // Convert back to array and remove distance property
+  return Object.values(metricsByType).map(({ distance, ...metric }) => metric)
 }
 
 const validateReportParams = async (id: string) => {
@@ -48,10 +113,14 @@ async function getReportData(id: string) {
   const imageUrl = accommodation.image_url
   const validImageUrl = imageUrl && imageUrl.startsWith('http') ? imageUrl : null
 
-  // Combine real accommodation data with mock safety data
+  // Fetch safety metrics if we have valid coordinates
+  const safetyMetrics = hasValidCoordinates 
+    ? await findClosestSafetyMetrics(latitude, longitude)
+    : null
+
+  // Return combined data
   return {
     ...accommodation,
-    ...MOCK_SAFETY_REPORT,
     id: accommodation.id,
     url: accommodation.url,
     name: accommodation.name,
@@ -65,7 +134,8 @@ async function getReportData(id: string) {
     location: hasValidCoordinates ? {
       lat: latitude,
       lng: longitude
-    } : null
+    } : null,
+    safety_metrics: safetyMetrics
   }
 }
 
@@ -176,7 +246,7 @@ export default async function SafetyReportPage({ params }: Props) {
         <section className="space-y-8">
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
             <RestrictedContent>
-              <SafetyMetrics data={MOCK_SAFETY_METRICS} />
+              <SafetyMetrics data={reportData.safety_metrics} />
             </RestrictedContent>
 
             {reportData.location ? (
