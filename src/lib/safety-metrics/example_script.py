@@ -20,6 +20,7 @@ import logging
 from census_helper import CensusHelper
 from typing import Dict, List, Optional, Tuple
 from sodapy import Socrata
+from tiger_helper import TigerHelper
 
 # Configure logging
 logging.basicConfig(
@@ -105,9 +106,9 @@ def fetch_crime_data(days_back=90):
     """Fetch recent crime data from LAPD API using SODA client"""
     print_section("Fetching Crime Data")
     
-    # Focus on 4 months before NIBRS transition (Nov 7, 2023 - March 6, 2024)
+    # Focus on 7 days before NIBRS transition for testing
     end_date = datetime(2024, 3, 6)  # Day before NIBRS transition
-    start_date = end_date - timedelta(days=30)  # 1 month
+    start_date = end_date - timedelta(days=7)  # 7 days for testing
     
     # Format dates for SODA API
     start_date_str = start_date.strftime('%Y-%m-%dT00:00:00.000')
@@ -120,17 +121,17 @@ def fetch_crime_data(days_back=90):
         # Use the global socrata_client initialized with app token
         global socrata_client
         
-        # Prepare the query
+        # Prepare the query with a limit for testing
         where_clause = f"date_occ between '{start_date_str}' and '{end_date_str}'"
         
-        # Get total count first
-        count_query = socrata_client.get(LAPD_DATASET_ID, select="COUNT(*)", where=where_clause)
-        total_records = int(count_query[0]['COUNT'])
+        # Get total count first (with limit for testing)
+        count_query = socrata_client.get(LAPD_DATASET_ID, select="COUNT(*)", where=where_clause, limit=1000)
+        total_records = min(int(count_query[0]['COUNT']), 1000)  # Limit to 1000 records for testing
         print(f"\nTotal records available: {total_records:,}")
         
-        # Fetch data in batches
+        # Fetch data in smaller batches
         all_data = []
-        batch_size = 50000  # Maximum for SODA 2.0
+        batch_size = 100  # Smaller batch size for testing
         offset = 0
         
         with tqdm(total=total_records, desc="Fetching records", unit="records") as pbar:
@@ -157,11 +158,11 @@ def fetch_crime_data(days_back=90):
                         print(f"First record date: {batch[0].get('date_occ')}")
                         print(f"Last record date: {batch[-1].get('date_occ')}")
                     
-                    if batch_len < batch_size:
+                    if batch_len < batch_size or len(all_data) >= 1000:  # Stop after 1000 records
                         break
                     
                     offset += batch_size
-                    time.sleep(0.5)  # Reduced rate limiting since we have an app token
+                    time.sleep(0.1)  # Reduced delay for testing
                     
                 except Exception as e:
                     print(f"\nError fetching batch at offset {offset}: {str(e)}")
@@ -392,14 +393,34 @@ def calculate_safety_score(crimes_count: int, total_crimes: int, citywide_rate: 
     else:
         return 2
 
-def main():
+async def main():
     """Main execution flow"""
     try:
+        # Initialize helpers with Supabase client
+        census_helper = CensusHelper(supabase)
+        tiger_helper = TigerHelper()
+        
+        # First, fetch and update block group boundaries
+        logger.info("Fetching and updating block group boundaries...")
+        if not tiger_helper.fetch_and_update_boundaries(supabase):
+            logger.error("Failed to update block group boundaries")
+            return
+        
         # Fetch and process crime data
         crime_data = fetch_crime_data(days_back=90)
         df = process_crime_data(crime_data)
         
         print_section("Calculating Safety Metrics")
+        
+        # Get LA city ID from cities table
+        try:
+            city_result = supabase.table('cities').select('id').eq('name', 'Los Angeles').execute()
+            la_city_id = city_result.data[0]['id'] if city_result.data else None
+            if not la_city_id:
+                raise ValueError("Could not find Los Angeles city ID")
+        except Exception as e:
+            logger.error(f"Error getting LA city ID: {str(e)}")
+            raise
         
         # Process each metric type
         metric_types = list(SAFETY_METRICS.keys())
@@ -440,12 +461,32 @@ def main():
                             relative_rate = (stats['crimes_count'] / avg_crimes_per_block) if avg_crimes_per_block > 0 else 0
                             
                             # Get demographic data for the block group
-                            pop_data = census_helper.get_population_for_block_group(block_group_id)
+                            pop_data = census_helper._get_population_data(block_group_id)
+                            if not pop_data:
+                                logger.warning(f"No demographic data available for block group {block_group_id}")
+                                pbar_blocks.update(1)
+                                continue
                             
+                            # Ensure census block exists in database
+                            census_block_exists = await census_helper.ensure_census_block_exists(
+                                block_group_id=block_group_id,
+                                city_id=la_city_id,
+                                lat=lat,
+                                lon=lon
+                            )
+                            
+                            if not census_block_exists:
+                                logger.warning(f"Failed to create/update census block {block_group_id}")
+                                pbar_blocks.update(1)
+                                continue
+                            
+                            # Create safety metric
                             metric = {
                                 'id': str(uuid.uuid4()),
+                                'city_id': la_city_id,
                                 'latitude': float(lat),
                                 'longitude': float(lon),
+                                'geom': f'SRID=4326;POINT({lon} {lat})',  # PostGIS geometry with SRID
                                 'metric_type': metric_type,
                                 'score': stats['score'],
                                 'question': SAFETY_METRICS[metric_type]['question'],
@@ -458,17 +499,9 @@ def main():
                                 ),
                                 'block_group_id': block_group_id,
                                 'created_at': datetime.now().isoformat(),
-                                'expires_at': (datetime.now() + timedelta(days=90)).isoformat()
+                                'expires_at': (datetime.now() + timedelta(days=90)).isoformat(),
+                                'incidents_per_1000': round((stats['crimes_count'] / pop_data['total_population']) * 1000, 2) if pop_data['total_population'] > 0 else None
                             }
-                            
-                            # Add demographic data if available
-                            if pop_data:
-                                metric.update({
-                                    'total_population': pop_data.get('total_population'),
-                                    'housing_units': pop_data.get('housing_units'),
-                                    'median_age': pop_data.get('median_age'),
-                                    'incidents_per_1000': round((stats['crimes_count'] / pop_data['total_population']) * 1000, 2) if pop_data['total_population'] > 0 else None
-                                })
                             
                             metrics.append(metric)
                             pbar_blocks.update(1)
@@ -504,4 +537,5 @@ def main():
         sys.exit(1)
 
 if __name__ == "__main__":
-    main() 
+    import asyncio
+    asyncio.run(main()) 
