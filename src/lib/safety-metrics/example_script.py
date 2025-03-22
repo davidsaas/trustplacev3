@@ -1,10 +1,7 @@
 #!/usr/bin/env python3
 """
 Safety Metrics Processor for LA Crime Data
-Initial version focusing on core functionality:
-1. Fetch crime data from LA API
-2. Basic processing and validation
-3. Upload to Supabase
+Enhanced version with block group alignment and spatial indexing
 """
 
 import os
@@ -21,6 +18,8 @@ from tqdm import tqdm
 import sys
 import logging
 from census_helper import CensusHelper
+from typing import Dict, List, Optional, Tuple
+from sodapy import Socrata
 
 # Configure logging
 logging.basicConfig(
@@ -33,20 +32,40 @@ logger = logging.getLogger(__name__)
 load_dotenv()
 SUPABASE_URL = os.environ.get("NEXT_PUBLIC_SUPABASE_URL")
 SUPABASE_KEY = os.environ.get("NEXT_PUBLIC_SUPABASE_ANON_KEY")
+LA_APP_TOKEN = os.environ.get("LA_APP_TOKEN")  # LA City Data app token
+LA_APP_SECRET = os.environ.get("LA_APP_SECRET")  # LA City Data app secret
 
 if not SUPABASE_URL or not SUPABASE_KEY:
     print("Error: Missing Supabase credentials in .env file")
     sys.exit(1)
 
-# LAPD API endpoint
-LAPD_API_URL = "https://data.lacity.org/resource/2nrs-mtv8.json"
+if not LA_APP_TOKEN:
+    print("Warning: Missing LA_APP_TOKEN in .env file. Requests will be subject to strict throttling limits.")
 
-# Initialize Supabase client
+# LAPD API configuration
+LAPD_DOMAIN = "data.lacity.org"
+LAPD_DATASET_ID = "2nrs-mtv8"
+
+# Initialize clients
 try:
     supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
+    census_helper = CensusHelper()
+    
+    # Initialize Socrata client with authentication
+    if LA_APP_TOKEN and LA_APP_SECRET:
+        socrata_client = Socrata(LAPD_DOMAIN, LA_APP_TOKEN, username=None, password=None)
+        socrata_client.session.headers.update({'X-App-Token': LA_APP_TOKEN})  # Add token to headers for higher limits
+    else:
+        socrata_client = Socrata(LAPD_DOMAIN, None)
 except Exception as e:
-    print(f"Error initializing Supabase client: {str(e)}")
+    print(f"Error initializing clients: {str(e)}")
     sys.exit(1)
+
+# Define LA bounds
+LA_BOUNDS = {
+    'lat': (33.70, 34.83),
+    'lon': (-118.67, -117.65)
+}
 
 # Define safety metric types and their questions
 SAFETY_METRICS = {
@@ -83,504 +102,406 @@ def print_section(title):
     print(f"\n{'='*80}\n{title}\n{'='*80}")
 
 def fetch_crime_data(days_back=90):
-    """Fetch recent crime data from LAPD API"""
+    """Fetch recent crime data from LAPD API using SODA client"""
     print_section("Fetching Crime Data")
     
-    # Calculate date range
-    end_date = datetime.now()
-    start_date = end_date - timedelta(days=days_back)
+    # Focus on 4 months before NIBRS transition (Nov 7, 2023 - March 6, 2024)
+    end_date = datetime(2024, 3, 6)  # Day before NIBRS transition
+    start_date = end_date - timedelta(days=30)  # 1 month
+    
+    # Format dates for SODA API
+    start_date_str = start_date.strftime('%Y-%m-%dT00:00:00.000')
+    end_date_str = end_date.strftime('%Y-%m-%dT23:59:59.999')
+    
     print(f"Date range: {start_date.date()} to {end_date.date()}")
+    print("Note: Using data before NIBRS transition for consistent reporting.")
     
-    all_data = []
-    offset = 0
-    limit = 1000
-    
-    with tqdm(desc="Fetching records", unit="records") as pbar:
-        while True:
-            try:
-                # Query parameters
-                params = {
-                    "$limit": limit,
-                    "$offset": offset,
-                    "$where": f"date_occ >= '{start_date.strftime('%Y-%m-%d')}'"
-                }
-                
-                response = requests.get(LAPD_API_URL, params=params)
-                response.raise_for_status()
-                
-                batch = response.json()
-                if not batch:
-                    break
+    try:
+        # Use the global socrata_client initialized with app token
+        global socrata_client
+        
+        # Prepare the query
+        where_clause = f"date_occ between '{start_date_str}' and '{end_date_str}'"
+        
+        # Get total count first
+        count_query = socrata_client.get(LAPD_DATASET_ID, select="COUNT(*)", where=where_clause)
+        total_records = int(count_query[0]['COUNT'])
+        print(f"\nTotal records available: {total_records:,}")
+        
+        # Fetch data in batches
+        all_data = []
+        batch_size = 50000  # Maximum for SODA 2.0
+        offset = 0
+        
+        with tqdm(total=total_records, desc="Fetching records", unit="records") as pbar:
+            while offset < total_records:
+                try:
+                    # Fetch batch with order by date_occ
+                    batch = socrata_client.get(
+                        LAPD_DATASET_ID,
+                        where=where_clause,
+                        order="date_occ DESC",
+                        limit=batch_size,
+                        offset=offset
+                    )
                     
-                all_data.extend(batch)
-                pbar.update(len(batch))
-                
-                if len(batch) < limit:
-                    break
+                    if not batch:
+                        break
                     
-                offset += limit
-                
-            except Exception as e:
-                print(f"\nError fetching data: {str(e)}")
-                break
-    
-    print(f"\nFetch complete. Total records: {len(all_data):,}")
-    return all_data
+                    all_data.extend(batch)
+                    batch_len = len(batch)
+                    pbar.update(batch_len)
+                    
+                    print(f"\nBatch size: {batch_len}")
+                    if batch_len > 0:
+                        print(f"First record date: {batch[0].get('date_occ')}")
+                        print(f"Last record date: {batch[-1].get('date_occ')}")
+                    
+                    if batch_len < batch_size:
+                        break
+                    
+                    offset += batch_size
+                    time.sleep(0.5)  # Reduced rate limiting since we have an app token
+                    
+                except Exception as e:
+                    print(f"\nError fetching batch at offset {offset}: {str(e)}")
+                    if len(all_data) > 0:
+                        print(f"Proceeding with {len(all_data)} records fetched so far...")
+                        break
+                    else:
+                        raise
+        
+        print(f"\nFetch complete. Total records fetched: {len(all_data):,}")
+        
+        # Print date range of fetched data
+        if all_data:
+            dates = [datetime.fromisoformat(record['date_occ'].replace('Z', '+00:00')) 
+                    for record in all_data 
+                    if record.get('date_occ')]
+            if dates:
+                print(f"Actual date range in data: {min(dates).date()} to {max(dates).date()}")
+                print(f"Records by month:")
+                month_counts = {}
+                for date in dates:
+                    month_key = date.strftime('%Y-%m')
+                    month_counts[month_key] = month_counts.get(month_key, 0) + 1
+                for month in sorted(month_counts.keys()):
+                    print(f"  {month}: {month_counts[month]:,} records")
+        
+        return all_data
+        
+    except Exception as e:
+        print(f"Error in fetch_crime_data: {str(e)}")
+        raise
+    finally:
+        if 'socrata_client' in globals():
+            socrata_client.close()
 
-def process_crime_data(crime_data):
-    """Basic processing of crime data"""
-    print_section("Processing Crime Data")
+def validate_coordinate(lat: float, lon: float) -> bool:
+    """Validate if coordinates are within reasonable bounds and not null island"""
+    try:
+        return (
+            isinstance(lat, (int, float)) and
+            isinstance(lon, (int, float)) and
+            -90 <= lat <= 90 and
+            -180 <= lon <= 180 and
+            not (abs(lat) < 0.0001 and abs(lon) < 0.0001)  # Avoid null island
+        )
+    except (TypeError, ValueError):
+        return False
+
+def process_crime_data(crime_data: List[Dict]) -> pd.DataFrame:
+    """Process crime data and add block group information."""
+    print("\nProcessing Crime Data")
+    print("=" * 80)
     
-    print("Initial records:", len(crime_data))
+    print(f"Initial records: {len(crime_data)}")
     
-    # Convert to DataFrame
+    # Convert to DataFrame for easier processing
     df = pd.DataFrame(crime_data)
     
-    # Data validation statistics
-    stats = {
-        'total_initial': len(df),
-        'invalid_dates': 0,
-        'invalid_coords': 0,
-        'outside_bounds': 0
-    }
-    
-    # Convert date and time
     print("\nValidating dates...")
-    df['date_occ'] = pd.to_datetime(df['date_occ'], errors='coerce')
-    stats['invalid_dates'] = df['date_occ'].isna().sum()
-    df = df.dropna(subset=['date_occ'])
-    
+    # Ensure date_occ is datetime
+    df['date_occ'] = pd.to_datetime(df['date_occ'])
     df['hour'] = df['date_occ'].dt.hour
     
-    # Convert coordinates
     print("Validating coordinates...")
+    # Ensure lat/lon are numeric
     df['lat'] = pd.to_numeric(df['lat'], errors='coerce')
     df['lon'] = pd.to_numeric(df['lon'], errors='coerce')
     
-    # Count invalid coordinates
-    stats['invalid_coords'] = df[['lat', 'lon']].isna().any(axis=1).sum()
-    df = df.dropna(subset=['lat', 'lon'])
+    # Validate coordinates
+    valid_coords = df.apply(
+        lambda row: validate_coordinate(row['lat'], row['lon']),
+        axis=1
+    )
+    df = df[valid_coords]
+    print(f"Valid coordinates: {len(df)}")
     
     # Filter to LA boundaries
     bounds_mask = (
-        (df['lat'].between(33.70, 34.83)) & 
-        (df['lon'].between(-118.67, -117.65))
+        (df['lat'].between(*LA_BOUNDS['lat'])) & 
+        (df['lon'].between(*LA_BOUNDS['lon']))
     )
-    stats['outside_bounds'] = (~bounds_mask).sum()
     df = df[bounds_mask]
+    print(f"Records within LA bounds: {len(df)}")
     
-    # Print statistics
-    print("\nData Processing Statistics:")
-    print(f"Initial records: {stats['total_initial']:,}")
-    print(f"Invalid dates: {stats['invalid_dates']:,}")
-    print(f"Invalid coordinates: {stats['invalid_coords']:,}")
-    print(f"Outside LA bounds: {stats['outside_bounds']:,}")
-    print(f"Final valid records: {len(df):,}")
+    if len(df) == 0:
+        raise ValueError("No valid records found after filtering")
     
-    # Print date range
-    if not df.empty:
-        print(f"\nDate range in processed data:")
-        print(f"Earliest: {df['date_occ'].min()}")
-        print(f"Latest: {df['date_occ'].max()}")
-    
-    return df
-
-def get_risk_level_description(metric_type: str, score: int, incidents: int, local_rate: float, relative_rate: float, population_data: dict = None) -> str:
-    """Generate a description of the risk level for a safety metric."""
+    print("\nFetching block group data...")
     try:
-        score = int(score)  # Ensure score is an integer
+        # Get unique coordinates to reduce API calls
+        unique_coords = df[['lat', 'lon']].drop_duplicates()
+        coordinates = list(zip(unique_coords['lat'], unique_coords['lon']))
+        print(f"Unique locations to process: {len(coordinates)}")
+        
+        # Get block groups for unique coordinates
+        census_helper = CensusHelper()
+        block_groups = census_helper.get_block_groups_batch(coordinates)
+        
+        if not block_groups:
+            raise ValueError("No block groups returned from Census API")
+        
+        # Create a mapping dictionary for faster lookups
+        coord_to_block = {}
+        for lat, lon in coordinates:
+            cache_key = f"{lat:.6f},{lon:.6f}"
+            if cache_key in block_groups:
+                coord_to_block[cache_key] = block_groups[cache_key]
+        
+        print(f"Successfully mapped {len(coord_to_block)} locations to block groups")
+        
+        # Add block group information to DataFrame
+        df['block_group'] = df.apply(
+            lambda row: coord_to_block.get(f"{row['lat']:.6f},{row['lon']:.6f}"),
+            axis=1
+        )
+        
+        # Drop rows without block group
+        df = df.dropna(subset=['block_group'])
+        print(f"\nFinal records with block groups: {len(df)}")
+        
+        if len(df) == 0:
+            raise ValueError("No records remain after adding block groups")
+        
+        return df
+        
+    except Exception as e:
+        logger.error(f"Error processing crime data: {str(e)}")
+        raise
+
+def calculate_block_group_stats(df: pd.DataFrame, metric_type: str) -> Dict[str, Dict]:
+    """Calculate crime statistics for each block group"""
+    try:
+        metric_info = SAFETY_METRICS[metric_type]
+        crime_codes = metric_info['crime_codes']
+        
+        # Filter for relevant crimes
+        metric_df = df[df['crm_cd'].isin(crime_codes)].copy()
+        
+        if len(metric_df) == 0:
+            logger.warning(f"No crimes found for metric type: {metric_type}")
+            return {}
+        
+        if 'time_filter' in metric_info:
+            metric_df = metric_df[metric_df['hour'].apply(metric_info['time_filter'])]
+        
+        # Group by block group
+        stats = metric_df.groupby('block_group').agg({
+            'crm_cd': 'count'
+        }).reset_index()
+        
+        if len(stats) == 0:
+            logger.warning(f"No block groups found for metric type: {metric_type}")
+            return {}
+        
+        # Calculate rates and scores
+        total_crimes = stats['crm_cd'].sum()
+        citywide_rate = total_crimes / len(stats) if len(stats) > 0 else 0
+        
+        results = {}
+        for _, row in stats.iterrows():
+            block_group_id = row['block_group']
+            crimes_count = row['crm_cd']
+            
+            # Calculate score
+            score = calculate_safety_score(crimes_count, total_crimes, citywide_rate)
+            
+            results[block_group_id] = {
+                'crimes_count': int(crimes_count),
+                'score': score
+            }
+        
+        return results
+        
+    except Exception as e:
+        logger.error(f"Error calculating stats for {metric_type}: {str(e)}")
+        raise
+
+def get_risk_level_description(
+    metric_type: str,
+    score: int,
+    incidents: int,
+    local_rate: float,
+    relative_rate: float
+) -> str:
+    """Generate a description of the risk level"""
+    try:
+        score = int(score)
         risk_level = "Very safe area" if score >= 8 else \
                     "Generally safe area" if score >= 6 else \
                     "Exercise caution" if score >= 4 else \
                     "Extra caution advised"
         
-        type_descriptions = {
-            'night': "Safety for pedestrians during evening/night hours",
-            'vehicle': "Risk of vehicle theft and break-ins",
-            'child': "Overall safety concerning crimes that could affect children",
-            'transit': "Safety at and around transit locations",
-            'women': "Assessment of crimes that disproportionately affect women"
-        }
+        description = f"{risk_level}. {SAFETY_METRICS[metric_type]['description']}"
         
-        # Base description
-        description = f"{risk_level}. {type_descriptions[metric_type]}"
+        # Add statistical context
+        stats_info = f" [{incidents} incidents"
+        if relative_rate > 0:
+            stats_info += f", {relative_rate:.1f}x city average"
+        stats_info += "]"
         
-        # Add debug info
-        debug_info = f"[Debug: {incidents} incidents in area, {local_rate:.3f} local rate, {relative_rate:.2f}x city average"
+        return f"{description}{stats_info}"
         
-        # Add population context if available
-        if population_data and population_data.get('total_population'):
-            pop = population_data['total_population']
-            rate_per_1000 = (incidents / pop) * 1000 if pop > 0 else 0
-            debug_info += f", {pop:,} residents, {rate_per_1000:.1f} incidents per 1000 people"
-        
-        debug_info += "]"
-        
-        return f"{description} {debug_info}"
-        
-    except (ValueError, TypeError) as e:
-        logger.error(f"Error in get_risk_level_description: {str(e)}, score: {score}, type: {type(score)}")
+    except Exception as e:
+        logger.error(f"Error in description: {str(e)}")
         return "Unable to determine risk level"
 
-def calculate_safety_score(crimes_count, total_crimes, citywide_rate=None):
-    """Calculate a safety score between 2-8"""
+def calculate_safety_score(crimes_count: int, total_crimes: int, citywide_rate: float) -> int:
+    """Calculate a normalized safety score (2-8 scale)"""
     if total_crimes == 0:
         return 8
     
-    # Calculate the crime rate for this metric in this cell
-    crime_rate = crimes_count / total_crimes
+    local_rate = crimes_count / total_crimes
+    relative_rate = local_rate / citywide_rate if citywide_rate > 0 else 1
     
-    if citywide_rate is not None:
-        # Compare to citywide average
-        relative_rate = crime_rate / citywide_rate if citywide_rate > 0 else 1
-        
-        if relative_rate <= 0.5:  # Much safer than average
-            return 8
-        elif relative_rate <= 0.8:  # Safer than average
-            return 7
-        elif relative_rate <= 1.2:  # Average
-            return 6
-        elif relative_rate <= 1.5:  # Somewhat worse than average
-            return 5
-        elif relative_rate <= 2.0:  # Worse than average
-            return 4
-        elif relative_rate <= 3.0:  # Much worse than average
-            return 3
-        else:  # Extremely high crime rate
-            return 2
+    # Enhanced scoring logic with smoother transitions
+    if relative_rate <= 0.5:
+        return 8
+    elif relative_rate <= 0.8:
+        return 7
+    elif relative_rate <= 1.2:
+        return 6
+    elif relative_rate <= 1.5:
+        return 5
+    elif relative_rate <= 2.0:
+        return 4
+    elif relative_rate <= 3.0:
+        return 3
     else:
-        # Fallback scoring based on local crime rate only
-        if crime_rate <= 0.1:
-            return 8
-        elif crime_rate <= 0.2:
-            return 7
-        elif crime_rate <= 0.3:
-            return 6
-        elif crime_rate <= 0.4:
-            return 5
-        elif crime_rate <= 0.5:
-            return 4
-        elif crime_rate <= 0.6:
-            return 3
-        else:
-            return 2
-
-def calculate_safety_metrics(df):
-    """Calculate safety metrics with improved scoring"""
-    print_section("Calculating Safety Metrics")
-    
-    metrics = []
-    
-    # Initialize Census helper
-    try:
-        census = CensusHelper()
-        has_census = True
-    except ValueError as e:
-        print("\nWarning: Census API key not found. Continuing without population data.")
-        has_census = False
-    
-    # Grid the area into 0.01 degree squares (roughly 1km)
-    lats = np.arange(33.70, 34.83, 0.01)
-    lons = np.arange(-118.67, -117.65, 0.01)
-    
-    total_cells = len(lats) * len(lons)
-    cells_with_data = 0
-    total_metrics = 0
-    
-    # Calculate citywide statistics for each metric type
-    print("Calculating citywide statistics...")
-    citywide_stats = {}
-    total_crimes = len(df)
-    
-    for metric_type, config in SAFETY_METRICS.items():
-        crimes = df[df['crm_cd'].isin(config['crime_codes'])]
-        if 'time_filter' in config:
-            crimes = crimes[crimes['hour'].apply(config['time_filter'])]
-        citywide_stats[metric_type] = len(crimes) / total_crimes if total_crimes > 0 else 0
-        print(f"{metric_type}: {len(crimes):,} total incidents, {citywide_stats[metric_type]:.3f} citywide rate")
-    
-    print(f"\nProcessing {total_cells:,} grid cells...")
-    
-    with tqdm(total=total_cells, desc="Processing grid cells") as pbar:
-        for lat in lats:
-            for lon in lons:
-                # Filter crimes in this grid cell
-                mask = (
-                    (df['lat'].between(lat, lat + 0.01)) &
-                    (df['lon'].between(lon, lon + 0.01))
-                )
-                grid_crimes = df[mask]
-                
-                if len(grid_crimes) > 0:
-                    cells_with_data += 1
-                    
-                    # Get Census data if available
-                    census_data = None
-                    if has_census:
-                        try:
-                            census_data = census.get_population_for_location(
-                                float(lat + 0.005),
-                                float(lon + 0.005)
-                            )
-                        except Exception as e:
-                            # Silently continue without Census data
-                            pass
-                    
-                    # Calculate metrics for each type
-                    for metric_type, config in SAFETY_METRICS.items():
-                        crimes = grid_crimes[grid_crimes['crm_cd'].isin(config['crime_codes'])]
-                        
-                        # Apply time filter for night safety
-                        if 'time_filter' in config:
-                            crimes = crimes[crimes['hour'].apply(config['time_filter'])]
-                        
-                        if len(crimes) == 0:
-                            continue
-                        
-                        # Calculate incidents per 1000 people if population data available
-                        incidents_per_1000 = None
-                        if census_data and census_data.get('total_population', 0) > 0:
-                            incidents_per_1000 = (len(crimes) / census_data['total_population']) * 1000
-                        
-                        # Calculate score using citywide statistics
-                        score = calculate_safety_score(
-                            len(crimes),
-                            len(grid_crimes),
-                            citywide_stats[metric_type]
-                        )
-                        
-                        # Get detailed description with debug info
-                        description = get_risk_level_description(
-                            metric_type,
-                            score,
-                            len(crimes),
-                            len(crimes) / len(grid_crimes) if len(grid_crimes) > 0 else 0,
-                            citywide_stats[metric_type],
-                            census_data
-                        )
-                        
-                        metric = {
-                            'id': str(uuid.uuid4()),
-                            'latitude': float(lat + 0.005),
-                            'longitude': float(lon + 0.005),
-                            'metric_type': metric_type,
-                            'score': score,
-                            'question': config['question'],
-                            'description': description,
-                            'created_at': datetime.now().isoformat(),
-                            'expires_at': (datetime.now() + timedelta(days=30)).isoformat()
-                        }
-                        
-                        # Add Census data if available
-                        if census_data:
-                            metric.update({
-                                'total_population': census_data.get('total_population'),
-                                'housing_units': census_data.get('housing_units'),
-                                'median_age': census_data.get('median_age'),
-                                'incidents_per_1000': round(incidents_per_1000, 2) if incidents_per_1000 is not None else None
-                            })
-                        
-                        metrics.append(metric)
-                        total_metrics += 1
-                
-                pbar.update(1)
-    
-    # Print statistics about metric distribution
-    print(f"\nMetrics Generation Summary:")
-    print(f"Total grid cells: {total_cells:,}")
-    print(f"Cells with crime data: {cells_with_data:,}")
-    print(f"Total metrics generated: {total_metrics:,}")
-    
-    # Print distribution of metrics by type
-    print("\nMetrics distribution by type:")
-    metric_counts = {}
-    for metric in metrics:
-        metric_counts[metric['metric_type']] = metric_counts.get(metric['metric_type'], 0) + 1
-    
-    for metric_type, count in metric_counts.items():
-        print(f"{metric_type}: {count:,} metrics ({count/total_metrics*100:.1f}%)")
-    
-    # Print score distribution
-    print("\nScore distribution:")
-    score_counts = {}
-    for metric in metrics:
-        score_counts[metric['score']] = score_counts.get(metric['score'], 0) + 1
-    
-    for score in sorted(score_counts.keys()):
-        count = score_counts[score]
-        print(f"Score {score}: {count:,} metrics ({count/total_metrics*100:.1f}%)")
-    
-    # Print Census data coverage
-    census_coverage = len([m for m in metrics if m['total_population'] is not None])
-    print(f"\nCensus data coverage: {census_coverage} metrics ({census_coverage/total_metrics*100:.1f}%)")
-    
-    return metrics
-
-def upload_to_supabase(metrics):
-    """Upload metrics to Supabase"""
-    print_section("Uploading to Supabase")
-    
-    if not metrics:
-        print("No metrics to upload")
-        return False
-    
-    try:
-        # Clear existing metrics first
-        print("Clearing existing metrics...")
-        supabase.table('safety_metrics').delete().neq('id', '00000000-0000-0000-0000-000000000000').execute()
-        
-        # Upload in batches
-        batch_size = 50
-        total_batches = (len(metrics) + batch_size - 1) // batch_size
-        
-        print(f"\nUploading {len(metrics):,} metrics in {total_batches:,} batches...")
-        
-        with tqdm(total=len(metrics), desc="Uploading metrics") as pbar:
-            for i in range(0, len(metrics), batch_size):
-                batch = metrics[i:i+batch_size]
-                supabase.table('safety_metrics').upsert(batch).execute()
-                pbar.update(len(batch))
-        
-        print(f"\nSuccessfully uploaded {len(metrics):,} metrics")
-        return True
-    except Exception as e:
-        print(f"\nError uploading metrics: {str(e)}")
-        return False
-
-def process_metrics(crime_data: pd.DataFrame, grid_cells: pd.DataFrame) -> list:
-    """Process crime data and generate safety metrics."""
-    logger.info("\nCalculating Safety Metrics")
-    
-    # Initialize Census helper
-    census = CensusHelper()
-    
-    # Calculate citywide statistics
-    total_crimes = len(crime_data)
-    crime_types = {
-        'night': crime_data[crime_data['is_night'] == True],
-        'vehicle': crime_data[crime_data['is_vehicle'] == True],
-        'child': crime_data[crime_data['is_child'] == True],
-        'transit': crime_data[crime_data['is_transit'] == True],
-        'women': crime_data[crime_data['is_women'] == True]
-    }
-    
-    # Print citywide statistics
-    logger.info("\nCitywide statistics:")
-    for crime_type, data in crime_types.items():
-        rate = len(data) / total_crimes if total_crimes > 0 else 0
-        logger.info(f"{crime_type}: {len(data)} total incidents, {rate:.3f} citywide rate")
-    
-    metrics = []
-    cells_with_crime = set()
-    
-    logger.info("\nProcessing grid cells...")
-    for _, cell in tqdm(grid_cells.iterrows(), total=len(grid_cells)):
-        cell_crimes = get_crimes_in_cell(crime_data, cell)
-        if len(cell_crimes) == 0:
-            continue
-            
-        cells_with_crime.add((cell['latitude'], cell['longitude']))
-        
-        # Calculate metrics for each crime type
-        for metric_type, type_data in crime_types.items():
-            cell_type_crimes = cell_crimes[cell_crimes.index.isin(type_data.index)]
-            if len(cell_type_crimes) == 0:
-                continue
-                
-            local_rate = len(cell_type_crimes) / len(cell_crimes)
-            citywide_rate = len(type_data) / total_crimes if total_crimes > 0 else 0
-            relative_rate = local_rate / citywide_rate if citywide_rate > 0 else 0
-            
-            score = calculate_safety_score(len(cell_type_crimes), local_rate, relative_rate)
-            
-            metric = {
-                'latitude': cell['latitude'],
-                'longitude': cell['longitude'],
-                'metric_type': metric_type,
-                'score': score,
-                'question': get_question_for_type(metric_type),
-                'description': get_risk_level_description(
-                    metric_type, score, len(cell_type_crimes),
-                    local_rate, relative_rate
-                ),
-                'created_at': datetime.now().isoformat(),
-                'expires_at': (datetime.now() + timedelta(days=30)).isoformat()
-            }
-            metrics.append(metric)
-    
-    # Enrich metrics with population data
-    logger.info("\nEnriching metrics with population data...")
-    enriched_metrics = census.enrich_safety_metrics(metrics)
-    
-    # Log metrics generation summary
-    logger.info("\nMetrics Generation Summary:")
-    logger.info(f"Total grid cells: {len(grid_cells)}")
-    logger.info(f"Cells with crime data: {len(cells_with_crime)}")
-    logger.info(f"Total metrics generated: {len(enriched_metrics)}")
-    
-    # Log metrics distribution by type
-    type_counts = {}
-    for metric in enriched_metrics:
-        type_counts[metric['metric_type']] = type_counts.get(metric['metric_type'], 0) + 1
-    
-    logger.info("\nMetrics distribution by type:")
-    for metric_type, count in type_counts.items():
-        percentage = (count / len(enriched_metrics)) * 100
-        logger.info(f"{metric_type}: {count} metrics ({percentage:.1f}%)")
-    
-    # Log score distribution
-    score_counts = {}
-    for metric in enriched_metrics:
-        score_counts[metric['score']] = score_counts.get(metric['score'], 0) + 1
-    
-    logger.info("\nScore distribution:")
-    for score in sorted(score_counts.keys()):
-        count = score_counts[score]
-        percentage = (count / len(enriched_metrics)) * 100
-        logger.info(f"Score {score}: {count} metrics ({percentage:.1f}%)")
-    
-    return enriched_metrics
+        return 2
 
 def main():
-    """Main function to process safety metrics"""
-    start_time = time.time()
-    
-    print_section("Safety Metrics Processing Started")
-    print(f"Start time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-    
-    # Fetch recent crime data (last 90 days)
-    crime_data = fetch_crime_data(days_back=90)
-    
-    if not crime_data:
-        print("No crime data available. Exiting.")
-        return
-    
-    # Process data
-    df = process_crime_data(crime_data)
-    
-    if len(df) == 0:
-        print("No valid crime data after processing. Exiting.")
-        return
-    
-    # Calculate metrics
-    metrics = calculate_safety_metrics(df)
-    
-    if not metrics:
-        print("No metrics generated. Exiting.")
-        return
-    
-    # Upload to Supabase
-    success = upload_to_supabase(metrics)
-    
-    # Print completion summary
-    print_section("Processing Complete")
-    if success:
-        print("✅ Safety metrics processing completed successfully!")
-    else:
-        print("❌ Error occurred during processing")
-    
-    elapsed_time = time.time() - start_time
-    print(f"\nTotal processing time: {elapsed_time:.2f} seconds")
+    """Main execution flow"""
+    try:
+        # Fetch and process crime data
+        crime_data = fetch_crime_data(days_back=90)
+        df = process_crime_data(crime_data)
+        
+        print_section("Calculating Safety Metrics")
+        
+        # Process each metric type
+        metric_types = list(SAFETY_METRICS.keys())
+        with tqdm(total=len(metric_types), desc="Processing metric types", unit="type") as pbar_types:
+            for metric_type in metric_types:
+                print(f"\nProcessing {metric_type} safety metrics...")
+                
+                # Calculate block group statistics
+                block_group_stats = calculate_block_group_stats(df, metric_type)
+                
+                if not block_group_stats:
+                    print(f"No data available for {metric_type} metrics")
+                    pbar_types.update(1)
+                    continue
+                
+                # Prepare metrics for upload
+                metrics = []
+                total_block_groups = len(block_group_stats)
+                print(f"Generating metrics for {total_block_groups} block groups...")
+                
+                with tqdm(total=total_block_groups, desc=f"Generating {metric_type} metrics", unit="block") as pbar_blocks:
+                    for block_group_id, stats in block_group_stats.items():
+                        try:
+                            # Calculate centroid of block group (using first crime location as approximation)
+                            block_group_crimes = df[df['block_group'] == block_group_id]
+                            if len(block_group_crimes) == 0:
+                                pbar_blocks.update(1)
+                                continue
+                            
+                            lat = block_group_crimes['lat'].mean()
+                            lon = block_group_crimes['lon'].mean()
+                            
+                            # Calculate relative rates
+                            total_crimes = df['crm_cd'].count()
+                            total_block_groups = len(block_group_stats)
+                            local_rate = stats['crimes_count'] / total_crimes if total_crimes > 0 else 0
+                            avg_crimes_per_block = total_crimes / total_block_groups if total_block_groups > 0 else 0
+                            relative_rate = (stats['crimes_count'] / avg_crimes_per_block) if avg_crimes_per_block > 0 else 0
+                            
+                            # Get demographic data for the block group
+                            pop_data = census_helper.get_population_for_block_group(block_group_id)
+                            
+                            metric = {
+                                'id': str(uuid.uuid4()),
+                                'latitude': float(lat),
+                                'longitude': float(lon),
+                                'metric_type': metric_type,
+                                'score': stats['score'],
+                                'question': SAFETY_METRICS[metric_type]['question'],
+                                'description': get_risk_level_description(
+                                    metric_type,
+                                    stats['score'],
+                                    stats['crimes_count'],
+                                    local_rate,
+                                    relative_rate
+                                ),
+                                'block_group_id': block_group_id,
+                                'created_at': datetime.now().isoformat(),
+                                'expires_at': (datetime.now() + timedelta(days=90)).isoformat()
+                            }
+                            
+                            # Add demographic data if available
+                            if pop_data:
+                                metric.update({
+                                    'total_population': pop_data.get('total_population'),
+                                    'housing_units': pop_data.get('housing_units'),
+                                    'median_age': pop_data.get('median_age'),
+                                    'incidents_per_1000': round((stats['crimes_count'] / pop_data['total_population']) * 1000, 2) if pop_data['total_population'] > 0 else None
+                                })
+                            
+                            metrics.append(metric)
+                            pbar_blocks.update(1)
+                            
+                        except Exception as e:
+                            logger.error(f"Error processing block group {block_group_id}: {str(e)}")
+                            pbar_blocks.update(1)
+                            continue
+                
+                print(f"Generated {len(metrics)} metrics for {metric_type}")
+                
+                # Upload to Supabase in batches
+                if metrics:
+                    batch_size = 100
+                    total_batches = (len(metrics) + batch_size - 1) // batch_size
+                    
+                    with tqdm(total=total_batches, desc=f"Uploading {metric_type} metrics", unit="batch") as pbar_upload:
+                        for i in range(0, len(metrics), batch_size):
+                            batch = metrics[i:i + batch_size]
+                            try:
+                                supabase.table('safety_metrics').upsert(batch).execute()
+                                pbar_upload.update(1)
+                            except Exception as e:
+                                print(f"Error uploading batch: {str(e)}")
+                                pbar_upload.update(1)
+                
+                pbar_types.update(1)
+        
+        print("\nProcessing complete!")
+        
+    except Exception as e:
+        print(f"Error in main execution: {str(e)}")
+        sys.exit(1)
 
 if __name__ == "__main__":
     main() 
