@@ -10,13 +10,32 @@ interface RestrictedContentProps {
 }
 
 export const RestrictedContent = ({ children }: RestrictedContentProps) => {
-  const { user } = useSupabase()
+  const { user, loading } = useSupabase()
   const pathname = usePathname()
+  
+  // If still loading authentication state, show a simplified version
+  // to avoid content flashing between states
+  if (loading) {
+    return (
+      <div className="relative">
+        <div className="filter blur-md pointer-events-none opacity-50">
+          {children}
+        </div>
+        <div className="absolute inset-0 flex items-center justify-center">
+          <div className="bg-white/80 p-4 rounded-lg text-center">
+            <p className="text-gray-500">Loading...</p>
+          </div>
+        </div>
+      </div>
+    )
+  }
 
+  // If user is authenticated, show the content normally
   if (user) {
     return <>{children}</>
   }
 
+  // Otherwise show the restricted version with sign-in prompt
   return (
     <div className="relative">
       {/* Blurred content */}
@@ -35,10 +54,10 @@ export const RestrictedContent = ({ children }: RestrictedContentProps) => {
           </p>
           <div className="space-x-4">
             <Button asChild>
-              <Link href={`/auth/sign-up?next=${pathname}`}>Sign Up</Link>
+              <Link href={`/auth/sign-up?next=${encodeURIComponent(pathname)}`}>Sign Up</Link>
             </Button>
             <Button variant="outline" asChild>
-              <Link href={`/auth/sign-in?next=${pathname}`}>Sign In</Link>
+              <Link href={`/auth/sign-in?next=${encodeURIComponent(pathname)}`}>Sign In</Link>
             </Button>
           </div>
         </div>
