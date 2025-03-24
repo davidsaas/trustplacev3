@@ -78,18 +78,53 @@ export const FEATURES = [
 ]
 
 export const NAVIGATION = {
-  auth: [
+  main: [
     {
-      id: 1,
-      label: "Sign In",
-      href: "/auth/sign-in",
-      variant: "ghost" as const
+      label: 'Home',
+      href: '/',
     },
     {
-      id: 2,
-      label: "Sign Up",
-      href: "/auth/sign-up",
-      variant: "default" as const
-    }
-  ]
+      label: 'Safety Reports',
+      href: '/safety-reports',
+    },
+    {
+      label: 'How It Works',
+      href: '/how-it-works',
+    },
+    {
+      label: 'About',
+      href: '/about',
+    },
+  ],
+  auth: [
+    {
+      id: 'sign-in',
+      label: 'Sign In',
+      href: '/auth/sign-in',
+      variant: 'outline',
+    },
+    {
+      id: 'sign-up',
+      label: 'Sign Up',
+      href: '/auth/sign-up',
+      variant: 'default',
+    },
+  ],
+  user: [
+    {
+      label: 'Saved Accommodations',
+      href: '/accommodations/saved',
+      icon: 'heart',
+    },
+    {
+      label: 'Recently Visited',
+      href: '/accommodations/visited',
+      icon: 'history',
+    },
+    {
+      label: 'Profile',
+      href: '/profile',
+      icon: 'user',
+    },
+  ],
 } as const 
