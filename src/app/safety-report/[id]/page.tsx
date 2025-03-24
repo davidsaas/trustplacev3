@@ -10,7 +10,7 @@ import { Card } from '@/components/ui/card'
 import { PropertyHeader } from '../components/PropertyHeader'
 import { LOCATION_RADIUS, SAFETY_RADIUS, PRICE_RANGE } from '../constants'
 import { isValidCoordinates, calculateDistance } from '../utils'
-import { ChevronLeft, Shield } from 'lucide-react'
+import { ChevronLeft } from 'lucide-react'
 import Link from 'next/link'
 import type { 
   SafetyReportProps, 
@@ -275,25 +275,9 @@ export default async function SafetyReportPage({ params }: SafetyReportProps) {
               total_reviews={reportData.total_reviews}
               source={reportData.source}
               image_url={reportData.image_url}
+              url={reportData.url}
+              overall_score={reportData.overall_score}
             />
-          </div>
-          
-          {/* Overall assessment highlight */}
-          <div className="mb-6 bg-gradient-to-r from-blue-50 to-indigo-50 rounded-xl p-4 border border-blue-100 shadow-sm">
-            <div className="flex items-start gap-3">
-              <div className="p-2 bg-blue-100 rounded-full">
-                <Shield className="w-6 h-6 text-blue-500" />
-              </div>
-              <div>
-                <h2 className="text-lg font-semibold text-gray-900">Safety Assessment</h2>
-                <p className="text-gray-600">
-                  {reportData.overall_score >= 80 ? "This area is generally considered safe based on historical data" :
-                   reportData.overall_score >= 60 ? "This area requires normal caution for urban settings" :
-                   reportData.overall_score >= 40 ? "Exercise increased caution in this area" :
-                   "This area has safety concerns that require significant awareness"}
-                </p>
-              </div>
-            </div>
           </div>
           
           {/* Safety Metrics and Map */}
