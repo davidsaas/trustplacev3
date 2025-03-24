@@ -1,6 +1,3 @@
-
-
-
 # 1. Safety metrics feature overview
 
 The Safety Metrics feature provides users with essential safety information for location within the radius of their accommodation location (lat/lng). It transforms official police data into intuitive safety indicators that address common user concerns.
@@ -125,38 +122,8 @@ For each supported city:
 - Think of a way how to effectively store the safety metrics in supabase as they dont have to be strained by official districs (the accommodation can be anywhere on the map)
 
 
-Here's the proposed file structure we'll create:
+Current cities table in supabase:
 
-src/lib/safety-metrics/
-├── crimemapping/
-│   ├── la/
-│   │   ├── __init__.py
-│   │   └── crime_types.py      # LA crime type mappings
-├── scripts/
-│   ├── __init__.py
-│   ├── config.py               # Configuration from .env
-│   ├── database.py             # Supabase operations
-│   ├── grid.py                 # Grid system logic
-│   ├── metrics.py              # Safety score calculations
-│   ├── fetch.py               # LA API data fetching
-│   └── main.py                # Script entry point
-
-Phase 1: Basic Infrastructure
-Set up Python environment and dependencies
-Create configuration module
-Implement Supabase connection
-Create grid system logic
-Phase 2: Data Processing
-Implement LA crime data fetching
-Create crime type mappings
-Basic data cleaning and validation
-Phase 3: Score Calculation
-Implement basic scoring algorithm
-Calculate individual safety metrics
-Compute confidence scores
-Phase 4: Database Operations
-Grid cell updates
-Batch processing
-Error handling
-St
-
+| id | name        | country       | state      | bounds                                                                      | created_at                    | updated_at                    |
+| -- | ----------- | ------------- | ---------- | --------------------------------------------------------------------------- | ----------------------------- | ----------------------------- |
+| 1  | Los Angeles | United States | California | {"ne":{"lat":34.3373,"lng":-118.1553},"sw":{"lat":33.7037,"lng":-118.6682}} | 2025-03-20 09:22:17.268114+00 | 2025-03-20 09:22:17.268114+00 |

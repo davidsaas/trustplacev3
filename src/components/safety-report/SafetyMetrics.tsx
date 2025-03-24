@@ -22,14 +22,6 @@ const METRIC_LABELS: Record<string, string> = {
   women: 'Women Safety'
 }
 
-const METRIC_DESCRIPTIONS: Record<string, string> = {
-  night: 'Safety for pedestrians during evening/night hours',
-  vehicle: 'Risk of vehicle theft and break-ins',
-  child: 'Overall safety concerning crimes that could affect children',
-  transit: 'Safety at and around transit locations',
-  women: 'Assessment of crimes that disproportionately affect women'
-}
-
 export const SafetyMetrics = ({ data }: SafetyMetricsProps) => {
   if (!data) {
     return (
@@ -44,6 +36,12 @@ export const SafetyMetrics = ({ data }: SafetyMetricsProps) => {
   const overallScore = Math.round(
     data.reduce((acc, metric) => acc + metric.score, 0) / data.length * 10
   )
+
+  // Clean up debug info from descriptions
+  const cleanDescription = (description: string) => {
+    // Remove debug info in brackets if present
+    return description.replace(/\s*\[DEBUG:.+\]$/, '').trim()
+  }
 
   return (
     <Card className="p-6">
@@ -90,7 +88,7 @@ export const SafetyMetrics = ({ data }: SafetyMetricsProps) => {
               <div>
                 <h3 className="font-medium">{METRIC_LABELS[metric.metric_type] || metric.question}</h3>
                 <p className="text-sm text-gray-500">
-                  {METRIC_DESCRIPTIONS[metric.metric_type] || metric.description}
+                  {cleanDescription(metric.description)}
                 </p>
               </div>
               <span className="text-lg font-semibold">{metric.score * 10}</span>

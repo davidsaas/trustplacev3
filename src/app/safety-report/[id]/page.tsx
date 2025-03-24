@@ -9,7 +9,7 @@ import { supabaseServer } from '@/lib/supabase/server'
 import Image from 'next/image'
 import { Card } from '@/components/ui/card'
 import { PropertyHeader } from '../components/PropertyHeader'
-import { LOCATION_RADIUS, PRICE_RANGE } from '../constants'
+import { LOCATION_RADIUS, SAFETY_RADIUS, PRICE_RANGE } from '../constants'
 import { isValidCoordinates, calculateDistance } from '../utils'
 import type { 
   SafetyReportProps, 
@@ -24,10 +24,10 @@ async function findClosestSafetyMetrics(location: Location): Promise<SafetyMetri
   const { data: metrics, error } = await supabaseServer
     .from('safety_metrics')
     .select('*')
-    .gte('latitude', location.lat - LOCATION_RADIUS)
-    .lte('latitude', location.lat + LOCATION_RADIUS)
-    .gte('longitude', location.lng - LOCATION_RADIUS)
-    .lte('longitude', location.lng + LOCATION_RADIUS)
+    .gte('latitude', location.lat - SAFETY_RADIUS)
+    .lte('latitude', location.lat + SAFETY_RADIUS)
+    .gte('longitude', location.lng - SAFETY_RADIUS)
+    .lte('longitude', location.lng + SAFETY_RADIUS)
 
   if (error || !metrics) {
     console.error('Error fetching safety metrics:', error)
@@ -56,52 +56,110 @@ async function findClosestSafetyMetrics(location: Location): Promise<SafetyMetri
 // Function to fetch similar accommodations
 async function findSimilarAccommodations(
   location: Location,
-  price: number,
+  price: number | null,
   currentScore: number,
   excludeId: string
 ): Promise<SimilarAccommodation[]> {
-  const minPrice = price * PRICE_RANGE.MIN
-  const maxPrice = price * PRICE_RANGE.MAX
-
-  const { data: accommodations, error } = await supabaseServer
-    .from('accommodations')
-    .select('id, name, price_per_night, latitude, longitude, source')
-    .neq('id', excludeId)
-    .gte('price_per_night', minPrice)
-    .lte('price_per_night', maxPrice)
-    .gte('latitude', location.lat - LOCATION_RADIUS)
-    .lte('latitude', location.lat + LOCATION_RADIUS)
-    .gte('longitude', location.lng - LOCATION_RADIUS)
-    .lte('longitude', location.lng + LOCATION_RADIUS)
-
-  if (error || !accommodations) {
-    console.error('Error fetching similar accommodations:', error)
-    return []
+  // Validate inputs
+  if (!location || !isValidCoordinates(location.lat, location.lng)) {
+    console.error('Invalid location in findSimilarAccommodations:', location);
+    return [];
   }
 
-  // Fetch safety metrics for each accommodation
-  const similarAccommodations = await Promise.all(
-    accommodations.map(async (acc) => {
-      const metrics = await findClosestSafetyMetrics({ lat: acc.latitude, lng: acc.longitude })
-      if (!metrics) return null
+  console.log('Finding similar accommodations:', { 
+    hasPrice: price !== null, 
+    currentScore, 
+    searchRadius: LOCATION_RADIUS 
+  });
+  console.log('Location bounds:', {
+    latMin: location.lat - LOCATION_RADIUS,
+    latMax: location.lat + LOCATION_RADIUS,
+    lngMin: location.lng - LOCATION_RADIUS,
+    lngMax: location.lng + LOCATION_RADIUS
+  });
 
-      const overall_score = Math.round(
-        metrics.reduce((acc, metric) => acc + metric.score, 0) / metrics.length * 10
-      )
+  try {
+    // Base query with location constraints
+    let query = supabaseServer
+      .from('accommodations')
+      .select('id, name, price_per_night, latitude, longitude, source')
+      .neq('id', excludeId)
+      .gte('latitude', location.lat - LOCATION_RADIUS)
+      .lte('latitude', location.lat + LOCATION_RADIUS)
+      .gte('longitude', location.lng - LOCATION_RADIUS)
+      .lte('longitude', location.lng + LOCATION_RADIUS);
+    
+    // Add price constraints only if we have a price
+    if (price !== null && price > 0) {
+      const minPrice = price * PRICE_RANGE.MIN;
+      const maxPrice = price * PRICE_RANGE.MAX;
+      console.log('Adding price constraints:', { minPrice, maxPrice, originalPrice: price });
+      
+      query = query
+        .gte('price_per_night', minPrice)
+        .lte('price_per_night', maxPrice);
+    } else {
+      console.log('Skipping price constraints - no price available for current accommodation');
+    }
 
-      return overall_score >= currentScore ? {
-        ...acc,
-        overall_score
-      } : null
-    })
-  )
+    const { data: accommodations, error } = await query;
 
-  return similarAccommodations
-    .filter((acc): acc is SimilarAccommodation => acc !== null)
-    .sort((a, b) => b.overall_score - a.overall_score)
+    if (error) {
+      console.error('Error fetching similar accommodations:', error);
+      return [];
+    }
+
+    if (!accommodations || accommodations.length === 0) {
+      console.log('No accommodations found within the search parameters');
+      return [];
+    }
+
+    console.log(`Found ${accommodations.length} accommodations in radius`);
+    
+    // Fetch safety metrics for each accommodation
+    const similarAccommodations = await Promise.all(
+      accommodations.map(async (acc) => {
+        // Skip accommodations with invalid coordinates
+        if (!isValidCoordinates(acc.latitude, acc.longitude)) {
+          console.warn(`Invalid coordinates for accommodation ${acc.name} (${acc.id}): lat=${acc.latitude}, lng=${acc.longitude}`);
+          return null;
+        }
+        
+        const metrics = await findClosestSafetyMetrics({ lat: acc.latitude, lng: acc.longitude })
+        if (!metrics || metrics.length === 0) {
+          console.log(`No safety metrics found for ${acc.name} (${acc.id})`);
+          return null; // Skip accommodations without safety metrics
+        }
+
+        const overall_score = Math.round(
+          metrics.reduce((acc, metric) => acc + metric.score, 0) / metrics.length * 10
+        )
+
+        console.log(`${acc.name} (${acc.id}) - Score: ${overall_score}, Current Score: ${currentScore}`);
+        
+        // Only return accommodations with a higher score than the current one
+        return overall_score > currentScore ? {
+          ...acc,
+          overall_score
+        } : null;
+      })
+    )
+
+    const filteredAccommodations = similarAccommodations
+      .filter((acc): acc is SimilarAccommodation => acc !== null)
+      .sort((a, b) => b.overall_score - a.overall_score);
+    
+    console.log(`Returning ${filteredAccommodations.length} similar accommodations with higher safety scores`);
+    return filteredAccommodations;
+  } catch (err) {
+    console.error('Error in findSimilarAccommodations:', err);
+    return [];
+  }
 }
 
 async function getReportData(id: string): Promise<AccommodationData | null> {
+  console.log('Fetching report data for accommodation ID:', id);
+
   const { data: accommodation, error } = await supabaseServer
     .from('accommodations')
     .select('*')
@@ -113,31 +171,55 @@ async function getReportData(id: string): Promise<AccommodationData | null> {
     return null
   }
 
+  console.log('Found accommodation:', accommodation.name, 'Price:', accommodation.price_per_night);
+
   // Parse coordinates safely
   const latitude = parseFloat(accommodation.latitude || accommodation.location?.lat || '')
   const longitude = parseFloat(accommodation.longitude || accommodation.location?.lng || '')
   const location = isValidCoordinates(latitude, longitude) ? { lat: latitude, lng: longitude } : null
+
+  console.log('Accommodation coordinates:', location);
 
   // For Booking.com accommodations, ensure we're using the correct fields
   const image_url = accommodation.image_url?.startsWith('http') ? accommodation.image_url : null
 
   // Fetch safety metrics if we have valid coordinates
   const safetyMetrics = location ? await findClosestSafetyMetrics(location) : null
+  console.log('Found safety metrics:', safetyMetrics?.length || 0);
 
   // Calculate overall score
   const overall_score = safetyMetrics 
     ? Math.round(safetyMetrics.reduce((acc, metric) => acc + metric.score, 0) / safetyMetrics.length * 10)
     : 0
+  
+  console.log('Calculated overall safety score:', overall_score);
+  
+  // Debug check for similar accommodations parameters
+  const hasSimilarAccommodationsParams = !!(location && overall_score > 0);
+  console.log('Has all parameters for similar accommodations search:', hasSimilarAccommodationsParams);
 
-  // Fetch similar accommodations if we have valid data
-  const similar_accommodations = (location && accommodation.price_per_night && overall_score)
-    ? await findSimilarAccommodations(
-        location,
-        accommodation.price_per_night,
-        overall_score,
-        id
-      )
-    : []
+  // Fetch similar accommodations if we have valid data - only require location and score
+  let similar_accommodations: SimilarAccommodation[] = [];
+  
+  if (location && overall_score > 0) {
+    console.log('Calling findSimilarAccommodations with:', {
+      location,
+      price: accommodation.price_per_night, // Pass the actual price, which might be null
+      currentScore: overall_score,
+      excludeId: id
+    });
+    
+    similar_accommodations = await findSimilarAccommodations(
+      location,
+      accommodation.price_per_night, // Pass the actual price, which might be null
+      overall_score,
+      id
+    );
+    
+    console.log(`findSimilarAccommodations returned ${similar_accommodations.length} results`);
+  } else {
+    console.log('Skipping similar accommodations search due to missing parameters');
+  }
 
   return {
     id: accommodation.id,
