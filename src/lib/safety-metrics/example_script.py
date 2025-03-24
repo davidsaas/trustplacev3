@@ -292,8 +292,31 @@ def process_crime_data(crime_data: List[Dict]) -> pd.DataFrame:
         logger.error(f"Error processing crime data: {str(e)}")
         raise
 
+def get_adjacent_block_groups(block_group_id: str, df: pd.DataFrame) -> List[str]:
+    """Get adjacent block groups within a reasonable distance."""
+    target_lat = df[df['block_group'] == block_group_id]['lat'].mean()
+    target_lng = df[df['block_group'] == block_group_id]['lon'].mean()
+    
+    # Define distance threshold (approximately 3 blocks)
+    DISTANCE_THRESHOLD = 0.003  # About 300 meters in decimal degrees
+    
+    nearby_blocks = df[
+        (abs(df['lat'] - target_lat) <= DISTANCE_THRESHOLD) &
+        (abs(df['lon'] - target_lng) <= DISTANCE_THRESHOLD) &
+        (df['block_group'] != block_group_id)
+    ]['block_group'].unique()
+    
+    return list(nearby_blocks)
+
+def calculate_distance_weight(source_lat: float, source_lng: float, target_lat: float, target_lng: float) -> float:
+    """Calculate weight based on distance between two points."""
+    distance = ((source_lat - target_lat) ** 2 + (source_lng - target_lng) ** 2) ** 0.5
+    # Weight decay function: 1 / (1 + distance * scale_factor)
+    SCALE_FACTOR = 1000  # Adjust this to control weight decay
+    return 1 / (1 + distance * SCALE_FACTOR)
+
 def calculate_block_group_stats(df: pd.DataFrame, metric_type: str) -> Dict[str, Dict]:
-    """Calculate crime statistics for each block group"""
+    """Calculate crime statistics for each block group with weighted multi-block aggregation."""
     try:
         metric_info = SAFETY_METRICS[metric_type]
         crime_codes = metric_info['crime_codes']
@@ -308,31 +331,76 @@ def calculate_block_group_stats(df: pd.DataFrame, metric_type: str) -> Dict[str,
         if 'time_filter' in metric_info:
             metric_df = metric_df[metric_df['hour'].apply(metric_info['time_filter'])]
         
-        # Group by block group
-        stats = metric_df.groupby('block_group').agg({
-            'crm_cd': 'count'
-        }).reset_index()
-        
-        if len(stats) == 0:
-            logger.warning(f"No block groups found for metric type: {metric_type}")
-            return {}
-        
-        # Calculate rates and scores
-        total_crimes = stats['crm_cd'].sum()
-        citywide_rate = total_crimes / len(stats) if len(stats) > 0 else 0
-        
         results = {}
-        for _, row in stats.iterrows():
-            block_group_id = row['block_group']
-            crimes_count = row['crm_cd']
+        
+        # Process each block group
+        unique_block_groups = metric_df['block_group'].unique()
+        for block_group_id in unique_block_groups:
+            try:
+                # Get adjacent block groups
+                adjacent_blocks = get_adjacent_block_groups(block_group_id, metric_df)
+                
+                # Get center coordinates of current block
+                center_lat = metric_df[metric_df['block_group'] == block_group_id]['lat'].mean()
+                center_lng = metric_df[metric_df['block_group'] == block_group_id]['lon'].mean()
+                
+                # Calculate weighted crime count
+                weighted_count = 0
+                total_weight = 0
+                
+                # Count crimes in current block
+                current_block_crimes = len(metric_df[metric_df['block_group'] == block_group_id])
+                weighted_count += current_block_crimes
+                total_weight += 1
+                
+                # Add weighted crimes from adjacent blocks
+                for adj_block in adjacent_blocks:
+                    adj_crimes = metric_df[metric_df['block_group'] == adj_block]
+                    if len(adj_crimes) > 0:
+                        adj_lat = adj_crimes['lat'].mean()
+                        adj_lng = adj_crimes['lon'].mean()
+                        weight = calculate_distance_weight(center_lat, center_lng, adj_lat, adj_lng)
+                        weighted_count += len(adj_crimes) * weight
+                        total_weight += weight
+                
+                # Get population data for density-based normalization
+                pop_data = census_helper._get_population_data(block_group_id)
+                if not pop_data:
+                    logger.warning(f"No population data for block group {block_group_id}")
+                    continue
+                
+                # Calculate density factor (incidents per 1000 residents)
+                population = pop_data['total_population']
+                density_factor = (population / 1000) if population > 0 else 1
+                
+                # Normalize crime rate by population density
+                normalized_count = weighted_count / (density_factor ** 0.5)  # Square root to reduce impact
+                
+                # Store results
+                results[block_group_id] = {
+                    'crimes_count': int(current_block_crimes),  # Original count for reference
+                    'weighted_count': weighted_count,  # Including adjacent blocks
+                    'population': population,
+                    'density_factor': density_factor,
+                    'normalized_count': normalized_count
+                }
+                
+            except Exception as e:
+                logger.error(f"Error processing block group {block_group_id}: {str(e)}")
+                continue
+        
+        # Calculate citywide statistics for normalization
+        if results:
+            total_normalized_count = sum(r['normalized_count'] for r in results.values())
+            avg_normalized_count = total_normalized_count / len(results)
             
-            # Calculate score
-            score = calculate_safety_score(crimes_count, total_crimes, citywide_rate)
-            
-            results[block_group_id] = {
-                'crimes_count': int(crimes_count),
-                'score': score
-            }
+            # Calculate final scores
+            for block_id, stats in results.items():
+                relative_rate = stats['normalized_count'] / avg_normalized_count if avg_normalized_count > 0 else 1
+                stats['score'] = calculate_safety_score(
+                    relative_rate=relative_rate,
+                    density_factor=stats['density_factor']
+                )
         
         return results
         
@@ -340,14 +408,27 @@ def calculate_block_group_stats(df: pd.DataFrame, metric_type: str) -> Dict[str,
         logger.error(f"Error calculating stats for {metric_type}: {str(e)}")
         raise
 
+def calculate_safety_score(relative_rate: float, density_factor: float) -> int:
+    """Calculate safety score with density adjustment."""
+    # Adjust thresholds based on population density
+    density_adjustment = min(0.5, (density_factor - 1) * 0.1)  # Cap adjustment at 0.5
+    
+    # More lenient thresholds for high-density areas
+    if relative_rate <= (0.5 + density_adjustment): return 8
+    elif relative_rate <= (0.8 + density_adjustment): return 7
+    elif relative_rate <= (1.2 + density_adjustment): return 6
+    elif relative_rate <= (1.5 + density_adjustment): return 5
+    elif relative_rate <= (2.0 + density_adjustment): return 4
+    elif relative_rate <= (3.0 + density_adjustment): return 3
+    else: return 2
+
 def get_risk_level_description(
     metric_type: str,
     score: int,
-    incidents: int,
-    local_rate: float,
-    relative_rate: float
+    stats: Dict,
+    citywide_avg: float
 ) -> str:
-    """Generate a description of the risk level"""
+    """Generate enhanced description with density and adjacency context."""
     try:
         score = int(score)
         risk_level = "Very safe area" if score >= 8 else \
@@ -358,40 +439,17 @@ def get_risk_level_description(
         description = f"{risk_level}. {SAFETY_METRICS[metric_type]['description']}"
         
         # Add statistical context
-        stats_info = f" [{incidents} incidents"
-        if relative_rate > 0:
-            stats_info += f", {relative_rate:.1f}x city average"
-        stats_info += "]"
+        relative_rate = stats['normalized_count'] / citywide_avg if citywide_avg > 0 else 1
+        density_context = "high-density" if stats['density_factor'] > 2 else \
+                         "medium-density" if stats['density_factor'] > 1 else "low-density"
+        
+        stats_info = f" [{stats['crimes_count']} direct incidents, {stats['weighted_count']:.1f} including nearby areas, {relative_rate:.1f}x city average, {density_context} area]"
         
         return f"{description}{stats_info}"
         
     except Exception as e:
         logger.error(f"Error in description: {str(e)}")
         return "Unable to determine risk level"
-
-def calculate_safety_score(crimes_count: int, total_crimes: int, citywide_rate: float) -> int:
-    """Calculate a normalized safety score (2-8 scale)"""
-    if total_crimes == 0:
-        return 8
-    
-    local_rate = crimes_count / total_crimes
-    relative_rate = local_rate / citywide_rate if citywide_rate > 0 else 1
-    
-    # Enhanced scoring logic with smoother transitions
-    if relative_rate <= 0.5:
-        return 8
-    elif relative_rate <= 0.8:
-        return 7
-    elif relative_rate <= 1.2:
-        return 6
-    elif relative_rate <= 1.5:
-        return 5
-    elif relative_rate <= 2.0:
-        return 4
-    elif relative_rate <= 3.0:
-        return 3
-    else:
-        return 2
 
 async def main():
     """Main execution flow"""
@@ -493,9 +551,8 @@ async def main():
                                 'description': get_risk_level_description(
                                     metric_type,
                                     stats['score'],
-                                    stats['crimes_count'],
-                                    local_rate,
-                                    relative_rate
+                                    stats,
+                                    avg_crimes_per_block
                                 ),
                                 'block_group_id': block_group_id,
                                 'created_at': datetime.now().isoformat(),
