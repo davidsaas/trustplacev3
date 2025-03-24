@@ -1,9 +1,10 @@
 import { memo } from 'react'
 import Image from 'next/image'
-import { PropertyMetrics } from './PropertyMetrics'
+import { PropertyMetrics } from '../components/PropertyMetrics'
 import { IMAGE_CONFIG } from '../constants'
 import type { PropertyHeaderProps } from '../types'
 import { getValidImageUrl } from '../utils'
+import { ImageOff, ExternalLink } from 'lucide-react'
 
 export const PropertyHeader = memo(({ 
   name,
@@ -11,45 +12,58 @@ export const PropertyHeader = memo(({
   rating,
   total_reviews,
   source,
-  image_url
-}: PropertyHeaderProps & { image_url: string | null }) => {
+  image_url,
+  url
+}: PropertyHeaderProps & { image_url: string | null, url?: string | null }) => {
   return (
-    <div className="bg-white rounded-lg shadow-lg overflow-hidden">
-      <div className="relative h-[400px] w-full">
+    <div className="overflow-hidden">
+      <div className="relative h-[280px] w-full rounded-xl overflow-hidden mb-4">
         {getValidImageUrl(image_url) ? (
           <Image
             src={image_url!}
             alt={`${name} - Property View`}
             fill
-            className="object-cover"
+            className="object-cover transition-transform duration-700 hover:scale-105"
             priority
             sizes={IMAGE_CONFIG.SIZES}
             quality={IMAGE_CONFIG.QUALITY}
           />
         ) : (
-          <div className="h-full w-full flex items-center justify-center bg-gray-100">
+          <div className="h-full w-full flex items-center justify-center bg-gray-50">
             <div className="text-gray-400 text-center">
-              <svg 
-                className="mx-auto h-12 w-12 text-gray-400"
-                fill="none" 
-                viewBox="0 0 24 24" 
-                stroke="currentColor" 
-                aria-hidden="true"
-              >
-                <path 
-                  strokeLinecap="round" 
-                  strokeLinejoin="round" 
-                  strokeWidth={2} 
-                  d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" 
-                />
-              </svg>
-              <p className="mt-2">No image available</p>
+              <ImageOff className="mx-auto h-12 w-12 text-gray-300" />
+              <p className="mt-2 text-sm">No image available</p>
             </div>
           </div>
         )}
+        
+        {/* Source badge */}
+        {source && (
+          <div className="absolute top-3 right-3 bg-white bg-opacity-90 backdrop-blur-sm rounded-full px-3 py-1 text-xs font-medium text-gray-700 shadow-sm">
+            {source === 'airbnb' ? 'Airbnb' : 
+             source === 'booking' ? 'Booking.com' : 
+             source === 'vrbo' ? 'VRBO' : source}
+          </div>
+        )}
       </div>
-      <div className="p-6">
-        <h2 className="text-2xl font-semibold mb-2">{name}</h2>
+      
+      <div className="px-1">
+        <div className="flex items-start justify-between mb-3">
+          <h2 className="text-xl font-semibold text-gray-900 leading-tight">{name}</h2>
+          
+          {url && (
+            <a 
+              href={url} 
+              target="_blank" 
+              rel="noopener noreferrer"
+              className="flex items-center gap-1 text-xs text-blue-600 hover:text-blue-800 transition-colors shrink-0 ml-2"
+            >
+              <span>View Listing</span>
+              <ExternalLink className="w-3 h-3" />
+            </a>
+          )}
+        </div>
+        
         <PropertyMetrics
           price_per_night={price_per_night}
           rating={rating}

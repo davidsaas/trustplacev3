@@ -11,6 +11,8 @@ import { Card } from '@/components/ui/card'
 import { PropertyHeader } from '../components/PropertyHeader'
 import { LOCATION_RADIUS, SAFETY_RADIUS, PRICE_RANGE } from '../constants'
 import { isValidCoordinates, calculateDistance } from '../utils'
+import { ChevronLeft, Shield } from 'lucide-react'
+import Link from 'next/link'
 import type { 
   SafetyReportProps, 
   SafetyMetric, 
@@ -247,21 +249,56 @@ export default async function SafetyReportPage({ params }: SafetyReportProps) {
 
   return (
     <Suspense fallback={<Loading />}>
-      <main className="container mx-auto px-4 py-8">
-        <div className="mb-8">
-          <h1 className="text-4xl font-bold mb-4">Safety Report</h1>
-          <PropertyHeader
-            name={reportData.name}
-            price_per_night={reportData.price_per_night}
-            rating={reportData.rating}
-            total_reviews={reportData.total_reviews}
-            source={reportData.source}
-            image_url={reportData.image_url}
-          />
-        </div>
+      <div className="min-h-screen bg-gray-50">
+        {/* Header */}
+        <header className="bg-white border-b border-gray-100 shadow-sm">
+          <div className="container mx-auto px-4 py-4">
+            <div className="flex items-center mb-1">
+              <Link href="/safety-reports" className="flex items-center text-blue-600 font-medium hover:text-blue-800 transition-colors mr-4">
+                <ChevronLeft className="w-4 h-4 mr-1" />
+                <span>Back</span>
+              </Link>
+              <h1 className="text-2xl font-bold text-gray-900">Safety Report</h1>
+            </div>
+            <div className="text-sm text-gray-500">
+              Making your stay safer with data-driven insights
+            </div>
+          </div>
+        </header>
         
-        <section className="space-y-8">
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+        <main className="container mx-auto px-4 py-6">
+          {/* Property Header */}
+          <div className="bg-white rounded-xl shadow-md p-6 mb-8">
+            <PropertyHeader
+              name={reportData.name}
+              price_per_night={reportData.price_per_night}
+              rating={reportData.rating}
+              total_reviews={reportData.total_reviews}
+              source={reportData.source}
+              image_url={reportData.image_url}
+            />
+          </div>
+          
+          {/* Overall assessment highlight */}
+          <div className="mb-6 bg-gradient-to-r from-blue-50 to-indigo-50 rounded-xl p-4 border border-blue-100 shadow-sm">
+            <div className="flex items-start gap-3">
+              <div className="p-2 bg-blue-100 rounded-full">
+                <Shield className="w-6 h-6 text-blue-500" />
+              </div>
+              <div>
+                <h2 className="text-lg font-semibold text-gray-900">Safety Assessment</h2>
+                <p className="text-gray-600">
+                  {reportData.overall_score >= 80 ? "This area is generally considered safe based on historical data" :
+                   reportData.overall_score >= 60 ? "This area requires normal caution for urban settings" :
+                   reportData.overall_score >= 40 ? "Exercise increased caution in this area" :
+                   "This area has safety concerns that require significant awareness"}
+                </p>
+              </div>
+            </div>
+          </div>
+          
+          {/* Safety Metrics and Map */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-8">
             <RestrictedContent>
               <SafetyMetrics data={reportData.safety_metrics} />
             </RestrictedContent>
@@ -277,9 +314,9 @@ export default async function SafetyReportPage({ params }: SafetyReportProps) {
                 similarAccommodations={reportData.similar_accommodations}
               />
             ) : (
-              <Card className="p-6">
+              <Card className="p-6 rounded-xl shadow-md overflow-hidden">
                 <h2 className="text-2xl font-semibold mb-4">Location</h2>
-                <div className="h-[400px] rounded-lg bg-gray-100 flex items-center justify-center">
+                <div className="h-[400px] rounded-xl bg-gray-50 flex items-center justify-center">
                   <p className="text-gray-500">Location coordinates not available</p>
                 </div>
               </Card>
@@ -289,8 +326,18 @@ export default async function SafetyReportPage({ params }: SafetyReportProps) {
           <RestrictedContent>
             <CommunityOpinions reportId={params.id} />
           </RestrictedContent>
-        </section>
-      </main>
+        </main>
+        
+        {/* Footer */}
+        <footer className="bg-white border-t border-gray-100 py-8 mt-12">
+          <div className="container mx-auto px-4">
+            <div className="text-center text-gray-500 text-sm">
+              <p>Safety data is aggregated from multiple sources and is updated regularly.</p>
+              <p className="mt-2">© {new Date().getFullYear()} TrustPlace - Making travel safer through data</p>
+            </div>
+          </div>
+        </footer>
+      </div>
     </Suspense>
   )
 }
