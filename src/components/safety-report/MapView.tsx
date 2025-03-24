@@ -109,7 +109,7 @@ export const MapView = ({ location, currentAccommodation, similarAccommodations 
       // Initialize map with custom style
       const mapInstance = new mapboxgl.Map({
         container: mapContainer.current,
-        style: 'mapbox://styles/mapbox/streets-v12',
+        style: 'mapbox://styles/mapbox/light-v11',
         center: [location.lng, location.lat],
         zoom: 13,
         antialias: true
