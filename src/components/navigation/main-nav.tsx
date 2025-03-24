@@ -1,14 +1,12 @@
 'use client'
 
 import Link from 'next/link'
-import { usePathname } from 'next/navigation'
 import { Heart, LogOut } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { useSupabase } from '@/components/providers/supabase-provider'
 import { useAuth } from '@/hooks/use-auth'
 
 export function MainNav() {
-  const pathname = usePathname()
   const { user } = useSupabase()
   const { signOut } = useAuth()
 

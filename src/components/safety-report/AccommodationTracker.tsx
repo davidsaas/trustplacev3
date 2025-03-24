@@ -1,6 +1,5 @@
 'use client'
 
-import { useEffect } from 'react'
 import { useAccommodationsVisited } from '@/hooks/use-accommodations-visited'
 
 interface AccommodationTrackerProps {

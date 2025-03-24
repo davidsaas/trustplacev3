@@ -12,6 +12,16 @@ type VisitedAccommodation = {
   url?: string
 }
 
+// Type for legacy storage format
+type LegacyVisitedItem = {
+  id?: string
+  accommodation_id?: string
+  name: string
+  source: string
+  visitedAt: string
+  url?: string
+}
+
 const MAX_VISITED_ITEMS = 10
 const STORAGE_KEY = 'accommodations-visited'
 
@@ -26,7 +36,7 @@ export const useAccommodationsVisited = (accommodationId?: string, accommodation
       if (stored) {
         // Handle potential legacy format where accommodation_id might not exist
         const parsedData = JSON.parse(stored);
-        const migratedData = parsedData.map((item: any) => ({
+        const migratedData = parsedData.map((item: LegacyVisitedItem) => ({
           id: item.id || crypto.randomUUID(),
           accommodation_id: item.accommodation_id || item.id, // Use accommodation_id if available, fallback to id
           name: item.name,
