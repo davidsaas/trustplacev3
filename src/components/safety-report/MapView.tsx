@@ -3,6 +3,7 @@
 import { useEffect, useRef, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import mapboxgl from 'mapbox-gl'
+import Supercluster from 'supercluster'
 import 'mapbox-gl/dist/mapbox-gl.css'
 import { Card } from '@/components/ui/card'
 
@@ -17,6 +18,18 @@ const createCustomMarker = (score: number, isCurrent: boolean = false) => {
     <div class="marker-inner ${isCurrent ? 'current' : ''}">
       <div class="marker-score">${score}</div>
       <div class="marker-pulse"></div>
+    </div>
+  `
+  return el
+}
+
+// Create a cluster marker with count
+const createClusterMarker = (count: number) => {
+  const el = document.createElement('div')
+  el.className = 'cluster-marker'
+  el.innerHTML = `
+    <div class="cluster-marker-inner">
+      <div class="cluster-count">${count}</div>
     </div>
   `
   return el
@@ -40,6 +53,24 @@ interface SimilarAccommodation extends Accommodation {
   source: string
 }
 
+// GeoJSON feature for clustering
+interface AccommodationFeature {
+  type: 'Feature'
+  properties: Accommodation | SimilarAccommodation
+  geometry: {
+    type: 'Point'
+    coordinates: [number, number] // [longitude, latitude]
+  }
+}
+
+// For type safety with Supercluster
+type ClusterProperties = {
+  cluster: boolean
+  cluster_id: number
+  point_count: number
+  point_count_abbreviated: string
+}
+
 type MapViewProps = {
   location: {
     lat: number
@@ -53,7 +84,12 @@ export const MapView = ({ location, currentAccommodation, similarAccommodations 
   const mapContainer = useRef<HTMLDivElement>(null)
   const map = useRef<mapboxgl.Map | null>(null)
   const markers = useRef<mapboxgl.Marker[]>([])
+  const supercluster = useRef<Supercluster | null>(null)
   const router = useRouter()
+
+  // Debug logging
+  console.log('MapView received similarAccommodations:', similarAccommodations);
+  console.log('MapView current accommodation:', currentAccommodation);
 
   // Validate coordinates
   const isValidLocation = isValidCoordinate(location.lat) && isValidCoordinate(location.lng)
@@ -64,7 +100,7 @@ export const MapView = ({ location, currentAccommodation, similarAccommodations 
   }, [router])
 
   // Function to create popup content
-  const createPopupContent = (accommodation: Accommodation | SimilarAccommodation) => {
+  const createPopupContent = useCallback((accommodation: Accommodation | SimilarAccommodation) => {
     const isCurrentAccommodation = accommodation.id === currentAccommodation.id
     const isSimilar = !isCurrentAccommodation && 'price_per_night' in accommodation
 
@@ -94,7 +130,201 @@ export const MapView = ({ location, currentAccommodation, similarAccommodations 
     }
 
     return content
-  }
+  }, [currentAccommodation.id, handleMarkerClick])
+
+  // Function to create cluster popup content
+  const createClusterPopupContent = useCallback((count: number, accommodations: (Accommodation | SimilarAccommodation)[]) => {
+    const content = document.createElement('div')
+    content.className = 'p-2 min-w-[200px] max-h-[300px] overflow-y-auto'
+    
+    let html = `
+      <h3 class="font-semibold mb-3">${count} Accommodations</h3>
+      <div class="space-y-3">
+    `
+    
+    // Add top 5 accommodations to popup
+    const topAccommodations = [...accommodations]
+      .sort((a, b) => b.overall_score - a.overall_score)
+      .slice(0, 5)
+    
+    topAccommodations.forEach(acc => {
+      const isSimilar = 'price_per_night' in acc
+      html += `
+        <div class="border-b pb-2 last:border-0">
+          <div class="font-medium text-sm">${acc.name}</div>
+          <div class="flex items-center gap-2 mt-1">
+            <span class="text-xs bg-blue-100 text-blue-800 px-2 py-0.5 rounded">Score: ${acc.overall_score}</span>
+            ${isSimilar ? `<span class="text-xs text-gray-500">$${(acc as SimilarAccommodation).price_per_night}/night</span>` : ''}
+          </div>
+          <button class="text-xs text-blue-600 hover:underline cursor-pointer mt-1" data-id="${acc.id}">View Details</button>
+        </div>
+      `
+    })
+    
+    if (accommodations.length > 5) {
+      html += `<div class="text-xs text-gray-500 mt-2">Zoom in to see more accommodations</div>`
+    }
+    
+    html += `</div>`
+    content.innerHTML = html
+    
+    // Add click handlers for buttons
+    content.querySelectorAll('button').forEach(button => {
+      button.addEventListener('click', (e) => {
+        e.preventDefault()
+        e.stopPropagation()
+        const id = button.getAttribute('data-id')
+        if (id) handleMarkerClick(id)
+      })
+    })
+    
+    return content
+  }, [handleMarkerClick])
+
+  // Function to update markers based on cluster data
+  const updateMarkers = useCallback(() => {
+    if (!map.current || !supercluster.current) return
+    
+    // Clear existing markers
+    markers.current.forEach(marker => marker.remove())
+    markers.current = []
+    
+    const mapBounds = map.current.getBounds()
+    if (!mapBounds) return
+
+    const zoom = Math.floor(map.current.getZoom())
+    
+    // Get clusters for current bounds and zoom level
+    const bbox: [number, number, number, number] = [
+      mapBounds.getWest(),
+      mapBounds.getSouth(),
+      mapBounds.getEast(),
+      mapBounds.getNorth()
+    ]
+    
+    const clusters = supercluster.current.getClusters(bbox, zoom)
+    
+    // Add cluster or individual markers
+    clusters.forEach(cluster => {
+      const [longitude, latitude] = cluster.geometry.coordinates
+      
+      // Check if it's a cluster
+      if (cluster.properties.cluster) {
+        const count = cluster.properties.point_count
+        const clusterId = cluster.properties.cluster_id
+        
+        // Create cluster marker
+        const marker = new mapboxgl.Marker({
+          element: createClusterMarker(count)
+        })
+          .setLngLat([longitude, latitude])
+          .addTo(map.current!)
+        
+        // Get cluster children for popup
+        const clusterPoints = supercluster.current!.getLeaves(clusterId, 100)
+        const clusterAccommodations = clusterPoints.map(point => point.properties as Accommodation | SimilarAccommodation)
+        
+        // Create popup but don't attach it yet
+        const popup = new mapboxgl.Popup({ 
+          offset: 25,
+          closeButton: false,
+          maxWidth: '300px',
+          className: 'custom-popup'
+        }).setDOMContent(createClusterPopupContent(count, clusterAccommodations))
+        
+        // Add hover events to show/hide popup
+        const markerElement = marker.getElement()
+        markerElement.addEventListener('mouseenter', () => {
+          marker.setPopup(popup)
+          popup.addTo(map.current!)
+        })
+        markerElement.addEventListener('mouseleave', () => {
+          popup.remove()
+        })
+        
+        // Handle click to zoom in
+        markerElement.addEventListener('click', () => {
+          // Get cluster expansion zoom level
+          const expansionZoom = Math.min(supercluster.current!.getClusterExpansionZoom(clusterId), 20)
+          
+          map.current!.easeTo({
+            center: [longitude, latitude],
+            zoom: expansionZoom
+          })
+        })
+        
+        markers.current.push(marker)
+      } else {
+        // Individual accommodation marker
+        const accommodation = cluster.properties as Accommodation | SimilarAccommodation
+        
+        // Skip markers with invalid coordinates
+        if (!isValidCoordinate(latitude) || !isValidCoordinate(longitude)) {
+          return
+        }
+        
+        // Create popup but don't attach it yet
+        const popup = new mapboxgl.Popup({ 
+          offset: 25,
+          closeButton: false,
+          className: 'custom-popup'
+        }).setDOMContent(createPopupContent(accommodation))
+        
+        // Create regular marker
+        const marker = new mapboxgl.Marker({
+          element: createCustomMarker(accommodation.overall_score, accommodation.id === currentAccommodation.id)
+        })
+          .setLngLat([longitude, latitude])
+          .addTo(map.current!)
+        
+        // Add hover events to show/hide popup
+        const markerElement = marker.getElement()
+        markerElement.addEventListener('mouseenter', () => {
+          marker.setPopup(popup)
+          popup.addTo(map.current!)
+        })
+        markerElement.addEventListener('mouseleave', () => {
+          popup.remove()
+        })
+        
+        // Add click handler for individual markers
+        if (accommodation.id !== currentAccommodation.id) {
+          markerElement.addEventListener('click', () => {
+            handleMarkerClick(accommodation.id)
+          })
+        }
+        
+        markers.current.push(marker)
+      }
+    })
+    
+    // Always add current accommodation marker (outside of clustering)
+    // Create popup for current accommodation but don't attach it yet
+    const currentPopup = new mapboxgl.Popup({ 
+      offset: 25,
+      closeButton: false,
+      className: 'custom-popup'
+    }).setDOMContent(createPopupContent(currentAccommodation))
+    
+    const currentMarker = new mapboxgl.Marker({
+      element: createCustomMarker(currentAccommodation.overall_score, true)
+    })
+      .setLngLat([location.lng, location.lat])
+      .addTo(map.current)
+    
+    // Add hover events to show/hide popup for current accommodation
+    const currentMarkerElement = currentMarker.getElement()
+    currentMarkerElement.addEventListener('mouseenter', () => {
+      currentMarker.setPopup(currentPopup)
+      currentPopup.addTo(map.current!)
+    })
+    currentMarkerElement.addEventListener('mouseleave', () => {
+      currentPopup.remove()
+    })
+    
+    markers.current.push(currentMarker)
+    
+  }, [location, currentAccommodation, createPopupContent, createClusterPopupContent, handleMarkerClick])
 
   useEffect(() => {
     // Early returns for invalid conditions
@@ -126,55 +356,55 @@ export const MapView = ({ location, currentAccommodation, similarAccommodations 
         'top-right'
       )
 
-      // Add current accommodation marker
-      const currentMarker = new mapboxgl.Marker({
-        element: createCustomMarker(currentAccommodation.overall_score, true),
-        anchor: 'bottom'
-      })
-        .setLngLat([location.lng, location.lat])
-        .setPopup(
-          new mapboxgl.Popup({ 
-            offset: 25,
-            closeButton: false,
-            closeOnClick: false
-          })
-            .setDOMContent(createPopupContent(currentAccommodation))
-        )
-        .addTo(mapInstance)
-
-      markers.current.push(currentMarker)
-
-      // Add similar accommodations markers
-      similarAccommodations.forEach((acc) => {
-        const marker = new mapboxgl.Marker({
-          element: createCustomMarker(acc.overall_score),
-          anchor: 'bottom'
+      // Prepare GeoJSON features for clustering
+      const features: AccommodationFeature[] = []
+      
+      // Add similar accommodations
+      similarAccommodations.forEach(acc => {
+        // Skip accommodations with invalid coordinates
+        if (!isValidCoordinate(acc.latitude) || !isValidCoordinate(acc.longitude)) {
+          console.warn('Invalid coordinates for accommodation:', acc);
+          return;
+        }
+        
+        features.push({
+          type: 'Feature',
+          properties: acc,
+          geometry: {
+            type: 'Point',
+            coordinates: [acc.longitude, acc.latitude]
+          }
         })
-          .setLngLat([acc.longitude, acc.latitude])
-          .setPopup(
-            new mapboxgl.Popup({ 
-              offset: 25,
-              closeButton: false
-            })
-              .setDOMContent(createPopupContent(acc))
-          )
-          .addTo(mapInstance)
-
-        // Add click handler to marker element
-        const markerElement = marker.getElement()
-        markerElement.addEventListener('click', () => {
-          handleMarkerClick(acc.id)
-        })
-
-        markers.current.push(marker)
       })
+      
+      // Create supercluster instance
+      const cluster = new Supercluster({
+        radius: 40,
+        maxZoom: 16, // Max zoom to cluster points
+        minPoints: 3 // Min points to form a cluster
+      })
+      
+      // Load GeoJSON features
+      cluster.load(features)
+      supercluster.current = cluster
+      
+      // Initialize markers once map loads
+      mapInstance.on('load', () => {
+        updateMarkers()
+      })
+      
+      // Update markers when map moves or zooms
+      mapInstance.on('moveend', updateMarkers)
+      mapInstance.on('zoomend', updateMarkers)
 
       // Fit bounds to include all markers
       if (similarAccommodations.length > 0) {
         const bounds = new mapboxgl.LngLatBounds()
         bounds.extend([location.lng, location.lat])
         similarAccommodations.forEach(acc => {
-          bounds.extend([acc.longitude, acc.latitude])
+          if (isValidCoordinate(acc.latitude) && isValidCoordinate(acc.longitude)) {
+            bounds.extend([acc.longitude, acc.latitude])
+          }
         })
         mapInstance.fitBounds(bounds, { padding: 50 })
       }
@@ -183,14 +413,17 @@ export const MapView = ({ location, currentAccommodation, similarAccommodations 
       return () => {
         markers.current.forEach(marker => marker.remove())
         markers.current = []
+        mapInstance.off('moveend', updateMarkers)
+        mapInstance.off('zoomend', updateMarkers)
         mapInstance.remove()
         map.current = null
+        supercluster.current = null
       }
     } catch (err) {
       console.error('Map initialization error:', err)
       return
     }
-  }, [location.lat, location.lng, isValidLocation, currentAccommodation, similarAccommodations, router, handleMarkerClick])
+  }, [location, similarAccommodations, updateMarkers, isValidLocation])
 
   if (!token) {
     return (
@@ -271,6 +504,49 @@ export const MapView = ({ location, currentAccommodation, similarAccommodations 
             background-color: rgba(16, 185, 129, 0.2);
           }
           
+          /* Cluster marker styles */
+          .cluster-marker {
+            width: 50px;
+            height: 50px;
+            cursor: pointer;
+          }
+          
+          .cluster-marker-inner {
+            width: 100%;
+            height: 100%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+          }
+          
+          .cluster-count {
+            width: 40px;
+            height: 40px;
+            background-color: #f97316;
+            border: 3px solid #FFFFFF;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-weight: bold;
+            font-size: 14px;
+            box-shadow: 0 0 10px rgba(249, 115, 22, 0.5);
+            animation: pulse-cluster 2s ease-out infinite;
+          }
+          
+          @keyframes pulse-cluster {
+            0% {
+              box-shadow: 0 0 0 0 rgba(249, 115, 22, 0.5);
+            }
+            70% {
+              box-shadow: 0 0 0 15px rgba(249, 115, 22, 0);
+            }
+            100% {
+              box-shadow: 0 0 0 0 rgba(249, 115, 22, 0);
+            }
+          }
+          
           @keyframes pulse {
             0% {
               transform: scale(0.5);
@@ -308,6 +584,14 @@ export const MapView = ({ location, currentAccommodation, similarAccommodations 
 
           .mapboxgl-canvas {
             border-radius: 0.5rem;
+          }
+
+          .custom-popup {
+            transition: opacity 0.2s ease-in-out;
+          }
+
+          .custom-popup .mapboxgl-popup-content {
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
           }
         `}</style>
         <div

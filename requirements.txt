@@ -1,0 +1,8 @@
+python-dotenv==1.0.0
+pandas==2.1.1
+numpy==1.24.3
+supabase==1.0.3
+sodapy==2.2.0
+tqdm==4.66.1
+requests==2.31.0
+python-dateutil==2.8.2 
