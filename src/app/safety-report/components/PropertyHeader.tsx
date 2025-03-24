@@ -73,4 +73,6 @@ export const PropertyHeader = memo(({
       </div>
     </div>
   )
-}) 
+})
+
+PropertyHeader.displayName = 'PropertyHeader' 
