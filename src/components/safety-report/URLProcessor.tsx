@@ -14,11 +14,24 @@ export const URLProcessor = () => {
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault()
+    
+    if (!url.trim()) {
+      toast.error('Please enter a URL')
+      return
+    }
+    
     setIsLoading(true)
     
     try {
       console.log('Processing URL:', url)
-      const parsedUrl = parseAccommodationURL(url)
+      
+      // Validate URL format
+      let validUrl = url
+      if (!url.startsWith('http://') && !url.startsWith('https://')) {
+        validUrl = `https://${url}`
+      }
+      
+      const parsedUrl = parseAccommodationURL(validUrl)
       console.log('Parsed URL:', parsedUrl)
       
       if (!parsedUrl) {
@@ -30,30 +43,61 @@ export const URLProcessor = () => {
       }
 
       console.log('Sending to API:', parsedUrl)
-      const response = await fetch('/api/process-url', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify(parsedUrl)
-      })
+      
+      // Add timeout to prevent hanging requests
+      const controller = new AbortController()
+      const timeoutId = setTimeout(() => controller.abort(), 10000)
+      
+      try {
+        const response = await fetch('/api/process-url', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify(parsedUrl),
+          signal: controller.signal
+        })
+        
+        clearTimeout(timeoutId)
 
-      const data = await response.json()
-      console.log('API Response:', data)
+        if (!response.ok) {
+          const data = await response.json().catch(() => ({ error: 'Unknown error' }))
+          
+          if (response.status === 404) {
+            toast.error(data.error || 'Accommodation not found', {
+              description: 'We only have data for certain accommodations in Los Angeles at the moment.'
+            })
+          } else {
+            toast.error('Failed to process URL')
+          }
+          setIsLoading(false)
+          return
+        }
+        
+        const data = await response.json()
+        console.log('API Response:', data)
 
-      if (!response.ok) {
-        if (response.status === 404) {
-          toast.error(data.error, {
-            description: 'We only have data for certain accommodations in Los Angeles at the moment.'
+        if (data.reportId) {
+          router.push(`/safety-report/${data.reportId}`)
+        } else {
+          toast.error('Could not generate report', {
+            description: 'No valid report ID was returned'
+          })
+          setIsLoading(false)
+        }
+      } catch (fetchError: unknown) {
+        if (fetchError instanceof Error && fetchError.name === 'AbortError') {
+          toast.error('Request timed out', {
+            description: 'Please try again later'
           })
         } else {
-          toast.error('Failed to process URL')
+          console.error('Fetch error:', fetchError)
+          toast.error('Network error', {
+            description: 'Please check your connection and try again'
+          })
         }
         setIsLoading(false)
-        return
       }
-
-      router.push(`/safety-report/${data.reportId}`)
     } catch (error) {
       console.error('Error in handleSubmit:', error)
       toast.error('Failed to process URL')
