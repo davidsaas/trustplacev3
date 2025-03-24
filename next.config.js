@@ -1,10 +1,19 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   images: {
-    domains: [
-      'images.unsplash.com',
-      'a0.muscache.com', // Airbnb image domain
-      'cf.bstatic.com'  // Booking.com image domain
+    remotePatterns: [
+      {
+        protocol: 'https',
+        hostname: 'images.unsplash.com',
+      },
+      {
+        protocol: 'https',
+        hostname: 'a0.muscache.com', // Airbnb image domain
+      },
+      {
+        protocol: 'https',
+        hostname: 'cf.bstatic.com',  // Booking.com image domain
+      },
     ],
   },
 

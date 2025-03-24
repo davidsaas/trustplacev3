@@ -2,8 +2,6 @@
 
 import { useEffect, useState } from 'react'
 import { Card } from '@/components/ui/card'
-import { MOCK_COMMUNITY_OPINIONS } from '@/lib/mock/safety-report'
-import { cn } from '@/lib/utils'
 import { MessageSquare, User, Calendar, ThumbsUp } from 'lucide-react'
 
 type Opinion = {
@@ -42,12 +40,12 @@ export const CommunityOpinions = ({ reportId }: CommunityOpinionsProps) => {
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    // Simulate API call with mock data
+    // Simulate API call with empty data
     const fetchOpinions = async () => {
       try {
         // Simulate network delay
         await new Promise(resolve => setTimeout(resolve, 1000))
-        setOpinions(MOCK_COMMUNITY_OPINIONS)
+        setOpinions([])
       } catch (error) {
         console.error('Error fetching opinions:', error)
       } finally {

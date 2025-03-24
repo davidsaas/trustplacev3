@@ -41,3 +41,5 @@ export const PropertyMetrics = memo(({
     </div>
   )
 }) 
+
+PropertyMetrics.displayName = 'PropertyMetrics' 

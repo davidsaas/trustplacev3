@@ -40,16 +40,6 @@ interface SimilarAccommodation extends Accommodation {
   source: string
 }
 
-// GeoJSON feature for mapping
-interface AccommodationFeature {
-  type: 'Feature'
-  properties: Accommodation | SimilarAccommodation
-  geometry: {
-    type: 'Point'
-    coordinates: [number, number] // [longitude, latitude]
-  }
-}
-
 type MapViewProps = {
   location: {
     lat: number

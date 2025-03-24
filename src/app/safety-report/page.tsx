@@ -1,7 +1,6 @@
 import { Suspense } from 'react'
 import { URLProcessor } from '@/components/safety-report/URLProcessor'
 import { SafetyMetrics } from '@/components/safety-report/SafetyMetrics'
-import { MOCK_SAFETY_METRICS } from '@/lib/mock/safety-report'
 
 export default function SafetyReportPage() {
   return (
@@ -15,7 +14,7 @@ export default function SafetyReportPage() {
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
           <Suspense fallback={<div>Loading safety metrics...</div>}>
-            <SafetyMetrics data={MOCK_SAFETY_METRICS} />
+            <SafetyMetrics data={null} />
           </Suspense>
         </div>
       </section>
