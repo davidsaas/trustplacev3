@@ -8,8 +8,18 @@ import { MainNav } from "@/components/navigation/main-nav";
 
 const inter = Inter({ subsets: ["latin"] });
 
+// Ensure the URL always has a protocol
+const getBaseUrl = () => {
+  const url = process.env.NEXT_PUBLIC_APP_URL || "https://trustplacev3-one.vercel.app";
+  // Add https:// protocol if URL doesn't have one
+  if (!url.startsWith('http://') && !url.startsWith('https://')) {
+    return `https://${url}`;
+  }
+  return url;
+};
+
 export const metadata: Metadata = {
-  metadataBase: new URL(process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000"),
+  metadataBase: new URL(getBaseUrl()),
   title: "Trustplace - Safety Report for Accommodations",
   description: "Get comprehensive safety reports for Airbnb and Booking.com listings in Los Angeles.",
   keywords: ["safety", "airbnb", "booking.com", "los angeles", "travel", "accommodation", "security"],
