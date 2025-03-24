@@ -3,6 +3,7 @@
 import { useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
+import { getBaseUrl } from '@/lib/utils'
 
 export default function AuthCallback() {
   const router = useRouter()
@@ -26,7 +27,8 @@ export default function AuthCallback() {
       }
 
       // Ensure we're using the full URL for the redirect
-      const redirectUrl = next.startsWith('http') ? next : `${window.location.origin}${next}`
+      const baseUrl = getBaseUrl()
+      const redirectUrl = next.startsWith('http') ? next : `${baseUrl}${next}`
       router.push(redirectUrl)
     }
 
