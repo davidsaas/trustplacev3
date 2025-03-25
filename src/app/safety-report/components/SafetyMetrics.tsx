@@ -133,20 +133,18 @@ export const SafetyMetrics = ({ data }: SafetyMetricsProps) => {
   })
 
   return (
-    <div className="bg-white rounded-xl p-6 shadow-sm">
+    <div className="bg-white p-6 shadow-sm">
 
-      {/* Individual safety metrics as grid */}
-      <h3 className="text-lg font-medium text-gray-800 mb-4">Safety Factors</h3>
       
-      <div className="divide-y divide-gray-200 overflow-hidden rounded-xl bg-gray-200 shadow-sm sm:grid sm:grid-cols-2 sm:gap-px sm:divide-y-0">
+      <div className="divide-y divide-gray-200 overflow-hidden bg-gray-200 sm:grid sm:grid-cols-2 sm:gap-px sm:divide-y-0">
         {metricActions.map((action, actionIdx) => (
           <div
             key={action.title}
             className={classNames(
-              actionIdx === 0 ? 'rounded-tl-xl rounded-tr-xl sm:rounded-tr-none' : '',
-              actionIdx === 1 ? 'sm:rounded-tr-xl' : '',
-              actionIdx === metricActions.length - 2 ? 'sm:rounded-bl-xl' : '',
-              actionIdx === metricActions.length - 1 ? 'rounded-br-xl rounded-bl-xl sm:rounded-bl-none' : '',
+              actionIdx === 0 ? '' : '',
+              actionIdx === 1 ? '' : '',
+              actionIdx === metricActions.length - 2 ? '' : '',
+              actionIdx === metricActions.length - 1 ? '' : '',
               'group relative bg-white p-6 focus-within:ring-2 focus-within:ring-indigo-500 focus-within:ring-inset',
             )}
           >
@@ -173,14 +171,7 @@ export const SafetyMetrics = ({ data }: SafetyMetricsProps) => {
               </p>
             </div>
             
-            <div className="mt-4 pt-2 border-t border-gray-100">
-              <div className="h-2 bg-white bg-opacity-70 rounded-full overflow-hidden">
-                <div 
-                  className={`h-full ${action.iconForeground.replace('text', 'bg')} rounded-full transition-all duration-1000 ease-out`}
-                  style={{ width: `${action.score * 10}%` }}
-                />
-              </div>
-            </div>
+
           </div>
         ))}
       </div>

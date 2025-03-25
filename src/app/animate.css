@@ -1,0 +1,100 @@
+@theme {
+  /* Animation properties */
+  --animate-fade-in: fade-in 0.5s linear forwards;
+  --animate-fade-out: fade-out 0.5s linear forwards;
+  --animate-spin: spin 1s linear infinite;
+  --animate-ping: ping 1s cubic-bezier(0, 0, 0.2, 1) infinite;
+  --animate-bounce: bounce 1s infinite;
+  --animate-pulse: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+  
+  /* Keyframe definitions */
+  @keyframes fade-in {
+    from { opacity: 0; }
+    to { opacity: 1; }
+  }
+  
+  @keyframes fade-out {
+    from { opacity: 1; }
+    to { opacity: 0; }
+  }
+  
+  @keyframes spin {
+    to { transform: rotate(360deg); }
+  }
+  
+  @keyframes ping {
+    75%, 100% { transform: scale(2); opacity: 0; }
+  }
+  
+  @keyframes pulse {
+    50% { opacity: .5; }
+  }
+  
+  @keyframes bounce {
+    0%, 100% {
+      transform: translateY(-25%);
+      animation-timing-function: cubic-bezier(0.8, 0, 1, 1);
+    }
+    50% {
+      transform: none;
+      animation-timing-function: cubic-bezier(0, 0, 0.2, 1);
+    }
+  }
+  
+  /* Animation durations */
+  --duration-75: 75ms;
+  --duration-100: 100ms;
+  --duration-150: 150ms;
+  --duration-200: 200ms;
+  --duration-300: 300ms;
+  --duration-500: 500ms;
+  --duration-700: 700ms;
+  --duration-1000: 1000ms;
+  
+  /* Animation delay */
+  --delay-75: 75ms;
+  --delay-100: 100ms;
+  --delay-150: 150ms;
+  --delay-200: 200ms;
+  --delay-300: 300ms;
+  --delay-500: 500ms;
+  --delay-700: 700ms;
+  --delay-1000: 1000ms;
+}
+
+@layer utilities {
+  /* Animation utilities */
+  .animate-none { animation: none; }
+  .animate-spin { animation: var(--animate-spin); }
+  .animate-ping { animation: var(--animate-ping); }
+  .animate-pulse { animation: var(--animate-pulse); }
+  .animate-bounce { animation: var(--animate-bounce); }
+  .animate-fade-in { animation: var(--animate-fade-in); }
+  .animate-fade-out { animation: var(--animate-fade-out); }
+  
+  /* Duration utilities */
+  .duration-75 { animation-duration: var(--duration-75); }
+  .duration-100 { animation-duration: var(--duration-100); }
+  .duration-150 { animation-duration: var(--duration-150); }
+  .duration-200 { animation-duration: var(--duration-200); }
+  .duration-300 { animation-duration: var(--duration-300); }
+  .duration-500 { animation-duration: var(--duration-500); }
+  .duration-700 { animation-duration: var(--duration-700); }
+  .duration-1000 { animation-duration: var(--duration-1000); }
+  
+  /* Delay utilities */
+  .delay-75 { animation-delay: var(--delay-75); }
+  .delay-100 { animation-delay: var(--delay-100); }
+  .delay-150 { animation-delay: var(--delay-150); }
+  .delay-200 { animation-delay: var(--delay-200); }
+  .delay-300 { animation-delay: var(--delay-300); }
+  .delay-500 { animation-delay: var(--delay-500); }
+  .delay-700 { animation-delay: var(--delay-700); }
+  .delay-1000 { animation-delay: var(--delay-1000); }
+  
+  /* Fill Mode utilities */
+  .fill-none { animation-fill-mode: none; }
+  .fill-forwards { animation-fill-mode: forwards; }
+  .fill-backwards { animation-fill-mode: backwards; }
+  .fill-both { animation-fill-mode: both; }
+} 

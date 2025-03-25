@@ -121,7 +121,7 @@ export const URLProcessor = () => {
         <Button 
           type="submit" 
           disabled={isLoading}
-          className="w-full sm:w-auto"
+          className="w-full sm:w-auto bg-primary hover:bg-primary/90 text-white font-medium py-2 px-6"
         >
           {isLoading ? 'Processing...' : 'Get Safety Report'}
         </Button>

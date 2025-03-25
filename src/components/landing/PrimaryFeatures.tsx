@@ -39,101 +39,65 @@ interface CustomAnimationProps {
 
 const features = [
   {
-    name: "Invite friends for better returns",
+    name: "Safety Metrics Analysis",
     description:
-      "For every friend you invite to Pocket, you get insider notifications 5 seconds sooner. And it's 10 seconds if you invite an insider.",
-    icon: DeviceUserIcon,
-    screen: InviteScreen,
+      "Get five essential safety metrics for any accommodation: Nighttime Safety, Car Parking Safety, Kids Safety, Transportation Safety, and Women's Safety—all based on real crime data and local insights.",
+    icon: SafetyMetricsIcon,
+    screen: SafetyMetricsScreen,
   },
   {
-    name: "Notifications on your terms",
+    name: "Community Opinions",
     description:
-      "We notify you as soon as we find out about new insider trades, but only if it's a stock you're interested in. Never miss an opportunity, but also never be distracted by trades you don't care about.",
-    icon: DeviceNotificationIcon,
-    screen: StocksScreen,
+      "Access aggregated community opinions from platforms like Reddit and YouTube, providing authentic local perspectives about the neighborhood and specific accommodations.",
+    icon: CommunityIcon,
+    screen: CommunityScreen,
   },
   {
-    name: "Invest what you want",
+    name: "AI-Generated Takeaways",
     description:
-      "We hide your stock purchases behind thousands of proxy trading accounts, so suspicious activity can never be traced back to you.",
-    icon: DeviceTouchIcon,
-    screen: InvestScreen,
+      "Receive smart, AI-generated summaries of community feedback and safety data, helping you quickly understand the key points without having to sift through raw data.",
+    icon: AITakeawaysIcon,
+    screen: AITakeawaysScreen,
   },
 ] as const;
 
-function DeviceUserIcon(props: React.ComponentPropsWithoutRef<'svg'>) {
+function SafetyMetricsIcon(props: React.ComponentPropsWithoutRef<'svg'>) {
   return (
     <svg viewBox="0 0 32 32" aria-hidden="true" {...props}>
-      <circle cx={16} cy={16} r={16} fill="#A3A3A3" fillOpacity={0.2} />
+      <circle cx={16} cy={16} r={16} fill="#fc067d" fillOpacity={0.2} />
       <path
         fillRule="evenodd"
         clipRule="evenodd"
-        d="M16 23a3 3 0 100-6 3 3 0 000 6zm-1 2a4 4 0 00-4 4v1a2 2 0 002 2h6a2 2 0 002-2v-1a4 4 0 00-4-4h-2z"
-        fill="#737373"
-      />
-      <path
-        fillRule="evenodd"
-        clipRule="evenodd"
-        d="M5 4a4 4 0 014-4h14a4 4 0 014 4v24a4.002 4.002 0 01-3.01 3.877c-.535.136-.99-.325-.99-.877s.474-.98.959-1.244A2 2 0 0025 28V4a2 2 0 00-2-2h-1.382a1 1 0 00-.894.553l-.448.894a1 1 0 01-.894.553h-6.764a1 1 0 01-.894-.553l-.448-.894A1 1 0 0010.382 2H9a2 2 0 00-2 2v24a2 2 0 001.041 1.756C8.525 30.02 9 30.448 9 31s-.455 1.013-.99.877A4.002 4.002 0 015 28V4z"
-        fill="#A3A3A3"
+        d="M16 5C10.477 5 6 9.477 6 15C6 20.523 10.477 25 16 25C21.523 25 26 20.523 26 15C26 9.477 21.523 5 16 5ZM14 10C14 9.448 14.448 9 15 9H17C17.552 9 18 9.448 18 10V20C18 20.552 17.552 21 17 21H15C14.448 21 14 20.552 14 20V10ZM10 14C9.448 14 9 14.448 9 15V19C9 19.552 9.448 20 10 20H12C12.552 20 13 19.552 13 19V15C13 14.448 12.552 14 12 14H10ZM19 12C19 11.448 19.448 11 20 11H22C22.552 11 23 11.448 23 12V19C23 19.552 22.552 20 22 20H20C19.448 20 19 19.552 19 19V12Z"
+        fill="#fc067d"
       />
     </svg>
   )
 }
 
-function DeviceNotificationIcon(props: React.ComponentPropsWithoutRef<'svg'>) {
+function CommunityIcon(props: React.ComponentPropsWithoutRef<'svg'>) {
   return (
     <svg viewBox="0 0 32 32" aria-hidden="true" {...props}>
-      <circle cx={16} cy={16} r={16} fill="#A3A3A3" fillOpacity={0.2} />
+      <circle cx={16} cy={16} r={16} fill="#fc067d" fillOpacity={0.2} />
       <path
         fillRule="evenodd"
         clipRule="evenodd"
-        d="M9 0a4 4 0 00-4 4v24a4 4 0 004 4h14a4 4 0 004-4V4a4 4 0 00-4-4H9zm0 2a2 2 0 00-2 2v24a2 2 0 002 2h14a2 2 0 002-2V4a2 2 0 00-2-2h-1.382a1 1 0 00-.894.553l-.448.894a1 1 0 01-.894.553h-6.764a1 1 0 01-.894-.553l-.448-.894A1 1 0 0010.382 2H9z"
-        fill="#A3A3A3"
-      />
-      <path
-        d="M9 8a2 2 0 012-2h10a2 2 0 012 2v2a2 2 0 01-2 2H11a2 2 0 01-2-2V8z"
-        fill="#737373"
+        d="M9 10C9 8.34315 10.3431 7 12 7C13.6569 7 15 8.34315 15 10C15 11.6569 13.6569 13 12 13C10.3431 13 9 11.6569 9 10ZM20 7C18.3431 7 17 8.34315 17 10C17 11.6569 18.3431 13 20 13C21.6569 13 23 11.6569 23 10C23 8.34315 21.6569 7 20 7ZM7 16C7 14.8954 7.89543 14 9 14H15C16.1046 14 17 14.8954 17 16V20C17 21.1046 16.1046 22 15 22H9C7.89543 22 7 21.1046 7 20V16ZM23 16C23 14.8954 22.1046 14 21 14H19C17.8954 14 17 14.8954 17 16V20C17 21.1046 17.8954 22 19 22H21C22.1046 22 23 21.1046 23 20V16Z"
+        fill="#fc067d"
       />
     </svg>
   )
 }
 
-function DeviceTouchIcon(props: React.ComponentPropsWithoutRef<'svg'>) {
-  let id = useId()
-
+function AITakeawaysIcon(props: React.ComponentPropsWithoutRef<'svg'>) {
   return (
     <svg viewBox="0 0 32 32" fill="none" aria-hidden="true" {...props}>
-      <defs>
-        <linearGradient
-          id={`${id}-gradient`}
-          x1={14}
-          y1={14.5}
-          x2={7}
-          y2={17}
-          gradientUnits="userSpaceOnUse"
-        >
-          <stop stopColor="#737373" />
-          <stop offset={1} stopColor="#D4D4D4" stopOpacity={0} />
-        </linearGradient>
-      </defs>
-      <circle cx={16} cy={16} r={16} fill="#A3A3A3" fillOpacity={0.2} />
+      <circle cx={16} cy={16} r={16} fill="#fc067d" fillOpacity={0.2} />
       <path
         fillRule="evenodd"
         clipRule="evenodd"
-        d="M5 4a4 4 0 014-4h14a4 4 0 014 4v13h-2V4a2 2 0 00-2-2h-1.382a1 1 0 00-.894.553l-.448.894a1 1 0 01-.894.553h-6.764a1 1 0 01-.894-.553l-.448-.894A1 1 0 0010.382 2H9a2 2 0 00-2 2v24a2 2 0 002 2h4v2H9a4 4 0 01-4-4V4z"
-        fill="#A3A3A3"
-      />
-      <path
-        d="M7 22c0-4.694 3.5-8 8-8"
-        stroke={`url(#${id}-gradient)`}
-        strokeWidth={2}
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-      <path
-        d="M21 20l.217-5.513a1.431 1.431 0 00-2.85-.226L17.5 21.5l-1.51-1.51a2.107 2.107 0 00-2.98 0 .024.024 0 00-.005.024l3.083 9.25A4 4 0 0019.883 32H25a4 4 0 004-4v-5a3 3 0 00-3-3h-5z"
-        fill="#A3A3A3"
+        d="M16 8C13.7909 8 12 9.79086 12 12C12 14.2091 13.7909 16 16 16C18.2091 16 20 14.2091 20 12C20 9.79086 18.2091 8 16 8ZM8 24C8 20.6863 11.5817 18 16 18C20.4183 18 24 20.6863 24 24V25H8V24Z"
+        fill="#fc067d"
       />
     </svg>
   )
@@ -192,151 +156,13 @@ type ScreenProps =
     }
   | { animated?: false }
 
-function InviteScreen(props: ScreenProps) {
+function SafetyMetricsScreen(props: ScreenProps) {
   return (
     <AppScreen className="w-full">
       <MotionAppScreenHeader {...(props.animated ? headerAnimation : {})}>
-        <AppScreen.Title>Invite people</AppScreen.Title>
+        <AppScreen.Title>Safety Report</AppScreen.Title>
         <AppScreen.Subtitle>
-          Get tips <span className="text-white">5s sooner</span> for every
-          invite.
-        </AppScreen.Subtitle>
-      </MotionAppScreenHeader>
-      <MotionAppScreenBody
-        {...(props.animated ? { ...bodyAnimation, custom: props.custom } : {})}
-      >
-        <div className="px-4 py-6">
-          <div className="space-y-6">
-            {[
-              { label: 'Full name', value: 'Albert H. Wiggin' },
-              { label: 'Email address', value: 'awiggin@chase.com' },
-            ].map((field) => (
-              <div key={field.label}>
-                <div className="text-sm text-gray-500">{field.label}</div>
-                <div className="mt-2 border-b border-gray-200 pb-2 text-sm text-gray-900">
-                  {field.value}
-                </div>
-              </div>
-            ))}
-          </div>
-          <div className="mt-6 rounded-lg bg-cyan-500 px-3 py-2 text-center text-sm font-semibold text-white">
-            Invite person
-          </div>
-        </div>
-      </MotionAppScreenBody>
-    </AppScreen>
-  )
-}
-
-function StocksScreen(props: ScreenProps) {
-  return (
-    <AppScreen className="w-full">
-      <MotionAppScreenHeader {...(props.animated ? headerAnimation : {})}>
-        <AppScreen.Title>Stocks</AppScreen.Title>
-        <AppScreen.Subtitle>March 9, 2022</AppScreen.Subtitle>
-      </MotionAppScreenHeader>
-      <MotionAppScreenBody
-        {...(props.animated ? { ...bodyAnimation, custom: props.custom } : {})}
-      >
-        <div className="divide-y divide-gray-100">
-          {[
-            {
-              name: 'Laravel',
-              price: '4,098.01',
-              change: '+4.98%',
-              color: '#F9322C',
-              logo: LaravelLogo,
-            },
-            {
-              name: 'Tuple',
-              price: '5,451.10',
-              change: '-3.38%',
-              color: '#5A67D8',
-              logo: TupleLogo,
-            },
-            {
-              name: 'Transistor',
-              price: '4,098.41',
-              change: '+6.25%',
-              color: '#2A5B94',
-              logo: TransistorLogo,
-            },
-            {
-              name: 'Diageo',
-              price: '250.65',
-              change: '+1.25%',
-              color: '#3320A7',
-              logo: DiageoLogo,
-            },
-            {
-              name: 'StaticKit',
-              price: '250.65',
-              change: '-3.38%',
-              color: '#2A3034',
-              logo: StaticKitLogo,
-            },
-            {
-              name: 'Statamic',
-              price: '5,040.85',
-              change: '-3.11%',
-              color: '#0EA5E9',
-              logo: StatamicLogo,
-            },
-            {
-              name: 'Mirage',
-              price: '140.44',
-              change: '+9.09%',
-              color: '#16A34A',
-              logo: MirageLogo,
-            },
-            {
-              name: 'Reversable',
-              price: '550.60',
-              change: '-1.25%',
-              color: '#8D8D8D',
-              logo: ReversableLogo,
-            },
-          ].map((stock) => (
-            <div key={stock.name} className="flex items-center gap-4 px-4 py-3">
-              <div
-                className="flex-none rounded-full"
-                style={{ backgroundColor: stock.color }}
-              >
-                <stock.logo className="h-10 w-10" />
-              </div>
-              <div className="flex-auto text-sm text-gray-900">
-                {stock.name}
-              </div>
-              <div className="flex-none text-right">
-                <div className="text-sm font-medium text-gray-900">
-                  {stock.price}
-                </div>
-                <div
-                  className={clsx(
-                    'text-xs/5',
-                    stock.change.startsWith('+')
-                      ? 'text-cyan-500'
-                      : 'text-gray-500',
-                  )}
-                >
-                  {stock.change}
-                </div>
-              </div>
-            </div>
-          ))}
-        </div>
-      </MotionAppScreenBody>
-    </AppScreen>
-  )
-}
-
-function InvestScreen(props: ScreenProps) {
-  return (
-    <AppScreen className="w-full">
-      <MotionAppScreenHeader {...(props.animated ? headerAnimation : {})}>
-        <AppScreen.Title>Buy $LA</AppScreen.Title>
-        <AppScreen.Subtitle>
-          <span className="text-white">$34.28</span> per share
+          <span className="text-primary">Overall Score: 88/100</span>
         </AppScreen.Subtitle>
       </MotionAppScreenHeader>
       <MotionAppScreenBody
@@ -345,38 +171,130 @@ function InvestScreen(props: ScreenProps) {
         <div className="px-4 py-6">
           <div className="space-y-4">
             {[
-              { label: 'Number of shares', value: '100' },
-              {
-                label: 'Current market price',
-                value: (
-                  <div className="flex">
-                    $34.28
-                    <svg viewBox="0 0 24 24" fill="none" className="h-6 w-6">
-                      <path
-                        d="M17 15V7H9M17 7 7 17"
-                        stroke="#06B6D4"
-                        strokeWidth="2"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                      />
-                    </svg>
-                  </div>
-                ),
-              },
-              { label: 'Estimated cost', value: '$3,428.00' },
-            ].map((item) => (
-              <div
-                key={item.label}
-                className="flex justify-between border-b border-gray-100 pb-4"
-              >
-                <div className="text-sm text-gray-500">{item.label}</div>
-                <div className="text-sm font-semibold text-gray-900">
-                  {item.value}
+              { label: 'Nighttime Safety', value: 92 },
+              { label: 'Car Parking Safety', value: 78 },
+              { label: 'Kids Safety', value: 95 },
+              { label: 'Transportation Safety', value: 83 },
+              { label: 'Women\'s Safety', value: 89 },
+            ].map((metric) => (
+              <div key={metric.label} className="space-y-1">
+                <div className="flex justify-between items-center">
+                  <div className="text-sm text-gray-500">{metric.label}</div>
+                  <div className="text-sm font-medium">{metric.value}/100</div>
+                </div>
+                <div className="w-full bg-gray-200 rounded-full h-2.5">
+                  <div 
+                    className="bg-primary h-2.5 rounded-full" 
+                    style={{ width: `${metric.value}%` }}
+                  ></div>
                 </div>
               </div>
             ))}
-            <div className="rounded-lg bg-cyan-500 px-3 py-2 text-center text-sm font-semibold text-white">
-              Buy shares
+          </div>
+        </div>
+      </MotionAppScreenBody>
+    </AppScreen>
+  )
+}
+
+function CommunityScreen(props: ScreenProps) {
+  const communityItems = [
+    {
+      source: "Reddit",
+      user: "LAresident",
+      comment: "This neighborhood is really quiet at night. I've lived here for 5 years and never had any issues.",
+      rating: "★★★★★",
+    },
+    {
+      source: "Reddit",
+      user: "TravelExplorer",
+      comment: "Great area for families. Lots of restaurants within walking distance and feels very safe.",
+      rating: "★★★★☆",
+    },
+    {
+      source: "YouTube",
+      user: "CityExplorer",
+      comment: "The street parking can be challenging, but there's a secure garage two blocks away.",
+      rating: "★★★☆☆",
+    },
+    {
+      source: "Local Guide",
+      user: "LANative",
+      comment: "Public transportation is convenient. The metro station is a 5-minute walk.",
+      rating: "★★★★☆",
+    },
+  ];
+
+  return (
+    <AppScreen className="w-full">
+      <MotionAppScreenHeader {...(props.animated ? headerAnimation : {})}>
+        <AppScreen.Title>Community Insights</AppScreen.Title>
+        <AppScreen.Subtitle>Local perspectives</AppScreen.Subtitle>
+      </MotionAppScreenHeader>
+      <MotionAppScreenBody
+        {...(props.animated ? { ...bodyAnimation, custom: props.custom } : {})}
+      >
+        <div className="divide-y divide-gray-100">
+          {communityItems.map((item) => (
+            <div key={item.user} className="flex gap-4 p-4">
+              <div className="flex-none">
+                <span className="flex h-10 w-10 items-center justify-center rounded-full bg-primary/10 text-primary text-sm font-semibold">
+                  {item.source.charAt(0)}
+                </span>
+              </div>
+              <div className="flex-auto">
+                <div className="flex items-center justify-between">
+                  <div className="text-sm font-medium text-gray-900">
+                    {item.user}
+                    <span className="text-gray-500 text-xs ml-2">via {item.source}</span>
+                  </div>
+                  <div className="text-xs text-primary">{item.rating}</div>
+                </div>
+                <div className="mt-1 text-sm text-gray-700">{item.comment}</div>
+              </div>
+            </div>
+          ))}
+        </div>
+      </MotionAppScreenBody>
+    </AppScreen>
+  );
+}
+
+function AITakeawaysScreen(props: ScreenProps) {
+  return (
+    <AppScreen className="w-full">
+      <MotionAppScreenHeader {...(props.animated ? headerAnimation : {})}>
+        <AppScreen.Title>AI Summary</AppScreen.Title>
+        <AppScreen.Subtitle>Key insights</AppScreen.Subtitle>
+      </MotionAppScreenHeader>
+      <MotionAppScreenBody
+        {...(props.animated ? { ...bodyAnimation, custom: props.custom } : {})}
+      >
+        <div className="px-4 py-6">
+          <div className="space-y-6">
+            <div className="rounded-lg bg-yellow-50 border border-yellow-100 p-4">
+              <div className="font-medium text-sm text-gray-900 mb-2">Safety Overview</div>
+              <p className="text-sm text-gray-700">
+                This accommodation has excellent safety ratings, particularly for families and nighttime safety. The area is well-lit and has regular police patrols.
+              </p>
+            </div>
+            
+            <div className="rounded-lg bg-blue-50 border border-blue-100 p-4">
+              <div className="font-medium text-sm text-gray-900 mb-2">Local Opinion</div>
+              <p className="text-sm text-gray-700">
+                Residents consistently mention the neighborhood's friendly atmosphere and convenient access to amenities. Several comments note the strong community feel.
+              </p>
+            </div>
+            
+            <div className="rounded-lg bg-green-50 border border-green-100 p-4">
+              <div className="font-medium text-sm text-gray-900 mb-2">Transportation</div>
+              <p className="text-sm text-gray-700">
+                Public transportation is highly rated with a metro station nearby. Ride-sharing services are readily available with average wait times under 5 minutes.
+              </p>
+            </div>
+            
+            <div className="mt-6 rounded-lg bg-primary px-3 py-2 text-center text-sm font-semibold text-white">
+              View Full Report
             </div>
           </div>
         </div>
@@ -426,7 +344,7 @@ function FeaturesDesktop() {
             {featureIndex === selectedIndex && (
               <motion.div
                 layoutId="activeBackground"
-                className="absolute inset-0 bg-gray-800"
+                className="absolute inset-0 bg-primary/20"
                 initial={{ borderRadius: 16 }}
               />
             )}
@@ -447,7 +365,7 @@ function FeaturesDesktop() {
       </TabList>
       <div className="relative col-span-6">
         <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2">
-          <CircleBackground color="#13B5C8" className="animate-spin-slower" />
+          <CircleBackground color="#fc067d" className="animate-spin-slower" />
         </div>
         <PhoneFrame className="z-10 mx-auto w-full max-w-[366px]">
           <TabPanels as={Fragment}>
@@ -528,7 +446,7 @@ function FeaturesMobile() {
             <div className="relative transform overflow-hidden rounded-2xl bg-gray-800 px-5 py-6">
               <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2">
                 <CircleBackground
-                  color="#13B5C8"
+                  color="#fc067d"
                   className={featureIndex % 2 === 1 ? 'rotate-180' : undefined}
                 />
               </div>
@@ -555,7 +473,7 @@ function FeaturesMobile() {
             key={featureIndex}
             className={clsx(
               'relative h-0.5 w-4 rounded-full',
-              featureIndex === activeIndex ? 'bg-gray-300' : 'bg-gray-500',
+              featureIndex === activeIndex ? 'bg-primary' : 'bg-gray-500',
             )}
             aria-label={`Go to slide ${featureIndex + 1}`}
             onClick={() => {
@@ -577,27 +495,49 @@ export function PrimaryFeatures() {
   return (
     <section
       id="features"
-      aria-label="Features for investing all your money"
+      aria-label="Features for safety insights"
       className="bg-gray-900 py-20 sm:py-32"
     >
       <Container>
         <div className="mx-auto max-w-2xl lg:mx-0 lg:max-w-3xl">
-          <h2 className="text-3xl font-medium tracking-tight text-white">
-            Every feature you need to win. Try it for yourself.
-          </h2>
-          <p className="mt-2 text-lg text-gray-400">
-            Pocket was built for investors like you who play by their own rules
-            and aren't going to let SEC regulations get in the way of their
-            dreams. If other investing tools are afraid to build it, Pocket has
-            it.
-          </p>
+          <motion.h2 
+            className="text-3xl font-medium tracking-tight text-white"
+            initial={{ opacity: 0, y: 20 }}
+            whileInView={{ opacity: 1, y: 0 }}
+            viewport={{ once: true }}
+            transition={{ duration: 0.6 }}
+          >
+            Comprehensive Safety Insights for Travelers
+          </motion.h2>
+          <motion.p 
+            className="mt-2 text-lg text-gray-400"
+            initial={{ opacity: 0, y: 20 }}
+            whileInView={{ opacity: 1, y: 0 }}
+            viewport={{ once: true }}
+            transition={{ duration: 0.6, delay: 0.2 }}
+          >
+            Trustplace analyzes real crime data, community opinions, and local insights to provide you with a complete safety picture of any accommodation.
+          </motion.p>
         </div>
       </Container>
-      <div className="mt-16 md:hidden">
+      <motion.div 
+        className="mt-16 md:hidden"
+        initial={{ opacity: 0, y: 40 }}
+        whileInView={{ opacity: 1, y: 0 }}
+        viewport={{ once: true }}
+        transition={{ duration: 0.8 }}
+      >
         <FeaturesMobile />
-      </div>
+      </motion.div>
       <Container className="hidden md:mt-20 md:block">
-        <FeaturesDesktop />
+        <motion.div
+          initial={{ opacity: 0 }}
+          whileInView={{ opacity: 1 }}
+          viewport={{ once: true }}
+          transition={{ duration: 0.8 }}
+        >
+          <FeaturesDesktop />
+        </motion.div>
       </Container>
     </section>
   )
