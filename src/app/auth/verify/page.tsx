@@ -12,11 +12,11 @@ export default function VerifyEmail() {
           We&apos;ve sent you a verification link. Please check your email and click the link to verify your account.
         </p>
         <div className="space-y-4">
-          <Button asChild variant="outline" className="w-full">
-            <Link href="/auth/sign-in">
+          <Link href="/auth/sign-in">
+            <Button outline className="w-full">
               Back to Sign In
-            </Link>
-          </Button>
+            </Button>
+          </Link>
           <p className="text-sm text-muted-foreground">
             Didn&apos;t receive an email? Check your spam folder or{' '}
             <Link href="/auth/sign-up" className="text-primary hover:underline">

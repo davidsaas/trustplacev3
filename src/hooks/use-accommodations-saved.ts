@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react'
 import { useRouter, usePathname } from 'next/navigation'
-import { useSupabase } from '@/components/providers/supabase-provider'
+import { useSupabase } from '@/components/shared/providers/supabase-provider'
 import { createClient } from '@/lib/supabase/client'
 
 type SavedAccommodation = {
