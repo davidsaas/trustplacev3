@@ -1,22 +1,23 @@
 'use client'
 
-import { Suspense } from 'react'
 import { useState } from 'react'
 import Link from 'next/link'
 import { useSearchParams, useRouter } from 'next/navigation'
-import { useAuth } from '@/hooks/use-auth'
+import { useAuth } from '@/components/shared/providers/auth-provider'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { Github, Loader } from 'lucide-react'
+import { Loader } from 'lucide-react'
+import { FcGoogle } from 'react-icons/fc'
+import { toast } from 'sonner'
 
-function SignUpForm() {
+export default function SignUpPage() {
   const { signUp, signInWithGoogle, loading } = useAuth()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
   const searchParams = useSearchParams()
-  const _router = useRouter()
+  const router = useRouter()
   const next = searchParams.get('next')
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
@@ -28,9 +29,12 @@ function SignUpForm() {
       return
     }
 
-    const { error: signUpError } = await signUp(email, password)
+    const { error: signUpError, success } = await signUp(email, password)
     if (signUpError) {
       setError(signUpError)
+      toast.error('Sign up failed')
+    } else if (success) {
+      toast.success('Check your email to verify your account')
     }
   }
 
@@ -39,6 +43,7 @@ function SignUpForm() {
     const { error: googleError } = await signInWithGoogle()
     if (googleError) {
       setError(googleError)
+      toast.error('Google sign in failed')
     }
   }
 
@@ -64,7 +69,7 @@ function SignUpForm() {
             id="email"
             type="email"
             value={email}
-            onChange={(e: React.ChangeEvent<HTMLInputElement>) => setEmail(e.target.value)}
+            onChange={(e) => setEmail(e.target.value)}
             required
             disabled={loading}
           />
@@ -76,7 +81,7 @@ function SignUpForm() {
             id="password"
             type="password"
             value={password}
-            onChange={(e: React.ChangeEvent<HTMLInputElement>) => setPassword(e.target.value)}
+            onChange={(e) => setPassword(e.target.value)}
             required
             disabled={loading}
             minLength={6}
@@ -84,9 +89,7 @@ function SignUpForm() {
         </div>
 
         <Button type="submit" className="w-full" disabled={loading}>
-          {loading ? (
-            <Loader className="mr-2 h-4 w-4 animate-spin" />
-          ) : null}
+          {loading && <Loader className="mr-2 h-4 w-4 animate-spin" />}
           Sign Up
         </Button>
       </form>
@@ -112,7 +115,7 @@ function SignUpForm() {
         {loading ? (
           <Loader className="mr-2 h-4 w-4 animate-spin" />
         ) : (
-          <Github className="mr-2 h-4 w-4" />
+          <FcGoogle className="mr-2 h-5 w-5" />
         )}
         Google
       </Button>
@@ -128,13 +131,5 @@ function SignUpForm() {
         </Link>
       </p>
     </div>
-  )
-}
-
-export default function SignUpPage() {
-  return (
-    <Suspense fallback={<div>Loading...</div>}>
-      <SignUpForm />
-    </Suspense>
   )
 } 

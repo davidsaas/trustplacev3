@@ -29,6 +29,8 @@ import type {
 
 // Function to find closest safety metrics for a location
 async function findClosestSafetyMetrics(location: Location): Promise<SafetyMetric[] | null> {
+  console.log('Finding safety metrics for location:', location);
+  
   const { data: metrics, error } = await supabaseServer
     .from('safety_metrics')
     .select('*')
@@ -37,13 +39,28 @@ async function findClosestSafetyMetrics(location: Location): Promise<SafetyMetri
     .gte('longitude', location.lng - SAFETY_RADIUS)
     .lte('longitude', location.lng + SAFETY_RADIUS)
 
-  if (error || !metrics) {
+  if (error) {
     console.error('Error fetching safety metrics:', error)
     return null
   }
 
+  if (!metrics || metrics.length === 0) {
+    console.log('No safety metrics found in radius')
+    return null
+  }
+  
+  console.log(`Found ${metrics.length} raw safety metrics entries in radius`)
+
+  // Ensure numeric values for calculations by converting string values if needed
+  const processedMetrics = metrics.map(metric => ({
+    ...metric,
+    latitude: typeof metric.latitude === 'string' ? parseFloat(metric.latitude) : metric.latitude,
+    longitude: typeof metric.longitude === 'string' ? parseFloat(metric.longitude) : metric.longitude,
+    score: typeof metric.score === 'string' ? parseFloat(metric.score) : metric.score
+  }))
+
   // Group metrics by type and find the closest for each type
-  const metricsByType = metrics.reduce<Record<string, SafetyMetric>>((acc, metric) => {
+  const metricsByType = processedMetrics.reduce<Record<string, SafetyMetric>>((acc, metric) => {
     const distance = calculateDistance(
       { lat: location.lat, lng: location.lng },
       { lat: metric.latitude, lng: metric.longitude }
@@ -58,7 +75,9 @@ async function findClosestSafetyMetrics(location: Location): Promise<SafetyMetri
     return acc
   }, {})
 
-  return Object.values(metricsByType)
+  const result = Object.values(metricsByType)
+  console.log(`Returning ${result.length} grouped safety metrics by type`)
+  return result
 }
 
 // Function to fetch similar accommodations

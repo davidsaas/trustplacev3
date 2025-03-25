@@ -58,33 +58,57 @@ export interface Database {
       safety_metrics: {
         Row: {
           id: string
-          accommodation_id: string
-          nighttime_safety: number
-          car_parking_safety: number
-          kids_safety: number
-          transportation_safety: number
-          womens_safety: number
+          city_id: string
+          block_group_id: string
+          latitude: number
+          longitude: number
+          geom: string
+          metric_type: string
+          score: number
+          question: string
+          description: string
+          direct_incidents: number
+          weighted_incidents: number
+          population_density: number
+          incidents_per_1000: number
           created_at: string
+          expires_at: string
         }
         Insert: {
           id?: string
-          accommodation_id: string
-          nighttime_safety: number
-          car_parking_safety: number
-          kids_safety: number
-          transportation_safety: number
-          womens_safety: number
+          city_id: string
+          block_group_id: string
+          latitude: number
+          longitude: number
+          geom?: string
+          metric_type: string
+          score: number
+          question: string
+          description: string
+          direct_incidents: number
+          weighted_incidents: number
+          population_density: number
+          incidents_per_1000: number
           created_at?: string
+          expires_at?: string
         }
         Update: {
           id?: string
-          accommodation_id?: string
-          nighttime_safety?: number
-          car_parking_safety?: number
-          kids_safety?: number
-          transportation_safety?: number
-          womens_safety?: number
+          city_id?: string
+          block_group_id?: string
+          latitude?: number
+          longitude?: number
+          geom?: string
+          metric_type?: string
+          score?: number
+          question?: string
+          description?: string
+          direct_incidents?: number
+          weighted_incidents?: number
+          population_density?: number
+          incidents_per_1000?: number
           created_at?: string
+          expires_at?: string
         }
       }
       community_opinions: {
@@ -115,11 +139,4 @@ export interface Database {
       }
     }
   }
-}
-
-export const createClient = () => {
-  return createBrowserClient<Database>(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-  )
 } 

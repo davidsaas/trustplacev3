@@ -1,7 +1,7 @@
 'use client'
 
 import Link from 'next/link'
-import { useSupabase } from '@/components/shared/providers/supabase-provider'
+import { useSupabase } from '@/components/shared/providers/auth-provider'
 import { Button } from '@/components/ui/button'
 import { usePathname } from 'next/navigation'
 

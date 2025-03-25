@@ -1,16 +1,17 @@
 'use client'
 
-import { Suspense } from 'react'
 import { useState } from 'react'
 import Link from 'next/link'
 import { useSearchParams, useRouter } from 'next/navigation'
-import { useAuth } from '@/hooks/use-auth'
+import { useAuth } from '@/components/shared/providers/auth-provider'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { Github, Loader } from 'lucide-react'
+import { Loader } from 'lucide-react'
+import { toast } from 'sonner'
+import { FcGoogle } from 'react-icons/fc'
 
-function SignInForm() {
+export default function SignInPage() {
   const { signIn, signInWithGoogle, loading } = useAuth()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -26,8 +27,14 @@ function SignInForm() {
     const { error } = await signIn(email, password)
     if (error) {
       setError(error)
-    } else if (next && !next.startsWith('/auth/')) {
-      router.push(next)
+      toast.error('Sign in failed')
+    } else {
+      toast.success('Signed in successfully')
+      if (next && !next.startsWith('/auth/')) {
+        router.push(next)
+      } else {
+        router.push('/')
+      }
     }
   }
 
@@ -36,6 +43,7 @@ function SignInForm() {
     const { error } = await signInWithGoogle()
     if (error) {
       setError(error)
+      toast.error('Google sign in failed')
     }
   }
 
@@ -59,7 +67,7 @@ function SignInForm() {
             id="email"
             type="email"
             value={email}
-            onChange={(e: React.ChangeEvent<HTMLInputElement>) => setEmail(e.target.value)}
+            onChange={(e) => setEmail(e.target.value)}
             required
             disabled={loading}
           />
@@ -71,16 +79,14 @@ function SignInForm() {
             id="password"
             type="password"
             value={password}
-            onChange={(e: React.ChangeEvent<HTMLInputElement>) => setPassword(e.target.value)}
+            onChange={(e) => setPassword(e.target.value)}
             required
             disabled={loading}
           />
         </div>
 
         <Button type="submit" className="w-full" disabled={loading}>
-          {loading ? (
-            <Loader className="mr-2 h-4 w-4 animate-spin" />
-          ) : null}
+          {loading && <Loader className="mr-2 h-4 w-4 animate-spin" />}
           Sign In
         </Button>
       </form>
@@ -106,7 +112,7 @@ function SignInForm() {
         {loading ? (
           <Loader className="mr-2 h-4 w-4 animate-spin" />
         ) : (
-          <Github className="mr-2 h-4 w-4" />
+          <FcGoogle className="mr-2 h-5 w-5" />
         )}
         Google
       </Button>
@@ -122,13 +128,5 @@ function SignInForm() {
         </Link>
       </p>
     </div>
-  )
-}
-
-export default function SignInPage() {
-  return (
-    <Suspense fallback={<div>Loading...</div>}>
-      <SignInForm />
-    </Suspense>
   )
 } 
