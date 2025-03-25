@@ -314,7 +314,7 @@ export default function SafetyReportPage({ params }: SafetyReportProps) {
           <div className="relative">
             {/* Left column - Content */}
             <div className="w-full lg:w-1/2">
-              <div className="px-4 py-2 sm:px-6 lg:px-8">
+              <div className="px-4 py-10 sm:px-6 lg:px-8">
                 
                 {/* Safety Analysis */}
                 <div className="mb-8">
@@ -353,8 +353,8 @@ export default function SafetyReportPage({ params }: SafetyReportProps) {
             </div>
 
             {/* Right column - Map */}
-            <div className="h-[500px] lg:fixed lg:top-16 lg:right-0 lg:bottom-0 lg:w-1/2 lg:h-[calc(100vh-64px)]">
-              <div className="p-2 lg:p-4 h-full">
+            <div className="h-[400px] lg:fixed lg:top-50 lg:right-0 lg:bottom-0 lg:w-1/2 lg:h-[calc(100vh-64px)]">
+              <div className="p-2 lg:p-6 h-full">
                 {reportData.location ? (
                   <MapView 
                     location={reportData.location}

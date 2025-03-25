@@ -1,6 +1,6 @@
 'use client'
 
-import { Fragment, useEffect, useId, useRef, useState } from 'react'
+import { Fragment, useEffect, useRef, useState } from 'react'
 import { Tab, TabGroup, TabList, TabPanel, TabPanels } from '@headlessui/react'
 import clsx from 'clsx'
 import {
@@ -11,8 +11,6 @@ import {
   motion,
 } from 'framer-motion'
 import { useDebouncedCallback } from 'use-debounce'
-import Image from 'next/image'
-import { usePathname, useSearchParams } from 'next/navigation'
 
 import { AppScreen } from '@/components/landing/AppScreen'
 import { CircleBackground } from '@/components/landing/CircleBackground'

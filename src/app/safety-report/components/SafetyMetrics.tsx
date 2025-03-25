@@ -2,10 +2,6 @@
 
 import * as React from 'react'
 import { 
-  ShieldCheck, 
-  AlertCircle, 
-  AlertTriangle, 
-  ShieldAlert, 
   Clock, 
   Car, 
   Baby, 
