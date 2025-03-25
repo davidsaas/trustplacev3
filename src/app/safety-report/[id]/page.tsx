@@ -2,10 +2,6 @@
 
 import { useState, useEffect } from 'react'
 import { notFound } from 'next/navigation'
-import Link from 'next/link'
-import { ChevronLeft } from 'lucide-react'
-import { XMarkIcon } from '@heroicons/react/24/outline'
-
 import { SafetyMetrics } from '../components/SafetyMetrics'
 import { CommunityOpinions } from '../components/CommunityOpinions'
 import { MapView } from '../components/MapView'
@@ -16,8 +12,6 @@ import { LOCATION_RADIUS, SAFETY_RADIUS, PRICE_RANGE } from '../constants'
 import { isValidCoordinates, calculateDistance } from '../utils'
 import Loading from './loading'
 import { AppNavbar } from '@/app/components/navbar'
-
-import { Card, CardHeader, CardContent, CardTitle } from '@/components/ui/card'
 
 import type { 
   SafetyReportProps, 
@@ -264,10 +258,6 @@ async function getReportData(id: string): Promise<AccommodationData | null> {
     overall_score,
     similar_accommodations
   }
-}
-
-function classNames(...classes: (string | boolean | undefined)[]) {
-  return classes.filter(Boolean).join(' ')
 }
 
 export default function SafetyReportPage({ params }: SafetyReportProps) {

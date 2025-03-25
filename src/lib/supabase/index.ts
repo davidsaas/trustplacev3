@@ -1,5 +1,3 @@
-import { createBrowserClient } from '@supabase/ssr'
-
 export type Json =
   | string
   | number
