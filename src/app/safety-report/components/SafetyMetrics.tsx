@@ -12,6 +12,7 @@ import {
   Bus, 
   UserRound
 } from 'lucide-react'
+import type { LucideIcon } from 'lucide-react'
 import type { SafetyMetric } from '@/types/safety-report'
 import {
   Card,
@@ -35,7 +36,7 @@ const METRIC_QUESTIONS: Record<string, string> = {
 }
 
 // Icons for each metric type
-const METRIC_ICONS: Record<string, any> = {
+const METRIC_ICONS: Record<string, LucideIcon> = {
   night: Clock,
   vehicle: Car,
   child: Baby,

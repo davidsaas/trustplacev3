@@ -18,16 +18,6 @@ import { AppScreen } from '@/components/landing/AppScreen'
 import { CircleBackground } from '@/components/landing/CircleBackground'
 import { Container } from '@/components/landing/Container'
 import { PhoneFrame } from '@/components/landing/PhoneFrame'
-import {
-  DiageoLogo,
-  LaravelLogo,
-  MirageLogo,
-  ReversableLogo,
-  StatamicLogo,
-  StaticKitLogo,
-  TransistorLogo,
-  TupleLogo,
-} from '../../../landing-page-3/src/components/StockLogos'
 
 const MotionAppScreenHeader = motion(AppScreen.Header)
 const MotionAppScreenBody = motion(AppScreen.Body)

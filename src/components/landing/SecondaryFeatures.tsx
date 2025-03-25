@@ -53,8 +53,6 @@ function SafetyMetricsIcon(props: React.ComponentPropsWithoutRef<'svg'>) {
 }
 
 function CrimeDataIcon(props: React.ComponentPropsWithoutRef<'svg'>) {
-  let id = useId()
-
   return (
     <svg viewBox="0 0 32 32" aria-hidden="true" {...props}>
       <circle cx={16} cy={16} r={16} fill="#fc067d" fillOpacity={0.2} />

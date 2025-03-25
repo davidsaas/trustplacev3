@@ -3,15 +3,14 @@
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import { useState, useEffect } from 'react'
-import { User, Search, BookmarkIcon, LogOut } from 'lucide-react'
-import { Menu, X } from 'lucide-react'
-import { Navbar, NavbarSection, NavbarItem, NavbarSpacer, NavbarLabel } from '@/components/ui/navbar-search'
-import { parseAccommodationURL } from '@/lib/utils/url'
+import { User, Search, BookmarkIcon, LogOut, Menu } from 'lucide-react'
+import { Navbar } from '@/components/ui/navbar-search'
 import { Button } from '@/components/ui/button'
 import { createClient } from '@/lib/supabase/client'
 import { toast } from 'sonner'
 import { useAuth } from '@/components/shared/providers/auth-provider'
 import { ROUTES } from '@/lib/constants'
+import { parseAccommodationURL } from '@/lib/utils/url'
 
 const navigationItems = [
   { name: 'Home', href: '/' },
@@ -274,7 +273,7 @@ export function AppNavbar() {
                 onClick={() => setMobileMenuOpen(false)}
               >
                 <span className="sr-only">Close sidebar</span>
-                <X className="size-6" aria-hidden="true" />
+                <Menu className="size-6" aria-hidden="true" />
               </button>
             </div>
 
