@@ -1,7 +1,5 @@
 'use client'
 
-import { useId } from 'react'
-import Image from 'next/image'
 import { Container } from '@/components/landing/Container'
 import { motion } from 'framer-motion'
 

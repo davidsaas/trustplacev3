@@ -14,13 +14,7 @@ import {
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import type { SafetyMetric } from '@/types/safety-report'
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card"
+import { getRiskLevel } from '../utils'
 
 type SafetyMetricsProps = {
   data: SafetyMetric[] | null
@@ -42,50 +36,6 @@ const METRIC_ICONS: Record<string, LucideIcon> = {
   child: Baby,
   transit: Bus,
   women: UserRound
-}
-
-// Risk level mapping with enhanced visual styling
-const getRiskLevel = (score: number) => {
-  if (score >= 8) return { 
-    label: 'Low Risk', 
-    color: 'bg-emerald-500',
-    bgColor: 'bg-emerald-50',
-    textColor: 'text-emerald-700', 
-    lightBg: 'bg-emerald-50',
-    border: 'border-emerald-100',
-    icon: ShieldCheck,
-    description: 'Generally very safe area'
-  }
-  if (score >= 6) return { 
-    label: 'Medium Risk', 
-    color: 'bg-amber-500',
-    bgColor: 'bg-amber-50',
-    textColor: 'text-amber-700', 
-    lightBg: 'bg-amber-50',
-    border: 'border-amber-100',
-    icon: AlertCircle,
-    description: 'Exercise normal caution'
-  }
-  if (score >= 4) return { 
-    label: 'High Risk', 
-    color: 'bg-orange-500',
-    bgColor: 'bg-orange-50',
-    textColor: 'text-orange-700', 
-    lightBg: 'bg-orange-50',
-    border: 'border-orange-100',
-    icon: AlertTriangle,
-    description: 'Exercise increased caution'
-  }
-  return { 
-    label: 'Maximum Risk', 
-    color: 'bg-rose-500',
-    bgColor: 'bg-rose-50',
-    textColor: 'text-rose-700', 
-    lightBg: 'bg-rose-50',
-    border: 'border-rose-100',
-    icon: ShieldAlert,
-    description: 'Extreme caution advised'
-  }
 }
 
 function classNames(...classes: (string | boolean | undefined)[]) {
