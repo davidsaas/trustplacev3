@@ -115,17 +115,7 @@ export function AppNavbar() {
             />
           </Link>
           
-          <NavbarSection>
-            {navigationItems.map(item => (
-              <NavbarItem 
-                key={item.name} 
-                href={item.href}
-                current={pathname === item.href}
-              >
-                <NavbarLabel>{item.name}</NavbarLabel>
-              </NavbarItem>
-            ))}
-          </NavbarSection>
+
           
           <div className="relative mx-auto max-w-md flex-1 hidden lg:block">
             <form onSubmit={handleSearch} className="relative">

@@ -126,8 +126,6 @@ const AnimatedScoreCircle = ({ score, size = 120, strokeWidth = 8, overallRisk }
 export const PropertyHeader = memo(({ 
   name,
   price_per_night,
-  rating,
-  total_reviews,
   source,
   image_url,
   url,
@@ -205,11 +203,9 @@ export const PropertyHeader = memo(({
           </div>
           <div className="mt-6 sm:flex sm:min-w-0 sm:flex-1 sm:items-center sm:justify-end sm:space-x-6 sm:pb-1">
             <div className="mt-6 min-w-0 flex-1 sm:hidden md:block">
-              <h1 className="truncate text-2xl font-bold text-gray-900">{name}</h1>
+              <h1 className="truncate text-2xl font-bold text-gray-900 ">{name}</h1>
               <PropertyMetrics
                 price_per_night={price_per_night}
-                rating={rating}
-                total_reviews={total_reviews}
                 source={source}
               />
             </div>
@@ -238,8 +234,6 @@ export const PropertyHeader = memo(({
           <h1 className="truncate text-2xl font-bold text-gray-900">{name}</h1>
           <PropertyMetrics
             price_per_night={price_per_night}
-            rating={rating}
-            total_reviews={total_reviews}
             source={source}
           />
         </div>

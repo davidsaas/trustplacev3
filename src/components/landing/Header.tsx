@@ -160,16 +160,16 @@ export function Header() {
                               <Link href="/saved" className="text-base/7 tracking-tight text-gray-700">
                                 Saved Properties
                               </Link>
-                              <Button onClick={handleSignOut}>
+                              <Button className="bg-primary hover:bg-primary/90 text-white" onClick={handleSignOut}>
                                 Sign out
                               </Button>
                             </div>
                           ) : (
                             <div className="mt-8 flex flex-col gap-4">
-                              <Button outline>
+                              <Button className="bg-white border-primary text-primary hover:bg-gray-50" outline>
                                 <Link href="/auth/sign-in">Sign in</Link>
                               </Button>
-                              <Button>
+                              <Button className="bg-primary hover:bg-primary/90 text-white">
                                 <Link href="/auth/sign-up">Sign up</Link>
                               </Button>
                             </div>
@@ -232,10 +232,10 @@ export function Header() {
                 </div>
               ) : (
                 <div className="flex items-center gap-6">
-                  <Button outline>
+                  <Button className="bg-white border-primary text-primary hover:bg-gray-50" outline>
                     <Link href="/auth/sign-in">Sign in</Link>
                   </Button>
-                  <Button>
+                  <Button className="bg-primary hover:bg-primary/90 text-white">
                     <Link href="/auth/sign-up">Sign up</Link>
                   </Button>
                 </div>

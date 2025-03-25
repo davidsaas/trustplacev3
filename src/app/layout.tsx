@@ -4,6 +4,7 @@ import "./globals.css";
 import "mapbox-gl/dist/mapbox-gl.css";
 import { cn, getBaseUrl } from "@/lib/utils";
 import { AuthProvider } from "@/components/shared/providers/auth-provider";
+import { ThemeProvider } from "@/components/shared/providers/theme-provider";
 import { Toaster } from 'sonner';
 
 const inter = Inter({ subsets: ["latin"] });
@@ -35,15 +36,17 @@ export default function RootLayout({
   children: React.ReactNode
 }) {
   return (
-    <html lang="en" suppressHydrationWarning className="h-full bg-white">
+    <html lang="en" suppressHydrationWarning className="h-full">
       <body className={cn(
         "h-full font-sans antialiased",
         inter.className
       )}>
-        <AuthProvider>
-          {children}
-          <Toaster />
-        </AuthProvider>
+        <ThemeProvider>
+          <AuthProvider>
+            {children}
+            <Toaster />
+          </AuthProvider>
+        </ThemeProvider>
       </body>
     </html>
   );
