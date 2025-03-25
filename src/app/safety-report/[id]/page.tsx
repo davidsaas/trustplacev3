@@ -1,24 +1,31 @@
-import { Suspense } from 'react'
-import { SafetyMetrics } from '@/components/safety-report/SafetyMetrics'
-import { CommunityOpinions } from '@/components/safety-report/CommunityOpinions'
-import { MapView } from '@/components/safety-report/MapView'
-import { RestrictedContent } from '@/components/auth/restricted-content'
+'use client'
+
+import { useState, useEffect } from 'react'
 import { notFound } from 'next/navigation'
-import Loading from './loading'
+import Link from 'next/link'
+import { ChevronLeft } from 'lucide-react'
+import { XMarkIcon } from '@heroicons/react/24/outline'
+
+import { SafetyMetrics } from '../components/SafetyMetrics'
+import { CommunityOpinions } from '../components/CommunityOpinions'
+import { MapView } from '../components/MapView'
+import { RestrictedContent } from '@/app/auth/components/restricted-content'
 import { supabaseServer } from '@/lib/supabase/server'
-import { Card } from '@/components/ui/card'
 import { PropertyHeader } from '../components/PropertyHeader'
 import { LOCATION_RADIUS, SAFETY_RADIUS, PRICE_RANGE } from '../constants'
 import { isValidCoordinates, calculateDistance } from '../utils'
-import { ChevronLeft } from 'lucide-react'
-import Link from 'next/link'
+import Loading from './loading'
+import { AppNavbar } from '@/app/components/navbar'
+
+import { Card, CardHeader, CardContent, CardTitle } from '@/components/ui/card'
+
 import type { 
   SafetyReportProps, 
   SafetyMetric, 
   Location,
   AccommodationData,
   SimilarAccommodation
-} from '../types'
+} from '@/types/safety-report'
 
 // Function to find closest safety metrics for a location
 async function findClosestSafetyMetrics(location: Location): Promise<SafetyMetric[] | null> {
@@ -240,87 +247,125 @@ async function getReportData(id: string): Promise<AccommodationData | null> {
   }
 }
 
-export default async function SafetyReportPage({ params }: SafetyReportProps) {
-  if (!params.id) notFound()
+function classNames(...classes: (string | boolean | undefined)[]) {
+  return classes.filter(Boolean).join(' ')
+}
 
-  const reportData = await getReportData(params.id)
-  if (!reportData) notFound()
+export default function SafetyReportPage({ params }: SafetyReportProps) {
+  const [reportData, setReportData] = useState<AccommodationData | null>(null)
+  const [loading, setLoading] = useState(true)
+
+  if (!params.id) {
+    notFound()
+  }
+
+  // Fetch data
+  useEffect(() => {
+    async function loadData() {
+      try {
+        const data = await getReportData(params.id)
+        if (!data) notFound()
+        setReportData(data)
+      } catch (error) {
+        console.error("Error loading report data:", error)
+        notFound()
+      } finally {
+        setLoading(false)
+      }
+    }
+    
+    loadData()
+  }, [params.id])
+
+  if (loading || !reportData) {
+    return <Loading />
+  }
 
   return (
-    <Suspense fallback={<Loading />}>
-      <div className="min-h-screen bg-gray-50">
-        {/* Header */}
-        <header className="bg-white border-b border-gray-100 shadow-sm">
-          <div className="container mx-auto px-4 py-4">
-            <div className="flex items-center mb-1">
-              <Link href="/safety-reports" className="flex items-center text-blue-600 font-medium hover:text-blue-800 transition-colors mr-4">
-                <ChevronLeft className="w-4 h-4 mr-1" />
-                <span>Back</span>
-              </Link>
-              <h1 className="text-2xl font-bold text-gray-900">Safety Report</h1>
-            </div>
-            <div className="text-sm text-gray-500">
-              Making your stay safer with data-driven insights
-            </div>
-          </div>
-        </header>
+    <div className="min-h-screen bg-gray-50">
+      {/* Global Navigation */}
+      <AppNavbar />
+      
+      {/* Page content with proper top padding */}
+      <div className="pt-16">
+        {/* Property header with banner */}
+        <PropertyHeader
+          name={reportData.name}
+          price_per_night={reportData.price_per_night}
+          rating={reportData.rating}
+          total_reviews={reportData.total_reviews}
+          source={reportData.source}
+          image_url={reportData.image_url}
+          url={reportData.url}
+          overall_score={reportData.overall_score}
+        />
         
-        <main className="container mx-auto px-4 py-6">
-          {/* Property Header */}
-          <div className="bg-white rounded-xl shadow-md p-6 mb-8">
-            <PropertyHeader
-              name={reportData.name}
-              price_per_night={reportData.price_per_night}
-              rating={reportData.rating}
-              total_reviews={reportData.total_reviews}
-              source={reportData.source}
-              image_url={reportData.image_url}
-              url={reportData.url}
-              overall_score={reportData.overall_score}
-            />
-          </div>
-          
-          {/* Safety Metrics and Map */}
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-8">
-            <RestrictedContent>
-              <SafetyMetrics data={reportData.safety_metrics} />
-            </RestrictedContent>
-
-            {reportData.location ? (
-              <MapView 
-                location={reportData.location}
-                currentAccommodation={{
-                  id: reportData.id,
-                  name: reportData.name,
-                  overall_score: reportData.overall_score
-                }}
-                similarAccommodations={reportData.similar_accommodations}
-              />
-            ) : (
-              <Card className="p-6 rounded-xl shadow-md overflow-hidden">
-                <h2 className="text-2xl font-semibold mb-4">Location</h2>
-                <div className="h-[400px] rounded-xl bg-gray-50 flex items-center justify-center">
-                  <p className="text-gray-500">Location coordinates not available</p>
+        {/* Main content with map */}
+        <div className="pt-4">
+          <div className="relative">
+            {/* Left column - Content */}
+            <div className="w-full lg:w-1/2">
+              <div className="px-4 py-2 sm:px-6 lg:px-8">
+                
+                {/* Safety Analysis */}
+                <div className="mb-8">
+                  <div className="border-b border-gray-200 bg-white px-4 py-5 sm:px-6 rounded-t-xl shadow-sm">
+                    <div className="-ml-4 -mt-4 flex flex-wrap items-center justify-between sm:flex-nowrap">
+                      <div className="ml-4 mt-4">
+                        <h3 className="text-base font-semibold text-gray-900">Safety Analysis</h3>
+                        <p className="mt-1 text-sm text-gray-500">
+                          Detailed safety metrics for this location based on local data
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                  <RestrictedContent>
+                    <SafetyMetrics data={reportData.safety_metrics} />
+                  </RestrictedContent>
                 </div>
-              </Card>
-            )}
-          </div>
+            
+                {/* Community Opinions */}
+                <div className="mb-16 lg:mb-8">
+                  <div className="border-b border-gray-200 bg-white px-4 py-5 sm:px-6 rounded-t-xl shadow-sm">
+                    <div className="-ml-4 -mt-4 flex flex-wrap items-center justify-between sm:flex-nowrap">
+                      <div className="ml-4 mt-4">
+                        <h3 className="text-base font-semibold text-gray-900">Community Feedback</h3>
+                        <p className="mt-1 text-sm text-gray-500">
+                          Opinions and experiences shared by other travelers
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                  <RestrictedContent>
+                    <CommunityOpinions reportId={params.id} />
+                  </RestrictedContent>
+                </div>
+              </div>
+            </div>
 
-          <RestrictedContent>
-            <CommunityOpinions reportId={params.id} />
-          </RestrictedContent>
-        </main>
-        
-        {/* Footer */}
-        <footer className="bg-white border-t border-gray-100 py-8 mt-12">
-          <div className="container mx-auto px-4">
-            <div className="text-center text-gray-500 text-sm">
-              <p>Safety data is aggregated from multiple sources and is updated regularly.</p>
-              <p className="mt-2">© {new Date().getFullYear()} TrustPlace - Making travel safer through data</p>
+            {/* Right column - Map */}
+            <div className="h-[500px] lg:fixed lg:top-16 lg:right-0 lg:bottom-0 lg:w-1/2 lg:h-[calc(100vh-64px)]">
+              <div className="p-2 lg:p-4 h-full">
+                {reportData.location ? (
+                  <MapView 
+                    location={reportData.location}
+                    currentAccommodation={{
+                      id: reportData.id,
+                      name: reportData.name,
+                      overall_score: reportData.overall_score
+                    }}
+                    similarAccommodations={reportData.similar_accommodations}
+                  />
+                ) : (
+                  <div className="h-full bg-gray-100 flex items-center justify-center m-4 rounded-xl">
+                    <p className="text-gray-500">Location coordinates not available</p>
+                  </div>
+                )}
+              </div>
             </div>
           </div>
-        </footer>
+        </div>
       </div>
-    </Suspense>
+    </div>
   )
 }

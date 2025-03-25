@@ -3,8 +3,7 @@ import { Inter } from "next/font/google";
 import "./globals.css";
 import "mapbox-gl/dist/mapbox-gl.css";
 import { cn, getBaseUrl } from "@/lib/utils";
-import { SupabaseProvider } from "@/components/providers/supabase-provider";
-import { MainNav } from "@/components/navigation/main-nav";
+import { SupabaseProvider } from "@/components/shared/providers/supabase-provider";
 
 const inter = Inter({ subsets: ["latin"] });
 
@@ -35,16 +34,13 @@ export default function RootLayout({
   children: React.ReactNode
 }) {
   return (
-    <html lang="en" suppressHydrationWarning>
+    <html lang="en" suppressHydrationWarning className="h-full bg-white">
       <body className={cn(
-        "min-h-screen bg-background font-sans antialiased",
+        "h-full font-sans antialiased",
         inter.className
       )}>
         <SupabaseProvider>
-          <MainNav />
-          <div className="pt-16">
-            {children}
-          </div>
+          {children}
         </SupabaseProvider>
       </body>
     </html>
