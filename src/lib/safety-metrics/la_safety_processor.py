@@ -533,8 +533,8 @@ def main(test_mode=False):
     logger.info(f"Running in {'TEST' if test_mode else 'PRODUCTION'} mode")
 
     # Set processing parameters based on mode
-    days_back = 360  # Increased from 120 to 360 days for even better historical coverage
-    max_records = 300000  # Increased from 100000 to 300000 for most comprehensive dataset
+    days_back = 500  # Increased from 120 to 360 days for even better historical coverage
+    max_records = 500000  # Increased from 100000 to 300000 for most comprehensive dataset
     
     try:
         # 1. Fetch crime data
