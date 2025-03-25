@@ -7,7 +7,7 @@ import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { useAccommodationsSaved } from '@/hooks/use-accommodations-saved'
 import { formatDistanceToNow } from 'date-fns'
-import { useSupabase } from '@/components/shared/providers/supabase-provider'
+import { useSupabase } from '@/components/shared/providers/auth-provider'
 
 export default function SavedAccommodationsPage() {
   const { user } = useSupabase()

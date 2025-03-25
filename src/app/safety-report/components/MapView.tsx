@@ -1,6 +1,7 @@
 'use client'
 
-import React, { useEffect, useRef, useCallback } from 'react'
+import * as React from 'react'
+import { useEffect, useRef, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import mapboxgl from 'mapbox-gl'
 import 'mapbox-gl/dist/mapbox-gl.css'

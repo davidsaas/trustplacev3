@@ -3,7 +3,8 @@ import { Inter } from "next/font/google";
 import "./globals.css";
 import "mapbox-gl/dist/mapbox-gl.css";
 import { cn, getBaseUrl } from "@/lib/utils";
-import { SupabaseProvider } from "@/components/shared/providers/supabase-provider";
+import { AuthProvider } from "@/components/shared/providers/auth-provider";
+import { Toaster } from 'sonner';
 
 const inter = Inter({ subsets: ["latin"] });
 
@@ -39,9 +40,10 @@ export default function RootLayout({
         "h-full font-sans antialiased",
         inter.className
       )}>
-        <SupabaseProvider>
+        <AuthProvider>
           {children}
-        </SupabaseProvider>
+          <Toaster />
+        </AuthProvider>
       </body>
     </html>
   );

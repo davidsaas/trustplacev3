@@ -4,18 +4,21 @@ export interface SafetyReportProps {
 
 export interface SafetyMetric {
   id: string
+  city_id: string
+  block_group_id: string
   latitude: number
   longitude: number
+  geom: string
   metric_type: string
   score: number
   question: string
   description: string
+  direct_incidents: number
+  weighted_incidents: number
+  population_density: number
+  incidents_per_1000: number
   created_at: string
   expires_at: string
-  total_population: number | null
-  housing_units: number | null
-  median_age: number | null
-  incidents_per_1000: number | null
 }
 
 export interface SafetyMetricWithDistance extends SafetyMetric {

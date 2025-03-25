@@ -10,7 +10,7 @@ import { parseAccommodationURL } from '@/lib/utils/url'
 import { Button } from '@/components/ui/button'
 import { createClient } from '@/lib/supabase/client'
 import { toast } from 'sonner'
-import { useAuth } from '@/hooks/use-auth'
+import { useAuth } from '@/components/shared/providers/auth-provider'
 import { ROUTES } from '@/lib/constants'
 
 const navigationItems = [
