@@ -4,7 +4,7 @@ import { SavedButton } from './SavedButton'
 import { PropertyMetrics } from './PropertyMetrics'
 import { getValidImageUrl, getRiskLevel } from '../utils'
 import type { PropertyHeaderProps } from '@/types/safety-report'
-import { Card, CardHeader, CardContent } from '@/components/ui/card'
+import { Card, CardContent } from '@/components/ui/card'
 
 type PropertyHeaderWithScoreProps = PropertyHeaderProps & {
   image_url: string | null

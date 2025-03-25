@@ -49,14 +49,6 @@ export const SafetyMetrics = ({ data }: SafetyMetricsProps) => {
     )
   }
 
-  // Calculate overall score (average of all metric scores)
-  const overallScore = Math.round(
-    data.reduce((acc, metric) => acc + metric.score, 0) / data.length * 10
-  )
-
-  // Get overall risk level
-  const overallRisk = getRiskLevel(overallScore / 10)
-
   // Clean up debug info from descriptions
   const cleanDescription = (description: string) => {
     // Remove debug info in brackets if present
@@ -80,8 +72,6 @@ export const SafetyMetrics = ({ data }: SafetyMetricsProps) => {
 
   return (
     <div className="bg-white p-6 shadow-sm">
-
-      
       <div className="divide-y divide-gray-200 overflow-hidden bg-gray-200 sm:grid sm:grid-cols-2 sm:gap-px sm:divide-y-0">
         {metricActions.map((action, actionIdx) => (
           <div
@@ -116,8 +106,6 @@ export const SafetyMetrics = ({ data }: SafetyMetricsProps) => {
                 {action.description}
               </p>
             </div>
-            
-
           </div>
         ))}
       </div>
