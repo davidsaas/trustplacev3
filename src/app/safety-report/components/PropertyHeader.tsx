@@ -1,11 +1,12 @@
-import { memo } from 'react'
+import { memo, useEffect, useRef } from 'react'
 import Image from 'next/image'
-import { PropertyMetrics } from '../components/PropertyMetrics'
-import { IMAGE_CONFIG } from '../constants'
-import type { PropertyHeaderProps } from '../types'
-import { getValidImageUrl } from '../utils'
+import Link from 'next/link'
 import { ImageOff, ExternalLink, Shield, CheckCircle2, AlertCircle, AlertTriangle, ShieldAlert } from 'lucide-react'
-import { SavedButton } from '@/components/safety-report/SavedButton'
+import { SavedButton } from './SavedButton'
+import { PropertyMetrics } from './PropertyMetrics'
+import { IMAGE_CONFIG } from '../constants'
+import { getValidImageUrl } from '../utils'
+import type { PropertyHeaderProps } from '@/types/safety-report'
 
 // We need this function from SafetyMetrics
 const getRiskLevel = (score: number) => {
@@ -16,6 +17,7 @@ const getRiskLevel = (score: number) => {
     textColor: 'text-emerald-700', 
     lightBg: 'bg-emerald-50',
     border: 'border-emerald-100',
+    fill: '#10b981', // emerald-500 equivalent
     icon: CheckCircle2,
     description: 'Generally very safe area'
   }
@@ -26,6 +28,7 @@ const getRiskLevel = (score: number) => {
     textColor: 'text-amber-700', 
     lightBg: 'bg-amber-50',
     border: 'border-amber-100',
+    fill: '#f59e0b', // amber-500 equivalent
     icon: AlertCircle,
     description: 'Exercise normal caution'
   }
@@ -36,6 +39,7 @@ const getRiskLevel = (score: number) => {
     textColor: 'text-orange-700', 
     lightBg: 'bg-orange-50',
     border: 'border-orange-100',
+    fill: '#f97316', // orange-500 equivalent
     icon: AlertTriangle,
     description: 'Exercise increased caution'
   }
@@ -46,6 +50,7 @@ const getRiskLevel = (score: number) => {
     textColor: 'text-rose-700', 
     lightBg: 'bg-rose-50',
     border: 'border-rose-100',
+    fill: '#f43f5e', // rose-500 equivalent
     icon: ShieldAlert,
     description: 'Extreme caution advised'
   }
@@ -56,6 +61,67 @@ type PropertyHeaderWithScoreProps = PropertyHeaderProps & {
   url?: string | null
   overall_score?: number
 }
+
+const AnimatedScoreCircle = ({ score, size = 120, strokeWidth = 8, overallRisk }: { 
+  score: number,
+  size?: number,
+  strokeWidth?: number,
+  overallRisk: ReturnType<typeof getRiskLevel>
+}) => {
+  const radius = (size - strokeWidth) / 2;
+  const circumference = 2 * Math.PI * radius;
+  const progressOffset = circumference - (score / 100) * circumference;
+  
+  return (
+    <div className="relative" style={{ width: size, height: size }}>
+      {/* Background circle */}
+      <svg width={size} height={size} className="absolute inset-0">
+        <circle
+          stroke="#e5e7eb"
+          strokeWidth={strokeWidth}
+          fill="none"
+          cx={size / 2}
+          cy={size / 2}
+          r={radius}
+        />
+      </svg>
+      
+      {/* Animated progress circle */}
+      <svg width={size} height={size} className="absolute inset-0 -rotate-90 transition-all duration-1000">
+        <circle
+          stroke={overallRisk.fill}
+          strokeWidth={strokeWidth}
+          strokeLinecap="round"
+          fill="none"
+          cx={size / 2}
+          cy={size / 2}
+          r={radius}
+          strokeDasharray={circumference}
+          strokeDashoffset={progressOffset}
+          className="transition-all duration-1000 ease-out"
+        >
+          <animate
+            attributeName="stroke-dashoffset"
+            from={circumference}
+            to={progressOffset}
+            dur="1.5s"
+            fill="freeze"
+            calcMode="spline"
+            keySplines="0.42 0 0.58 1"
+          />
+        </circle>
+      </svg>
+      
+      {/* Inner content */}
+      <div className="absolute inset-0 flex flex-col items-center justify-center">
+        <span className="text-3xl font-bold">{score}</span>
+        <div className={`text-xs mt-1 ${overallRisk.textColor} font-medium flex items-center gap-1`}>
+          <span>{overallRisk.label}</span>
+        </div>
+      </div>
+    </div>
+  );
+};
 
 export const PropertyHeader = memo(({ 
   name,
@@ -97,88 +163,86 @@ export const PropertyHeader = memo(({
   
   // Get overall risk level based on score
   const hasScore = overall_score > 0;
-  const overallRisk = hasScore ? getRiskLevel(overall_score / 100) : null;
+  const overallRisk = hasScore ? getRiskLevel(overall_score / 10) : null;
   const RiskIcon = overallRisk?.icon || Shield;
 
   return (
-    <div className="overflow-hidden">
-      <div className="relative h-[280px] w-full rounded-xl overflow-hidden mb-4">
+    <div>
+      <div className="relative lg:w-1/2">
         {getValidImageUrl(image_url) ? (
-          <Image
-            src={image_url!}
+          <img 
             alt={`${name} - Property View`}
-            fill
-            className="object-cover transition-transform duration-700 hover:scale-105"
-            priority
-            sizes={IMAGE_CONFIG.SIZES}
-            quality={IMAGE_CONFIG.QUALITY}
+            src={image_url!}
+            className="h-48 w-full object-cover lg:h-64" 
           />
         ) : (
-          <div className="h-full w-full flex items-center justify-center bg-gray-50">
+          <div className="h-48 w-full lg:h-64 bg-gray-100 flex items-center justify-center">
             <div className="text-gray-400 text-center">
               <ImageOff className="mx-auto h-12 w-12 text-gray-300" />
               <p className="mt-2 text-sm">No image available</p>
             </div>
           </div>
         )}
-        
-        {/* Source badge */}
-        {source && (
-          <div className="absolute top-3 right-3 bg-white bg-opacity-90 backdrop-blur-sm rounded-full px-3 py-1 text-xs font-medium text-gray-700 shadow-sm">
-            {source === 'airbnb' ? 'Airbnb' : 
-             source === 'booking' ? 'Booking.com' : 
-             source === 'vrbo' ? 'VRBO' : source}
-          </div>
-        )}
-        
-        {/* Safety score badge */}
-        {hasScore && (
-          <div className="absolute top-3 left-3 bg-white bg-opacity-90 backdrop-blur-sm rounded-full py-1 pl-2 pr-3 shadow-sm flex items-center gap-1.5">
-            <div className={`p-1.5 rounded-full ${overallRisk!.bgColor}`}>
-              <RiskIcon className={`w-3 h-3 ${overallRisk!.textColor}`} />
-            </div>
-            <div className="flex flex-col">
-              <span className="text-xs font-semibold text-gray-800">
-                {overall_score}/100
-              </span>
-              <span className={`text-[10px] leading-tight ${overallRisk!.textColor}`}>{overallRisk!.label}</span>
-            </div>
-          </div>
-        )}
       </div>
-      
-      <div className="px-1">
-        <div className="flex items-start justify-between mb-3">
-          <h2 className="text-xl font-semibold text-gray-900 leading-tight">{name}</h2>
-          
-          <div className="flex items-center ml-2 space-x-2 shrink-0">
-            {/* Save button */}
-            <SavedButton
-              accommodationId={accommodationId}
-              accommodationName={name}
-              source={source}
-            />
-            
-            {url && (
-              <a 
-                href={url} 
-                target="_blank" 
-                rel="noopener noreferrer"
-                className="flex items-center gap-1 text-xs text-blue-600 hover:text-blue-800 transition-colors"
-              >
-                <span>View Listing</span>
-                <ExternalLink className="w-3 h-3" />
-              </a>
+      <div className="px-4 sm:px-6 lg:px-8 lg:w-1/2">
+        <div className="-mt-12 sm:-mt-16 sm:flex sm:items-end sm:space-x-5">
+          <div className="flex">
+            {hasScore && (
+              <div className={`relative size-24 rounded-full ${overallRisk!.bgColor} ring-4 ring-white sm:size-32 flex items-center justify-center ${overallRisk!.border}`}>
+                <AnimatedScoreCircle 
+                  score={overall_score} 
+                  size={100} 
+                  strokeWidth={8}
+                  overallRisk={overallRisk!}
+                />
+              </div>
+            )}
+            {!hasScore && (
+              <div className="size-24 rounded-full bg-gray-100 ring-4 ring-white sm:size-32 flex items-center justify-center">
+                <Shield className="size-10 text-gray-400" />
+              </div>
             )}
           </div>
+          <div className="mt-6 sm:flex sm:min-w-0 sm:flex-1 sm:items-center sm:justify-end sm:space-x-6 sm:pb-1">
+            <div className="mt-6 min-w-0 flex-1 sm:hidden md:block">
+              <h1 className="truncate text-2xl font-bold text-gray-900">{name}</h1>
+              <PropertyMetrics
+                price_per_night={price_per_night}
+                rating={rating}
+                total_reviews={total_reviews}
+                source={source}
+              />
+            </div>
+            <div className="mt-6 flex flex-col justify-stretch space-y-3 sm:flex-row sm:space-y-0 sm:space-x-4">
+              <SavedButton
+                accommodationId={accommodationId}
+                accommodationName={name}
+                source={source}
+              />
+              
+              {url && (
+                <a 
+                  href={url} 
+                  target="_blank" 
+                  rel="noopener noreferrer"
+                  className="inline-flex justify-center gap-x-1.5 rounded-md bg-white px-3 py-2 text-sm font-semibold text-gray-900 shadow-sm ring-1 ring-inset ring-gray-300 hover:bg-gray-50"
+                >
+                  <ExternalLink className="-ml-0.5 size-5 text-gray-400" aria-hidden="true" />
+                  <span>View Listing</span>
+                </a>
+              )}
+            </div>
+          </div>
         </div>
-        
-        <PropertyMetrics
-          price_per_night={price_per_night}
-          rating={rating}
-          total_reviews={total_reviews}
-          source={source}
-        />
+        <div className="mt-6 hidden min-w-0 flex-1 sm:block md:hidden">
+          <h1 className="truncate text-2xl font-bold text-gray-900">{name}</h1>
+          <PropertyMetrics
+            price_per_night={price_per_night}
+            rating={rating}
+            total_reviews={total_reviews}
+            source={source}
+          />
+        </div>
       </div>
     </div>
   )

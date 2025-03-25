@@ -7,7 +7,7 @@ import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { useAccommodationsSaved } from '@/hooks/use-accommodations-saved'
 import { formatDistanceToNow } from 'date-fns'
-import { useSupabase } from '@/components/providers/supabase-provider'
+import { useSupabase } from '@/components/shared/providers/supabase-provider'
 
 export default function SavedAccommodationsPage() {
   const { user } = useSupabase()
@@ -24,7 +24,7 @@ export default function SavedAccommodationsPage() {
 
   if (loading || isRedirecting) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+      <div className="min-h-screen flex items-center justify-center bg-white">
         <div className="text-center">
           <Loader2 className="w-10 h-10 animate-spin mx-auto text-blue-500 mb-4" />
           <h1 className="text-xl font-medium text-gray-800">
@@ -60,12 +60,12 @@ export default function SavedAccommodationsPage() {
           <Card className="p-8 text-center">
             <Heart className="w-16 h-16 text-gray-300 mx-auto mb-4" />
             <h2 className="text-xl font-semibold text-gray-800 mb-2">No saved accommodations yet</h2>
-            <p className="text-gray-600 mb-6">
+            <p className="text-gray-500 mb-4">
               When you save an accommodation, it will appear here for easy access.
             </p>
-            <Button asChild>
-              <Link href="/safety-reports">Browse Safety Reports</Link>
-            </Button>
+            <Link href="/safety-reports">
+              <Button>Browse Safety Reports</Button>
+            </Link>
           </Card>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">

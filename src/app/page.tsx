@@ -1,5 +1,5 @@
 import { Suspense } from 'react'
-import { URLProcessor } from '@/components/safety-report/URLProcessor'
+import { URLProcessor } from './safety-report/components/URLProcessor'
 
 export default function Home() {
   return (

@@ -1,6 +1,6 @@
 import { Suspense } from 'react'
-import { URLProcessor } from '@/components/safety-report/URLProcessor'
-import { SafetyMetrics } from '@/components/safety-report/SafetyMetrics'
+import { URLProcessor } from './components/URLProcessor'
+import { SafetyMetrics } from './components/SafetyMetrics'
 
 export default function SafetyReportPage() {
   return (
