@@ -1,5 +1,5 @@
 import { memo } from 'react'
-import type { PropertyMetricsProps } from '../types'
+import type { PropertyMetricsProps } from '@/types/safety-report'
 import { formatPrice, formatRating, formatReviewCount } from '../utils'
 import { Star, DollarSign, MessageSquare } from 'lucide-react'
 

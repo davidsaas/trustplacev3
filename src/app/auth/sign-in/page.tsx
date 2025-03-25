@@ -8,7 +8,7 @@ import { useAuth } from '@/hooks/use-auth'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { Icons } from '@/components/icons'
+import { Github, Loader } from 'lucide-react'
 
 function SignInForm() {
   const { signIn, signInWithGoogle, loading } = useAuth()
@@ -79,7 +79,7 @@ function SignInForm() {
 
         <Button type="submit" className="w-full" disabled={loading}>
           {loading ? (
-            <Icons.spinner className="mr-2 h-4 w-4 animate-spin" />
+            <Loader className="mr-2 h-4 w-4 animate-spin" />
           ) : null}
           Sign In
         </Button>
@@ -97,16 +97,16 @@ function SignInForm() {
       </div>
 
       <Button
-        variant="outline"
+        outline
         type="button"
         className="w-full"
         onClick={handleGoogleSignIn}
         disabled={loading}
       >
         {loading ? (
-          <Icons.spinner className="mr-2 h-4 w-4 animate-spin" />
+          <Loader className="mr-2 h-4 w-4 animate-spin" />
         ) : (
-          <Icons.google className="mr-2 h-4 w-4" />
+          <Github className="mr-2 h-4 w-4" />
         )}
         Google
       </Button>
