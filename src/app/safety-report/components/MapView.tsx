@@ -1,7 +1,7 @@
 'use client'
 
 import * as React from 'react'
-import { useEffect, useRef, useCallback, useState } from 'react'
+import { useEffect, useRef, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import mapboxgl from 'mapbox-gl'
 import 'mapbox-gl/dist/mapbox-gl.css'
@@ -360,7 +360,7 @@ export const MapView = ({ location, currentAccommodation, similarAccommodations 
       `}</style>
       <div
         ref={mapContainer}
-        className="w-full h-full rounded-xl overflow-hidden shadow-md"
+        className="w-full h-full rounded-2xl overflow-hidden shadow-md"
         style={{ position: 'relative' }}
         aria-label={`Map showing location at latitude ${location.lat} and longitude ${location.lng} with similar properties`}
       />

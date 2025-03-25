@@ -2,8 +2,9 @@
 
 import * as React from 'react'
 import { useEffect, useState } from 'react'
-import { MessageSquare, User, Calendar, ThumbsUp, Loader } from 'lucide-react'
+import { MessageSquare, User, Calendar, ThumbsUp } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { createClient } from '@/lib/supabase/client'
 
 type Opinion = {
   id: string
