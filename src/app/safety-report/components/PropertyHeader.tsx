@@ -1,65 +1,20 @@
-import { memo, useEffect, useRef } from 'react'
+import { memo, useEffect, useRef, useState } from 'react'
 import Image from 'next/image'
 import Link from 'next/link'
 import { ImageOff, ExternalLink, Shield, CheckCircle2, AlertCircle, AlertTriangle, ShieldAlert } from 'lucide-react'
 import { SavedButton } from './SavedButton'
 import { PropertyMetrics } from './PropertyMetrics'
 import { IMAGE_CONFIG } from '../constants'
-import { getValidImageUrl } from '../utils'
+import { getValidImageUrl, getRiskLevel } from '../utils'
 import type { PropertyHeaderProps } from '@/types/safety-report'
-
-// We need this function from SafetyMetrics
-const getRiskLevel = (score: number) => {
-  if (score >= 8) return { 
-    label: 'Low Risk', 
-    color: 'bg-emerald-500',
-    bgColor: 'bg-emerald-50',
-    textColor: 'text-emerald-700', 
-    lightBg: 'bg-emerald-50',
-    border: 'border-emerald-100',
-    fill: '#10b981', // emerald-500 equivalent
-    icon: CheckCircle2,
-    description: 'Generally very safe area'
-  }
-  if (score >= 6) return { 
-    label: 'Medium Risk', 
-    color: 'bg-amber-500',
-    bgColor: 'bg-amber-50',
-    textColor: 'text-amber-700', 
-    lightBg: 'bg-amber-50',
-    border: 'border-amber-100',
-    fill: '#f59e0b', // amber-500 equivalent
-    icon: AlertCircle,
-    description: 'Exercise normal caution'
-  }
-  if (score >= 4) return { 
-    label: 'High Risk', 
-    color: 'bg-orange-500',
-    bgColor: 'bg-orange-50',
-    textColor: 'text-orange-700', 
-    lightBg: 'bg-orange-50',
-    border: 'border-orange-100',
-    fill: '#f97316', // orange-500 equivalent
-    icon: AlertTriangle,
-    description: 'Exercise increased caution'
-  }
-  return { 
-    label: 'Maximum Risk', 
-    color: 'bg-rose-500',
-    bgColor: 'bg-rose-50',
-    textColor: 'text-rose-700', 
-    lightBg: 'bg-rose-50',
-    border: 'border-rose-100',
-    fill: '#f43f5e', // rose-500 equivalent
-    icon: ShieldAlert,
-    description: 'Extreme caution advised'
-  }
-}
+import { Button } from '@/components/ui/button'
 
 type PropertyHeaderWithScoreProps = PropertyHeaderProps & {
   image_url: string | null
   url?: string | null
   overall_score?: number
+  rating?: number | null
+  total_reviews?: number | null
 }
 
 const AnimatedScoreCircle = ({ score, size = 120, strokeWidth = 8, overallRisk }: { 
@@ -129,7 +84,9 @@ export const PropertyHeader = memo(({
   source,
   image_url,
   url,
-  overall_score = 0
+  overall_score = 0,
+  rating = null,
+  total_reviews = null
 }: PropertyHeaderWithScoreProps) => {
   // Extract accommodation ID from the URL or use a fallback
   const extractAccommodationId = () => {
@@ -207,6 +164,8 @@ export const PropertyHeader = memo(({
               <PropertyMetrics
                 price_per_night={price_per_night}
                 source={source}
+                rating={rating}
+                total_reviews={total_reviews}
               />
             </div>
             <div className="mt-6 flex flex-col justify-stretch space-y-3 sm:flex-row sm:space-y-0 sm:space-x-4">
@@ -235,6 +194,8 @@ export const PropertyHeader = memo(({
           <PropertyMetrics
             price_per_night={price_per_night}
             source={source}
+            rating={rating}
+            total_reviews={total_reviews}
           />
         </div>
       </div>

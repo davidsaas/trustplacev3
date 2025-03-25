@@ -1,12 +1,13 @@
 'use client'
 
 import * as React from 'react'
-import { useEffect, useRef, useCallback } from 'react'
+import { useEffect, useRef, useCallback, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import mapboxgl from 'mapbox-gl'
 import 'mapbox-gl/dist/mapbox-gl.css'
 import { Card, CardHeader, CardContent, CardTitle } from '@/components/ui/card'
 import type { SimilarAccommodation } from '@/types/safety-report'
+import { Button } from '@/components/ui/button'
 
 // Initialize Mapbox access token
 const token = process.env.NEXT_PUBLIC_MAPBOX_ACCESS_TOKEN || ''

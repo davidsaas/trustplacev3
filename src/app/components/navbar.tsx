@@ -34,7 +34,7 @@ export function AppNavbar() {
       if (!user) return
       
       const supabase = createClient()
-      const { data, error } = await supabase
+      const { data } = await supabase
         .from('profiles')
         .select('avatar_url')
         .eq('id', user.id)
