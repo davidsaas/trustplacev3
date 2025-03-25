@@ -56,7 +56,6 @@ export const SafetyMetrics = ({ data }: SafetyMetricsProps) => {
 
   // Get overall risk level
   const overallRisk = getRiskLevel(overallScore / 10)
-  const RiskIcon = overallRisk.icon
 
   // Clean up debug info from descriptions
   const cleanDescription = (description: string) => {

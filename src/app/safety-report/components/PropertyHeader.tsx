@@ -4,7 +4,7 @@ import { SavedButton } from './SavedButton'
 import { PropertyMetrics } from './PropertyMetrics'
 import { getValidImageUrl, getRiskLevel } from '../utils'
 import type { PropertyHeaderProps } from '@/types/safety-report'
-import { Button } from '@/components/ui/button'
+import { Card, CardHeader, CardContent } from '@/components/ui/card'
 
 type PropertyHeaderWithScoreProps = PropertyHeaderProps & {
   image_url: string | null
@@ -116,19 +116,18 @@ export const PropertyHeader = memo(({
   // Get overall risk level based on score
   const hasScore = overall_score > 0;
   const overallRisk = hasScore ? getRiskLevel(overall_score / 10) : null;
-  const RiskIcon = overallRisk?.icon || Shield;
 
   return (
-    <div>
+    <Card className="bg-white border-none shadow-none">
       <div className="relative lg:w-1/2">
         {getValidImageUrl(image_url) ? (
           <img 
             alt={`${name} - Property View`}
             src={image_url!}
-            className="h-48 w-full object-cover lg:h-64" 
+            className="h-48 w-full object-cover lg:h-64 rounded-t-xl" 
           />
         ) : (
-          <div className="h-48 w-full lg:h-64 bg-gray-100 flex items-center justify-center">
+          <div className="h-48 w-full lg:h-64 bg-gray-100 flex items-center justify-center rounded-t-xl">
             <div className="text-gray-400 text-center">
               <ImageOff className="mx-auto h-12 w-12 text-gray-300" />
               <p className="mt-2 text-sm">No image available</p>
@@ -136,7 +135,7 @@ export const PropertyHeader = memo(({
           </div>
         )}
       </div>
-      <div className="px-4 sm:px-6 lg:px-8 lg:w-1/2">
+      <CardContent className="px-4 sm:px-6 lg:px-8 lg:w-1/2">
         <div className="-mt-12 sm:-mt-16 sm:flex sm:items-end sm:space-x-5">
           <div className="flex">
             {hasScore && (
@@ -157,7 +156,7 @@ export const PropertyHeader = memo(({
           </div>
           <div className="mt-6 sm:flex sm:min-w-0 sm:flex-1 sm:items-center sm:justify-end sm:space-x-6 sm:pb-1">
             <div className="mt-6 min-w-0 flex-1 sm:hidden md:block">
-              <h1 className="truncate text-2xl font-bold text-gray-900 ">{name}</h1>
+              <h1 className="truncate text-2xl font-bold text-gray-900">{name}</h1>
               <PropertyMetrics
                 price_per_night={price_per_night}
                 source={source}
@@ -195,8 +194,8 @@ export const PropertyHeader = memo(({
             total_reviews={total_reviews}
           />
         </div>
-      </div>
-    </div>
+      </CardContent>
+    </Card>
   )
 })
 
