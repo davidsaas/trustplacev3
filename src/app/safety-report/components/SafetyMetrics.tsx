@@ -6,7 +6,8 @@ import {
   Car, 
   Baby, 
   Bus, 
-  UserRound
+  UserRound,
+  Plus
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import type { SafetyMetric } from '@/types/safety-report'
@@ -34,6 +35,9 @@ const METRIC_ICONS: Record<string, LucideIcon> = {
   women: UserRound
 }
 
+// All expected metric types
+const EXPECTED_METRIC_TYPES = ['night', 'vehicle', 'child', 'transit', 'women']
+
 function classNames(...classes: (string | boolean | undefined)[]) {
   return classes.filter(Boolean).join(' ')
 }
@@ -49,38 +53,64 @@ export const SafetyMetrics = ({ data }: SafetyMetricsProps) => {
     )
   }
 
-  // Clean up debug info from descriptions
-  const cleanDescription = (description: string) => {
-    // Remove debug info in brackets if present
-    return description.replace(/\s*\[DEBUG:.+\]$/, '').trim()
-  }
-
-  const metricActions = data.map(metric => {
+  const metricsByType: Record<string, any> = {}
+  
+  // Process available metrics
+  data.forEach(metric => {
     const riskLevel = getRiskLevel(metric.score)
     const MetricIcon = METRIC_ICONS[metric.metric_type] || riskLevel.icon
     
-    return {
+    metricsByType[metric.metric_type] = {
       title: METRIC_QUESTIONS[metric.metric_type] || metric.question,
-      description: cleanDescription(metric.description),
+      description: metric.description,
       icon: MetricIcon,
       iconForeground: riskLevel.textColor,
       iconBackground: riskLevel.bgColor,
       score: metric.score,
-      label: riskLevel.label
+      label: riskLevel.label,
+      isEmpty: false
+    }
+  })
+  
+  // Create empty states for missing metrics
+  EXPECTED_METRIC_TYPES.forEach(type => {
+    if (!metricsByType[type]) {
+      const MetricIcon = METRIC_ICONS[type]
+      metricsByType[type] = {
+        title: METRIC_QUESTIONS[type],
+        description: "Data not available for this location",
+        icon: MetricIcon,
+        iconForeground: "text-gray-400",
+        iconBackground: "bg-gray-100",
+        score: 0,
+        label: "No Data",
+        isEmpty: true
+      }
     }
   })
 
+  // Add "coming soon" metric
+  const comingSoonMetric = {
+    title: "More metrics coming soon",
+    description: "We're constantly adding new safety indicators",
+    icon: Plus,
+    iconForeground: "text-blue-600",
+    iconBackground: "bg-blue-100",
+    label: "Coming Soon",
+    isEmpty: false
+  }
+  
+  // Convert to array for rendering
+  const metricActions = [...Object.values(metricsByType), comingSoonMetric]
+
   return (
-    <div className="bg-white p-6 shadow-sm">
+    <div className="bg-white p-6 shadow-sm rounded-b-xl">
       <div className="divide-y divide-gray-200 overflow-hidden bg-gray-200 sm:grid sm:grid-cols-2 sm:gap-px sm:divide-y-0">
         {metricActions.map((action, actionIdx) => (
           <div
             key={action.title}
             className={classNames(
-              actionIdx === 0 ? '' : '',
-              actionIdx === 1 ? '' : '',
-              actionIdx === metricActions.length - 2 ? '' : '',
-              actionIdx === metricActions.length - 1 ? '' : '',
+              action.isEmpty ? 'opacity-70' : '',
               'group relative bg-white p-6 focus-within:ring-2 focus-within:ring-indigo-500 focus-within:ring-inset',
             )}
           >
@@ -98,9 +128,11 @@ export const SafetyMetrics = ({ data }: SafetyMetricsProps) => {
             <div className="mt-4">
               <h3 className="text-base font-semibold text-gray-900 flex items-center justify-between">
                 {action.title}
-                <span className={`text-sm px-2 py-1 rounded-full ${action.iconBackground} ${action.iconForeground}`}>
-                  {action.label}
-                </span>
+                {action.label && (
+                  <span className={`text-sm px-2 py-1 rounded-full ${action.iconBackground} ${action.iconForeground}`}>
+                    {action.label}
+                  </span>
+                )}
               </h3>
               <p className="mt-2 text-sm text-gray-500">
                 {action.description}

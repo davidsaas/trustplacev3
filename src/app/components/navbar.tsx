@@ -104,13 +104,13 @@ export function AppNavbar() {
   return (
     <>
       {/* Desktop navigation */}
-      <Navbar className="fixed top-0 left-0 right-0 z-50 border-b border-gray-200 bg-white shadow-sm">
-        <div className="flex h-16 w-full items-center gap-x-4 px-4 sm:px-6 lg:px-8">
+      <Navbar className="fixed top-0 left-0 right-0 z-50 border-b border-gray-200 bg-white shadow-sm py-0">
+        <div className="flex h-12 w-full items-center gap-x-4 px-4 sm:px-6 lg:px-8">
           <Link href="/" className="flex items-center gap-2">
             <img
               alt="TrustPlace"
               src="/logo.svg"
-              className="h-8 w-auto"
+              className="h-7 w-auto"
             />
           </Link>
           
