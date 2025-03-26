@@ -10,11 +10,13 @@ interface ListboxProps<T> {
   autoFocus?: boolean;
   'aria-label'?: string;
   children?: React.ReactNode;
+  value?: T;
+  onChange?: (value: T) => void;
 }
 
-export function Listbox<T>({ className, placeholder, autoFocus, 'aria-label': ariaLabel, children: options, ...props }: ListboxProps<T> & Omit<Headless.ListboxProps<typeof Fragment, T>, 'as' | 'multiple'>) {
+export function Listbox<T>({ className, placeholder, autoFocus, 'aria-label': ariaLabel, children: options, value, onChange, ...props }: ListboxProps<T> & Omit<Headless.ListboxProps<typeof Fragment, T>, 'as' | 'multiple'>) {
   return (
-    <Headless.Listbox {...props} multiple={false}>
+    <Headless.Listbox {...props} value={value} onChange={onChange} multiple={false}>
       <Headless.ListboxButton autoFocus={autoFocus} data-slot="control" aria-label={ariaLabel} className={clsx([
         className,
         'group relative block w-full',
