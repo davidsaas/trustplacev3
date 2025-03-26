@@ -1,11 +1,11 @@
 // This file replaces the functionality that was previously provided by the tailwindcss-animate plugin
 import { dirname, resolve } from 'path';
 import { fileURLToPath } from 'url';
-const plugin = require('tailwindcss/plugin')
+import plugin from 'tailwindcss/plugin';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
-module.exports = plugin(function ({ addBase, addComponents, addUtilities }) {
+export default plugin(function ({ addBase, addComponents, addUtilities }) {
   addBase({
     '@theme': {
       '--animate-fade-in': 'fade-in 0.5s linear forwards',
@@ -60,7 +60,7 @@ module.exports = plugin(function ({ addBase, addComponents, addUtilities }) {
   return {
     name: 'tailwindcss-animate',
     setup(build) {
-      build.onResolve({ filter: /^tailwindcss-animate$/ }, args => {
+      build.onResolve({ filter: /^tailwindcss-animate$/ }, () => {
         return {
           path: resolve(__dirname, 'animate.css'),
         }
