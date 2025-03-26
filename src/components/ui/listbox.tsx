@@ -4,7 +4,15 @@ import * as Headless from '@headlessui/react'
 import clsx from 'clsx'
 import { Fragment } from 'react'
 
-export function Listbox<T>({ className, placeholder, autoFocus, 'aria-label': ariaLabel, children: options, ...props }: { className?: string placeholder?: React.ReactNode autoFocus?: boolean 'aria-label'?: string children?: React.ReactNode } & Omit<Headless.ListboxProps<typeof Fragment, T>, 'as' | 'multiple'>) {
+interface ListboxProps<T> {
+  className?: string;
+  placeholder?: React.ReactNode;
+  autoFocus?: boolean;
+  'aria-label'?: string;
+  children?: React.ReactNode;
+}
+
+export function Listbox<T>({ className, placeholder, autoFocus, 'aria-label': ariaLabel, children: options, ...props }: ListboxProps<T> & Omit<Headless.ListboxProps<typeof Fragment, T>, 'as' | 'multiple'>) {
   return (
     <Headless.Listbox {...props} multiple={false}>
       <Headless.ListboxButton autoFocus={autoFocus} data-slot="control" aria-label={ariaLabel} className={clsx([
