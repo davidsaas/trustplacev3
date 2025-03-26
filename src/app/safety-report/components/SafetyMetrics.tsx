@@ -42,6 +42,17 @@ function classNames(...classes: (string | boolean | undefined)[]) {
   return classes.filter(Boolean).join(' ')
 }
 
+interface MetricData {
+  title: string
+  description: string
+  icon: LucideIcon
+  iconForeground: string
+  iconBackground: string
+  score?: number
+  label: string
+  isEmpty: boolean
+}
+
 export const SafetyMetrics = ({ data }: SafetyMetricsProps) => {
   if (!data) {
     return (
@@ -53,7 +64,7 @@ export const SafetyMetrics = ({ data }: SafetyMetricsProps) => {
     )
   }
 
-  const metricsByType: Record<string, any> = {}
+  const metricsByType: Record<string, MetricData> = {}
   
   // Process available metrics
   data.forEach(metric => {
@@ -106,7 +117,7 @@ export const SafetyMetrics = ({ data }: SafetyMetricsProps) => {
   return (
     <div className="bg-white p-6 shadow-sm rounded-b-xl">
       <div className="divide-y divide-gray-200 overflow-hidden bg-gray-200 sm:grid sm:grid-cols-2 sm:gap-px sm:divide-y-0">
-        {metricActions.map((action, actionIdx) => (
+        {metricActions.map((action) => (
           <div
             key={action.title}
             className={classNames(
