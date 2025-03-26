@@ -4,14 +4,11 @@ import { SavedButton } from './SavedButton'
 import { PropertyMetrics } from './PropertyMetrics'
 import { getValidImageUrl, getRiskLevel } from '../utils'
 import type { PropertyHeaderProps } from '@/types/safety-report'
-import { Card, CardContent } from '@/components/ui/card'
 
 type PropertyHeaderWithScoreProps = PropertyHeaderProps & {
   image_url: string | null
   url?: string | null
   overall_score?: number
-  rating?: number | null
-  total_reviews?: number | null
 }
 
 const AnimatedScoreCircle = ({ score, size = 120, strokeWidth = 8, overallRisk }: { 
@@ -81,9 +78,7 @@ export const PropertyHeader = memo(({
   source,
   image_url,
   url,
-  overall_score = 0,
-  rating = null,
-  total_reviews = null
+  overall_score = 0
 }: PropertyHeaderWithScoreProps) => {
   // Extract accommodation ID from the URL or use a fallback
   const extractAccommodationId = () => {
@@ -118,16 +113,16 @@ export const PropertyHeader = memo(({
   const overallRisk = hasScore ? getRiskLevel(overall_score / 10) : null;
 
   return (
-    <Card className="bg-white border-none shadow-none">
-      <div className="relative lg:w-1/2">
+    <div>
+      <div className="rounded-t-xl overflow-hidden">
         {getValidImageUrl(image_url) ? (
           <img 
             alt={`${name} - Property View`}
             src={image_url!}
-            className="h-48 w-full object-cover lg:h-64 rounded-t-xl" 
+            className="h-48 w-full object-cover lg:h-64" 
           />
         ) : (
-          <div className="h-48 w-full lg:h-64 bg-gray-100 flex items-center justify-center rounded-t-xl">
+          <div className="h-48 w-full lg:h-64 bg-gray-100 flex items-center justify-center">
             <div className="text-gray-400 text-center">
               <ImageOff className="mx-auto h-12 w-12 text-gray-300" />
               <p className="mt-2 text-sm">No image available</p>
@@ -135,67 +130,69 @@ export const PropertyHeader = memo(({
           </div>
         )}
       </div>
-      <CardContent className="px-4 sm:px-6 lg:px-8 lg:w-1/2">
-        <div className="-mt-12 sm:-mt-16 sm:flex sm:items-end sm:space-x-5">
-          <div className="flex">
-            {hasScore && (
-              <div className={`relative size-24 rounded-full ${overallRisk!.bgColor} ring-4 ring-white sm:size-32 flex items-center justify-center ${overallRisk!.border}`}>
-                <AnimatedScoreCircle 
-                  score={overall_score} 
-                  size={100} 
-                  strokeWidth={8}
-                  overallRisk={overallRisk!}
-                />
-              </div>
-            )}
-            {!hasScore && (
-              <div className="size-24 rounded-full bg-gray-100 ring-4 ring-white sm:size-32 flex items-center justify-center">
-                <Shield className="size-10 text-gray-400" />
-              </div>
-            )}
-          </div>
-          <div className="mt-6 sm:flex sm:min-w-0 sm:flex-1 sm:items-center sm:justify-end sm:space-x-6 sm:pb-1">
-            <div className="mt-6 min-w-0 flex-1 sm:hidden md:block">
-              <h1 className="truncate text-2xl font-bold text-gray-900">{name}</h1>
-              <PropertyMetrics
-                price_per_night={price_per_night}
-                source={source}
-                rating={rating}
-                total_reviews={total_reviews}
-              />
-            </div>
-            <div className="mt-6 flex flex-col justify-stretch space-y-3 sm:flex-row sm:space-y-0 sm:space-x-4">
-              <SavedButton
-                accommodationId={accommodationId}
-                accommodationName={name}
-                source={source}
-              />
-              
-              {url && (
-                <a 
-                  href={url} 
-                  target="_blank" 
-                  rel="noopener noreferrer"
-                  className="inline-flex justify-center gap-x-1.5 rounded-md bg-white px-3 py-2 text-sm font-semibold text-gray-900 shadow-sm ring-1 ring-inset ring-gray-300 hover:bg-gray-50"
-                >
-                  <ExternalLink className="-ml-0.5 size-5 text-gray-400" aria-hidden="true" />
-                  <span>View Listing</span>
-                </a>
+      
+      <div className="bg-white rounded-b-xl shadow-sm">
+        <div className="mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="-mt-12 sm:-mt-16 sm:flex sm:items-end sm:space-x-5">
+            <div className="flex">
+              {hasScore && (
+                <div className={`relative size-24 rounded-full ${overallRisk!.bgColor} ring-4 ring-white sm:size-32 flex items-center justify-center ${overallRisk!.border}`}>
+                  <AnimatedScoreCircle 
+                    score={overall_score} 
+                    size={100} 
+                    strokeWidth={8}
+                    overallRisk={overallRisk!}
+                  />
+                </div>
+              )}
+              {!hasScore && (
+                <div className="size-24 rounded-full bg-gray-100 ring-4 ring-white sm:size-32 flex items-center justify-center">
+                  <Shield className="size-10 text-gray-400" />
+                </div>
               )}
             </div>
+            
+            <div className="sm:flex sm:min-w-0 sm:flex-1 sm:items-center sm:justify-end sm:space-x-6 sm:pb-1">
+              <div className="min-w-0 flex-1 sm:hidden md:block">
+                <h1 className="truncate text-2xl font-bold text-gray-900">{name}</h1>
+                <PropertyMetrics
+                  price_per_night={price_per_night}
+                  source={source}
+                />
+              </div>
+              
+              <div className="flex flex-col justify-stretch space-y-3 sm:flex-row sm:space-y-0 sm:space-x-4">
+                <SavedButton
+                  accommodationId={accommodationId}
+                  accommodationName={name}
+                  source={source}
+                />
+                
+                {url && (
+                  <a 
+                    href={url} 
+                    target="_blank" 
+                    rel="noopener noreferrer"
+                    className="inline-flex justify-center gap-x-1.5 rounded-md bg-white px-3 py-2 text-sm font-semibold text-gray-900 shadow-sm ring-1 ring-inset ring-gray-300 hover:bg-gray-50"
+                  >
+                    <ExternalLink className="-ml-0.5 mr-1.5 size-5 text-gray-400" aria-hidden="true" />
+                    <span>View Listing</span>
+                  </a>
+                )}
+              </div>
+            </div>
+          </div>
+          
+          <div className="hidden min-w-0 flex-1 sm:block md:hidden pb-6 p-10">
+            <h1 className="truncate text-2xl font-bold text-gray-900">{name}</h1>
+            <PropertyMetrics
+              price_per_night={price_per_night}
+              source={source}
+            />
           </div>
         </div>
-        <div className="mt-6 hidden min-w-0 flex-1 sm:block md:hidden">
-          <h1 className="truncate text-2xl font-bold text-gray-900">{name}</h1>
-          <PropertyMetrics
-            price_per_night={price_per_night}
-            source={source}
-            rating={rating}
-            total_reviews={total_reviews}
-          />
-        </div>
-      </CardContent>
-    </Card>
+      </div>
+    </div>
   )
 })
 

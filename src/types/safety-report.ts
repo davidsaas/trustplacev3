@@ -33,6 +33,7 @@ export interface SimilarAccommodation {
   longitude: number
   overall_score: number
   source: string
+  hasCompleteData?: boolean
 }
 
 export interface Location {
@@ -70,4 +71,5 @@ export interface AccommodationData {
   safety_metrics: SafetyMetric[] | null
   overall_score: number
   similar_accommodations: SimilarAccommodation[]
+  hasCompleteData?: boolean
 } 

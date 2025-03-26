@@ -11,11 +11,15 @@ import type { SimilarAccommodation } from '@/types/safety-report'
 const token = process.env.NEXT_PUBLIC_MAPBOX_ACCESS_TOKEN || ''
 
 // Create a custom marker element with score
-const createCustomMarker = (score: number, isCurrent: boolean = false) => {
+const createCustomMarker = (score: number, isCurrent: boolean = false, hasCompleteData: boolean = true) => {
   const el = document.createElement('div')
   el.className = 'custom-marker'
+  
+  // Choose background color based on data completeness
+  const backgroundColorClass = !hasCompleteData ? 'incomplete-data' : isCurrent ? 'current' : ''
+  
   el.innerHTML = `
-    <div class="marker-inner ${isCurrent ? 'current' : ''}">
+    <div class="marker-inner ${backgroundColorClass}">
       <div class="marker-score">${score}</div>
       <div class="marker-pulse"></div>
     </div>
@@ -32,6 +36,7 @@ interface Accommodation {
   id: string
   name: string
   overall_score: number
+  hasCompleteData?: boolean
 }
 
 type MapViewProps = {
@@ -65,6 +70,7 @@ export const MapView = ({ location, currentAccommodation, similarAccommodations 
   const createPopupContent = useCallback((accommodation: Accommodation | SimilarAccommodation) => {
     const isCurrentAccommodation = accommodation.id === currentAccommodation.id
     const isSimilar = !isCurrentAccommodation && 'price_per_night' in accommodation
+    const hasCompleteData = 'hasCompleteData' in accommodation ? accommodation.hasCompleteData : true
 
     const content = document.createElement('div')
     content.className = 'p-2 min-w-[200px]'
@@ -73,6 +79,7 @@ export const MapView = ({ location, currentAccommodation, similarAccommodations 
       <div class="flex items-center gap-2 mb-2">
         <span class="text-sm font-medium">Safety Score: ${accommodation.overall_score}</span>
         ${isSimilar ? `<span class="text-sm text-gray-500">$${(accommodation as SimilarAccommodation).price_per_night}/night</span>` : ''}
+        ${!hasCompleteData ? '<span class="text-xs text-gray-500">(incomplete data)</span>' : ''}
       </div>
       ${isCurrentAccommodation ? 
         '<span class="text-sm text-blue-600">Current Selection</span>' : 
@@ -109,16 +116,19 @@ export const MapView = ({ location, currentAccommodation, similarAccommodations 
         return
       }
       
+      // Check if accommodation has complete data
+      const hasCompleteData = acc.hasCompleteData !== undefined ? acc.hasCompleteData : true
+      
       // Create popup but don't attach it yet
       const popup = new mapboxgl.Popup({ 
         offset: 25,
         closeButton: false,
         className: 'custom-popup'
-      }).setDOMContent(createPopupContent(acc))
+      }).setDOMContent(createPopupContent({...acc, hasCompleteData}))
       
-      // Create regular marker
+      // Create marker
       const marker = new mapboxgl.Marker({
-        element: createCustomMarker(acc.overall_score, false)
+        element: createCustomMarker(acc.overall_score, false, hasCompleteData)
       })
         .setLngLat([acc.longitude, acc.latitude])
         .addTo(map.current!)
@@ -142,6 +152,9 @@ export const MapView = ({ location, currentAccommodation, similarAccommodations 
     })
     
     // Always add current accommodation marker
+    const hasCompleteData = currentAccommodation.hasCompleteData !== undefined ? 
+      currentAccommodation.hasCompleteData : true
+      
     const currentPopup = new mapboxgl.Popup({ 
       offset: 25,
       closeButton: false,
@@ -149,7 +162,7 @@ export const MapView = ({ location, currentAccommodation, similarAccommodations 
     }).setDOMContent(createPopupContent(currentAccommodation))
     
     const currentMarker = new mapboxgl.Marker({
-      element: createCustomMarker(currentAccommodation.overall_score, true)
+      element: createCustomMarker(currentAccommodation.overall_score, true, hasCompleteData)
     })
       .setLngLat([location.lng, location.lat])
       .addTo(map.current)
@@ -295,6 +308,11 @@ export const MapView = ({ location, currentAccommodation, similarAccommodations 
           font-size: 14px;
         }
         
+        .marker-inner.incomplete-data .marker-score {
+          background-color: #9ca3af;
+          color: #f3f4f6;
+        }
+        
         .marker-pulse {
           position: absolute;
           width: 100%;
@@ -307,6 +325,10 @@ export const MapView = ({ location, currentAccommodation, similarAccommodations 
 
         .marker-inner.current .marker-pulse {
           background-color: rgba(16, 185, 129, 0.2);
+        }
+        
+        .marker-inner.incomplete-data .marker-pulse {
+          background-color: rgba(156, 163, 175, 0.2);
         }
         
         @keyframes pulse {
