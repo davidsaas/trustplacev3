@@ -88,7 +88,6 @@ export default function SignUpPage() {
             disabled={isSubmitting || isGoogleSubmitting}
           />
         </div>
-
         {error && (
           <Alert>
             <Terminal className="h-4 w-4" />
