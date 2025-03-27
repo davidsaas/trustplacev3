@@ -1,6 +1,8 @@
-import { Suspense } from 'react'
-import { requireAuth } from '@/lib/supabase/server-auth'
-import { redirect } from 'next/navigation'
+'use client'
+
+import { Suspense, useEffect, useState } from 'react'
+import { useRouter, useSearchParams } from 'next/navigation'
+import { useAuth } from '@/components/shared/providers/auth-provider'
 
 // Loading component for Suspense fallback
 function ReportLoading() {
@@ -15,48 +17,53 @@ function ReportLoading() {
   )
 }
 
-// Server Component with authentication check
-export default async function ReportPage({
-  searchParams
-}: {
-  searchParams: { [key: string]: string | string[] | undefined }
-}) {
-  try {
-    // This will redirect to sign-in if user is not authenticated
-    const user = await requireAuth()
-    
-    // Get listing ID from search params (if available)
-    const listingId = searchParams.id as string
+// Client Component with authentication check
+function ReportContent() {
+  const { user, loading } = useAuth()
+  const router = useRouter()
+  const searchParams = useSearchParams()
+  const listingId = searchParams.get('id')
+  const [isChecking, setIsChecking] = useState(true)
 
-    if (!listingId) {
-      // If no listing ID is provided, redirect to safety report search
-      redirect('/safety-report')
+  useEffect(() => {
+    if (!loading) {
+      if (!user) {
+        // Redirect to sign-in if user is not authenticated
+        router.push('/auth/sign-in')
+      } else if (!listingId) {
+        // If no listing ID is provided, redirect to safety report search
+        router.push('/safety-report')
+      } else {
+        setIsChecking(false)
+      }
     }
+  }, [user, loading, router, listingId])
 
-    return (
-      <div className="container mx-auto px-4 py-10">
-        <Suspense fallback={<ReportLoading />}>
-          <div className="space-y-6">
-            <h1 className="text-3xl font-bold">Safety Report</h1>
-            <p className="text-muted-foreground">
-              Viewing report for listing ID: {listingId}
-            </p>
-            <div className="p-6 bg-white rounded-lg shadow-md">
-              <h2 className="text-xl font-semibold mb-4">Report Details</h2>
-              {/* Report content would go here */}
-              <p>User email: {user.email}</p>
-            </div>
-          </div>
-        </Suspense>
-      </div>
-    )
-  } catch (error) {
-    console.error('Error in report page:', error)
-    return (
-      <div className="container mx-auto px-4 py-10">
-        <h1 className="text-3xl font-bold text-red-600">Error</h1>
-        <p>There was an error loading this report. Please try again later.</p>
-      </div>
-    )
+  if (loading || isChecking) {
+    return <ReportLoading />
   }
+
+  return (
+    <div className="container mx-auto px-4 py-10">
+      <div className="space-y-6">
+        <h1 className="text-3xl font-bold">Safety Report</h1>
+        <p className="text-muted-foreground">
+          Viewing report for listing ID: {listingId}
+        </p>
+        <div className="p-6 bg-white rounded-lg shadow-md">
+          <h2 className="text-xl font-semibold mb-4">Report Details</h2>
+          {/* Report content would go here */}
+          <p>User email: {user?.email}</p>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+export default function ReportPage() {
+  return (
+    <Suspense fallback={<ReportLoading />}>
+      <ReportContent />
+    </Suspense>
+  )
 } 
