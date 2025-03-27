@@ -57,7 +57,7 @@ export const RestrictedContent = ({ children }: RestrictedContentProps) => {
               <Button>Sign Up</Button>
             </Link>
             <Link href={`/auth/sign-in?next=${encodeURIComponent(pathname)}`} passHref>
-              <Button variant="outline" className="bg-white text-gray-900 border border-gray-300 hover:bg-gray-50">Sign In</Button>
+              <Button className="bg-white text-gray-900 border border-gray-300 hover:bg-gray-50">Sign In</Button>
             </Link>
           </div>
         </div>

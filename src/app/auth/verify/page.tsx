@@ -17,7 +17,7 @@ export default function VerifyPage() {
         Didn't receive the email? Check your spam folder or try signing up again.
       </p>
       <Link href={ROUTES.SIGN_IN}>
-        <Button variant="outline">Back to Sign In</Button>
+        <Button>Back to Sign In</Button>
       </Link>
     </div>
   )

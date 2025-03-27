@@ -34,15 +34,13 @@ export default function SignUpPage() {
     }
 
     setIsSubmitting(true)
-    const { error: signUpError, success } = await signUp(email, password)
+    const { error: signUpError, success } = await signUp(email, password, next)
 
     if (signUpError) {
       setError(signUpError)
       toast.error('Sign up failed')
     } else if (success) {
-      // AuthProvider's signUp should handle the redirect now
-      // toast.success('Check your email to verify your account')
-      // No need to reset fields, page will navigate away
+      // Redirect is handled within signUp now
     }
     setIsSubmitting(false)
   }
@@ -50,13 +48,13 @@ export default function SignUpPage() {
   const handleGoogleSignIn = async () => {
     setError(null)
     setIsGoogleSubmitting(true)
-    const { error: googleError } = await signInWithGoogle()
+    const { error: googleError } = await signInWithGoogle(next)
     if (googleError) {
       setError(googleError)
       toast.error('Google sign in failed')
+      setIsGoogleSubmitting(false); // Set false only if error occurs
     }
-    // No need to set loading false here, as the page will redirect for OAuth
-    // setIsGoogleSubmitting(false); // Only set false if error occurs and flow stops
+    // No need to set loading false on success, page redirects
   }
 
   return (
@@ -92,7 +90,7 @@ export default function SignUpPage() {
         </div>
 
         {error && (
-          <Alert variant="destructive">
+          <Alert>
             <Terminal className="h-4 w-4" />
             <AlertTitle>Error</AlertTitle>
             <AlertDescription>{error}</AlertDescription>
@@ -115,7 +113,6 @@ export default function SignUpPage() {
       </div>
 
       <Button
-        variant="outline"
         className="w-full"
         onClick={handleGoogleSignIn}
         disabled={isSubmitting || isGoogleSubmitting}

@@ -57,7 +57,7 @@ export default function ForgotPasswordPage() {
         </div>
 
         {error && (
-          <Alert variant="destructive">
+          <Alert>
             <Terminal className="h-4 w-4" />
             <AlertTitle>Error</AlertTitle>
             <AlertDescription>{error}</AlertDescription>
@@ -65,7 +65,7 @@ export default function ForgotPasswordPage() {
         )}
 
         {message && (
-          <Alert variant="default">
+          <Alert>
             <Terminal className="h-4 w-4" />
             <AlertTitle>Success</AlertTitle>
             <AlertDescription>{message}</AlertDescription>

@@ -5,7 +5,6 @@ import { notFound } from 'next/navigation'
 import { SafetyMetrics } from '../components/SafetyMetrics'
 import { CommunityOpinions } from './components/CommunityOpinions'
 import { RestrictedContent } from '@/app/auth/components/restricted-content'
-import { createClient } from '@/lib/supabase/client'
 import { supabaseServer } from '@/lib/supabase/server'
 import { PropertyHeader } from '../components/PropertyHeader'
 import { LOCATION_RADIUS, SAFETY_RADIUS, PRICE_RANGE } from '../constants'
@@ -14,6 +13,7 @@ import Loading from './loading'
 import { AppNavbar } from '@/app/components/navbar'
 import { OverviewSection } from './components/OverviewSection'
 import type { ReportSection } from './components/ReportNavMenu'
+import { useAuth } from '@/components/shared/providers/auth-provider'
 
 import type {
   SafetyReportProps,
@@ -40,76 +40,81 @@ const MapLoadingPlaceholder = () => (
   </div>
 );
 
-// Function to find closest safety metrics for a location
-async function findClosestSafetyMetrics(location: Location): Promise<SafetyMetric[] | null> {
-  // console.log('Finding safety metrics for location:', location); // Keep logs minimal or remove if not needed
+// Function to find closest safety metrics for MULTIPLE locations
+async function findClosestSafetyMetricsBatch(locations: Location[]): Promise<Record<string, SafetyMetric[] | null>> {
+  if (!locations || locations.length === 0) return {};
 
-  const { data: metrics, error } = await supabaseServer
+  // Calculate bounding box for all locations
+  let minLat = Infinity, maxLat = -Infinity, minLng = Infinity, maxLng = -Infinity;
+  locations.forEach(loc => {
+    if (isValidCoordinates(loc.lat, loc.lng)) {
+      minLat = Math.min(minLat, loc.lat);
+      maxLat = Math.max(maxLat, loc.lat);
+      minLng = Math.min(minLng, loc.lng);
+      maxLng = Math.max(maxLng, loc.lng);
+    }
+  });
+
+  // Add radius padding to bounding box
+  minLat -= SAFETY_RADIUS;
+  maxLat += SAFETY_RADIUS;
+  minLng -= SAFETY_RADIUS;
+  maxLng += SAFETY_RADIUS;
+
+  // Fetch all metrics within the expanded bounding box
+  const { data: allMetrics, error } = await supabaseServer
     .from('safety_metrics')
     .select('*')
-    .gte('latitude', location.lat - SAFETY_RADIUS)
-    .lte('latitude', location.lat + SAFETY_RADIUS)
-    .gte('longitude', location.lng - SAFETY_RADIUS)
-    .lte('longitude', location.lng + SAFETY_RADIUS)
+    .gte('latitude', minLat)
+    .lte('latitude', maxLat)
+    .gte('longitude', minLng)
+    .lte('longitude', maxLng);
 
   if (error) {
-    console.error('Error fetching safety metrics:', error)
-    return null
+    console.error('Error fetching safety metrics batch:', error);
+    return {};
   }
 
-  if (!metrics || metrics.length === 0) {
-    // console.log('No safety metrics found in radius') // Keep logs minimal
-    return null
+  if (!allMetrics || allMetrics.length === 0) {
+    return {};
   }
 
-  // console.log(`Found ${metrics.length} raw safety metrics entries in radius`)
-
-  // Ensure numeric values for calculations by converting string values if needed
-  const processedMetrics = metrics.map(metric => ({
+  // Process metrics (ensure numeric coords/score)
+  const processedMetrics = allMetrics.map(metric => ({
     ...metric,
     latitude: typeof metric.latitude === 'string' ? parseFloat(metric.latitude) : metric.latitude,
     longitude: typeof metric.longitude === 'string' ? parseFloat(metric.longitude) : metric.longitude,
     score: typeof metric.score === 'string' ? parseFloat(metric.score) : metric.score
-  }))
+  })).filter(m => isValidCoordinates(m.latitude, m.longitude)); // Filter invalid metrics early
 
-  // Group metrics by type and find the closest for each type
-  const metricsByType = processedMetrics.reduce<Record<string, SafetyMetric>>((acc, metric) => {
-    // Validate metric coordinates before calculating distance
-    if (!isValidCoordinates(metric.latitude, metric.longitude)) {
-        console.warn(`Invalid coordinates for metric ${metric.metric_type} (${metric.id}), skipping.`);
-        return acc;
+  // Group metrics by location
+  const results: Record<string, SafetyMetric[] | null> = {};
+  locations.forEach(location => {
+    const locationKey = `${location.lat},${location.lng}`;
+    if (!isValidCoordinates(location.lat, location.lng)) {
+        results[locationKey] = null;
+        return;
     }
 
-    const distance = calculateDistance(
-      { lat: location.lat, lng: location.lng },
-      { lat: metric.latitude, lng: metric.longitude }
-    )
+    const metricsForLocation: Record<string, { metric: SafetyMetric; distance: number }> = {};
 
-    // Validate coordinates of existing metric in accumulator before calculating distance
-    const existingMetric = acc[metric.metric_type];
-    let existingDistance = Infinity;
-    if (existingMetric && isValidCoordinates(existingMetric.latitude, existingMetric.longitude)) {
-        existingDistance = calculateDistance(
-            { lat: location.lat, lng: location.lng },
-            { lat: existingMetric.latitude, lng: existingMetric.longitude }
-        );
-    } else if (existingMetric) {
-        // If existing metric has invalid coordinates, replace it regardless of distance
-        console.warn(`Invalid coordinates for existing metric ${existingMetric.metric_type}, replacing.`);
-    }
+    processedMetrics.forEach(metric => {
+      const distance = calculateDistance(location, { lat: metric.latitude, lng: metric.longitude });
+      const existing = metricsForLocation[metric.metric_type];
 
-    if (!existingMetric || distance < existingDistance) {
-      acc[metric.metric_type] = metric
-    }
-    return acc
-  }, {})
+      if (!existing || distance < existing.distance) {
+        metricsForLocation[metric.metric_type] = { metric, distance };
+      }
+    });
 
-  const result = Object.values(metricsByType)
-  // console.log(`Returning ${result.length} grouped safety metrics by type`)
-  return result
+    const closestMetrics = Object.values(metricsForLocation).map(item => item.metric);
+    results[locationKey] = closestMetrics.length > 0 ? closestMetrics : null;
+  });
+
+  return results;
 }
 
-// Function to fetch similar accommodations
+// Function to fetch similar accommodations (OPTIMIZED)
 async function findSimilarAccommodations(
   location: Location,
   price: number | null,
@@ -126,7 +131,7 @@ async function findSimilarAccommodations(
   // console.log('Location bounds:', { latMin: location.lat - LOCATION_RADIUS, latMax: location.lat + LOCATION_RADIUS, lngMin: location.lng - LOCATION_RADIUS, lngMax: location.lng + LOCATION_RADIUS });
 
   try {
-    // Base query with location constraints
+    // 1. Fetch candidate accommodations based on location/price
     let query = supabaseServer
       .from('accommodations')
       .select('id, name, price_per_night, latitude, longitude, source')
@@ -136,17 +141,11 @@ async function findSimilarAccommodations(
       .gte('longitude', location.lng - LOCATION_RADIUS)
       .lte('longitude', location.lng + LOCATION_RADIUS);
 
-    // Add price constraints only if we have a price
     if (price !== null && price > 0) {
-      const minPrice = price * PRICE_RANGE.MIN;
-      const maxPrice = price * PRICE_RANGE.MAX;
-      // console.log('Adding price constraints:', { minPrice, maxPrice, originalPrice: price });
-
+      // ... (price constraints) ...
       query = query
-        .gte('price_per_night', minPrice)
-        .lte('price_per_night', maxPrice);
-    } else {
-      // console.log('Skipping price constraints - no price available for current accommodation');
+        .gte('price_per_night', price * PRICE_RANGE.MIN)
+        .lte('price_per_night', price * PRICE_RANGE.MAX);
     }
 
     const { data: accommodations, error } = await query;
@@ -155,60 +154,72 @@ async function findSimilarAccommodations(
       console.error('Error fetching similar accommodations:', error);
       return [];
     }
+    if (!accommodations || accommodations.length === 0) return [];
 
-    if (!accommodations || accommodations.length === 0) {
-      // console.log('No accommodations found within the search parameters');
-      return [];
-    }
+    console.log(`[findSimilarAccommodations] Found ${accommodations.length} candidates.`);
 
-    // console.log(`Found ${accommodations.length} accommodations in radius`);
-
-    // Fetch safety metrics for each accommodation
-    const similarAccommodations = await Promise.all(
-      accommodations.map(async (acc) => {
-        // Skip accommodations with invalid coordinates
+    // 2. Prepare locations for batch metric fetching
+    const validLocationsMap = new Map<string, Location>();
+    const validAccommodations = accommodations.filter(acc => {
         const accLat = typeof acc.latitude === 'string' ? parseFloat(acc.latitude) : acc.latitude;
         const accLng = typeof acc.longitude === 'string' ? parseFloat(acc.longitude) : acc.longitude;
-
-        if (!isValidCoordinates(accLat, accLng)) {
-          console.warn(`Invalid coordinates for accommodation ${acc.name} (${acc.id}): lat=${accLat}, lng=${accLng}`);
-          return null;
+        if (isValidCoordinates(accLat, accLng)) {
+            const locKey = `${accLat},${accLng}`;
+            if (!validLocationsMap.has(locKey)) {
+                validLocationsMap.set(locKey, { lat: accLat, lng: accLng });
+            }
+            return true;
         }
+        console.warn(`Invalid coordinates for accommodation ${acc.name} (${acc.id})`);
+        return false;
+    });
 
-        const metrics = await findClosestSafetyMetrics({ lat: accLat, lng: accLng })
-        if (!metrics || metrics.length === 0) {
-          // console.log(`No safety metrics found for ${acc.name} (${acc.id})`);
-          return null; // Skip accommodations without safety metrics
-        }
+    const locationsToFetch = Array.from(validLocationsMap.values());
 
-        const overall_score = Math.round(
-          metrics.reduce((sum, metric) => sum + metric.score, 0) / metrics.length * 10
-        )
+    if (locationsToFetch.length === 0) return [];
 
-        // console.log(`${acc.name} (${acc.id}) - Score: ${overall_score}, Current Score: ${currentScore}`);
+    // 3. Fetch metrics for all valid locations in batch
+    console.log(`[findSimilarAccommodations] Fetching metrics for ${locationsToFetch.length} unique locations.`);
+    const metricsByLocation = await findClosestSafetyMetricsBatch(locationsToFetch);
+    console.log(`[findSimilarAccommodations] Received metrics for ${Object.keys(metricsByLocation).length} locations.`);
 
-        // Ensure hasCompleteData is always a boolean
-        const hasCompleteData = metrics ? metrics.length === 5 : false;
-        return overall_score > currentScore ? {
-          id: acc.id,
-          name: acc.name,
-          price_per_night: acc.price_per_night,
-          source: acc.source,
-          latitude: accLat,
-          longitude: accLng,
-          overall_score,
-          hasCompleteData // Now always boolean
-        } : null;
-      })
-    )
+    // 4. Process accommodations with fetched metrics
+    const similarAccommodations = validAccommodations.map(acc => {
+      const accLat = typeof acc.latitude === 'string' ? parseFloat(acc.latitude) : acc.latitude;
+      const accLng = typeof acc.longitude === 'string' ? parseFloat(acc.longitude) : acc.longitude;
+      const locKey = `${accLat},${accLng}`;
+      const metrics = metricsByLocation[locKey];
 
-    // Fix the type predicate
+      if (!metrics || metrics.length === 0) {
+        return null; // Skip if no metrics found for this location
+      }
+
+      const overall_score = Math.round(
+        metrics.reduce((sum, metric) => sum + metric.score, 0) / metrics.length * 10
+      );
+
+      const hasCompleteData = metrics.length === 5; // Assuming 5 means complete
+
+      return overall_score > currentScore ? {
+        id: acc.id,
+        name: acc.name,
+        price_per_night: acc.price_per_night,
+        source: acc.source,
+        latitude: accLat,
+        longitude: accLng,
+        overall_score,
+        hasCompleteData
+      } : null;
+    });
+
+    // 5. Filter and sort results
     const filteredAccommodations = similarAccommodations
       .filter((acc): acc is NonNullable<typeof acc> => acc !== null)
       .sort((a, b) => b.overall_score - a.overall_score);
 
-    // console.log(`Returning ${filteredAccommodations.length} similar accommodations with higher safety scores`);
+    console.log(`[findSimilarAccommodations] Returning ${filteredAccommodations.length} similar accommodations.`);
     return filteredAccommodations;
+
   } catch (err) {
     console.error('Error in findSimilarAccommodations:', err);
     return [];
@@ -252,16 +263,23 @@ async function getReportData(id: string): Promise<AccommodationData | null> {
   const image_url = accommodation.image_url?.startsWith('http') ? accommodation.image_url : null
 
   // Fetch safety metrics only if we have valid coordinates
-  const safetyMetrics = location ? await findClosestSafetyMetrics(location) : null
-  // console.log('Found safety metrics:', safetyMetrics?.length || 0);
+  const locationKey = location ? `${location.lat},${location.lng}` : null;
+  const safetyMetricsResult = location ? await findClosestSafetyMetricsBatch([location]) : null;
 
-  // Check if we have complete safety data (assuming 5 metrics means complete)
-  const hasCompleteData = safetyMetrics ? safetyMetrics.length === 5 : false
+  // Extract the metrics array for the specific location
+  const metricsForLocation: SafetyMetric[] | null = (locationKey && safetyMetricsResult && safetyMetricsResult[locationKey])
+    ? safetyMetricsResult[locationKey]
+    : null;
 
-  // Calculate overall score, handle case with no metrics
-  const overall_score = (safetyMetrics && safetyMetrics.length > 0)
-    ? Math.round(safetyMetrics.reduce((sum, metric) => sum + metric.score, 0) / safetyMetrics.length * 10)
-    : 0 // Default to 0 if no metrics found
+  // console.log('Found safety metrics for location:', metricsForLocation?.length ?? 0);
+
+  // Check if we have complete safety data (assuming 5 metrics means complete) based on the extracted array
+  const hasCompleteData = metricsForLocation ? metricsForLocation.length === 5 : false;
+
+  // Calculate overall score based on the extracted array
+  const overall_score = (metricsForLocation && metricsForLocation.length > 0)
+    ? Math.round(metricsForLocation.reduce((sum, metric) => sum + metric.score, 0) / metricsForLocation.length * 10)
+    : 0; // Default to 0 if no metrics found
 
   // console.log('Calculated overall safety score:', overall_score);
 
@@ -312,7 +330,7 @@ async function getReportData(id: string): Promise<AccommodationData | null> {
     neighborhood: accommodation.neighborhood || (accommodation.address?.full || null),
     source: accommodation.source,
     location, // Will be null if coordinates were invalid/missing
-    safety_metrics: safetyMetrics, // Will be null if location was null or no metrics found
+    safety_metrics: metricsForLocation, // Assign the extracted array
     overall_score,
     similar_accommodations,
     hasCompleteData,
@@ -327,6 +345,7 @@ export default function SafetyReportPage({ params }: SafetyReportProps) {
   const [isAuthenticated, setIsAuthenticated] = useState(false)
   const [authChecked, setAuthChecked] = useState(false)
   const [activeSection, setActiveSection] = useState<ReportSection>('overview')
+  const { supabase } = useAuth()
 
   // Validate ID early
   if (!params.id) {
@@ -355,7 +374,9 @@ export default function SafetyReportPage({ params }: SafetyReportProps) {
       setReportData(null) // Clear previous data
 
       try {
-        const supabase = createClient()
+        if (!supabase) {
+           throw new Error("Supabase client not available from Auth context");
+        }
         console.log("[SafetyReportPage Effect] Fetching report data and session concurrently...");
         const [data, { data: { session } }] = await Promise.all([
           getReportData(params.id),
@@ -401,7 +422,7 @@ export default function SafetyReportPage({ params }: SafetyReportProps) {
       console.log(`[SafetyReportPage Effect] Cleanup for ID: ${params.id}`);
       isMounted = false
     }
-  }, [params.id]) // Removed authChecked from dependency array
+  }, [params.id, supabase])
 
   const handleSectionChange = (section: ReportSection) => {
     setActiveSection(section)
