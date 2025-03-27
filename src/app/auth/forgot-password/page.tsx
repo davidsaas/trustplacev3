@@ -56,21 +56,25 @@ export default function ForgotPasswordPage() {
           />
         </div>
 
-        {error && (
+        {/* Temporarily comment out Alert usage to fix build */}
+        {/* {error && (
           <Alert>
             <Terminal className="h-4 w-4" />
             <AlertTitle>Error</AlertTitle>
             <AlertDescription>{error}</AlertDescription>
           </Alert>
-        )}
+        )} */}
+        {error && <p className="text-sm text-red-600">{error}</p>} {/* Basic error display */}
 
-        {message && (
+        {/* Temporarily comment out Alert usage to fix build */}
+        {/* {message && (
           <Alert>
             <Terminal className="h-4 w-4" />
             <AlertTitle>Success</AlertTitle>
             <AlertDescription>{message}</AlertDescription>
           </Alert>
-        )}
+        )} */}
+        {message && <p className="text-sm text-green-600">{message}</p>} {/* Basic message display */}
 
         <Button type="submit" className="w-full" disabled={isSubmitting}>
           {isSubmitting ? <Loader className="animate-spin mr-2" size={16} /> : null}

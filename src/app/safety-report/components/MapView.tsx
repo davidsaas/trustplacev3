@@ -37,20 +37,19 @@ const createCustomMarker = (score: number, isCurrent: boolean = false, hasComple
     const el = document.createElement('div')
     el.className = 'custom-marker' // Root element given to Mapbox
 
-    let markerColor = '#3b82f6';
+    let markerColor = '#3b82f6'; // Default blue
     let haloColor = colorToRgba(markerColor, 0.3);
-    const scoreSize = isCurrent ? '28px' : '24px';
-    const fontSize = isCurrent ? '14px' : '12px';
-    const haloSize = isCurrent ? '40px' : '36px';
-    const zIndex = isCurrent ? 5 : 3; // Current marker on top
+    const scoreSize = isCurrent ? '26px' : '24px'; // Slightly larger current score circle
+    const fontSize = isCurrent ? '13px' : '12px';
+    const haloSize = isCurrent ? '38px' : '36px';
+    const zIndex = isCurrent ? 10 : 3; // Ensure current marker is definitely on top
+    const borderStyle = isCurrent ? '3px solid white' : '2px solid white'; // Thicker border for current
+    const boxShadow = isCurrent ? '0 2px 5px rgba(0, 0, 0, 0.4)' : '0 1px 3px rgba(0, 0, 0, 0.3)'; // Stronger shadow for current
 
     if (!hasCompleteData) {
-        markerColor = '#9ca3af';
+        markerColor = '#9ca3af'; // Grey for incomplete
         haloColor = colorToRgba(markerColor, 0.3);
-    } else if (isCurrent) {
-        markerColor = '#10b981';
-        haloColor = colorToRgba(markerColor, 0.3);
-    } else if (score > 0) {
+    } else if (score > 0) { // Apply score color logic to current marker too
         const riskLevel = getRiskLevel(score / 10);
         markerColor = riskLevel.fill || '#3b82f6';
         haloColor = colorToRgba(markerColor, 0.3);
@@ -58,20 +57,21 @@ const createCustomMarker = (score: number, isCurrent: boolean = false, hasComple
 
     el.style.zIndex = zIndex.toString();
 
-    const labelHtml = isCurrent ? '<div class="marker-label">Current selection</div>' : '';
+    // Label only shown if NOT current (to avoid clutter)
+    // const labelHtml = !isCurrent ? '<div class="marker-label">Alternative</div>' : '';
+    // Let's remove the label for now to simplify
 
-    // Structure: Root -> Visual Wrapper -> (Halo, Inner -> (Score, Pulse)), Label
+    // Structure: Root -> Visual Wrapper -> (Halo, Inner -> (Score, Pulse))
     el.innerHTML = `
         <div class="marker-visual-content">
           <div class="marker-halo" style="background-color: ${haloColor}; width: ${haloSize}; height: ${haloSize};"></div>
           <div class="marker-inner ${isCurrent ? 'current' : ''} ${!hasCompleteData ? 'incomplete-data' : ''}">
-            <div class="marker-score" style="background-color: ${markerColor}; width: ${scoreSize}; height: ${scoreSize}; font-size: ${fontSize};">
+            <div class="marker-score" style="background-color: ${markerColor}; width: ${scoreSize}; height: ${scoreSize}; font-size: ${fontSize}; border: ${borderStyle}; box-shadow: ${boxShadow};">
               ${score}
             </div>
             <div class="marker-pulse" style="background-color: ${colorToRgba(markerColor, 0.2)};"></div>
           </div>
         </div>
-        ${labelHtml}
     `;
     return el;
 };
@@ -111,8 +111,9 @@ export const MapView = ({ location, currentAccommodation, similarAccommodations 
 
     // --- Callbacks ---
     const handleMarkerClick = useCallback((accommodationId: string) => {
-        router.push(`/safety-report/${accommodationId}`);
-    }, [router]);
+        // Open the report page in a new tab
+        window.open(`/safety-report/${accommodationId}`, '_blank', 'noopener,noreferrer');
+    }, []);
 
     // Function to close ALL currently open popups
     const closeAllPopups = useCallback(() => {
@@ -125,38 +126,39 @@ export const MapView = ({ location, currentAccommodation, similarAccommodations 
     }, []);
 
     const createPopupContent = useCallback((accommodation: Accommodation | SimilarAccommodation) => {
-        // ... (popup content creation remains the same) ...
         const isCurrent = accommodation.id === currentAccommodation.id;
-        const score = accommodation.overall_score;
         const name = accommodation.name;
-        const id = accommodation.id;
         const hasCompleteData = 'hasCompleteData' in accommodation ? accommodation.hasCompleteData : true;
         const price = 'price_per_night' in accommodation ? (accommodation as SimilarAccommodation).price_per_night : null;
 
         const content = document.createElement('div');
-        content.className = 'p-3 min-w-[220px]';
+        content.className = 'p-2 min-w-[180px]'; // Adjusted padding and min-width
 
-        let detailsHtml = `<span class="text-sm font-medium">Safety Score: ${score}</span>`;
-        if (price !== null) { detailsHtml += `<span class="text-sm text-gray-500 ml-2">$${price}/night</span>`; }
-        if (!hasCompleteData) { detailsHtml += '<span class="text-xs text-gray-500 ml-2">(incomplete data)</span>'; }
+        let detailsHtml = '';
+        if (price !== null) {
+            detailsHtml += `<span class="text-sm text-gray-600">$${price}/night</span>`;
+        }
+        if (!hasCompleteData) {
+            // Add spacing if price is also shown
+            const spacing = price !== null ? ' ml-2' : '';
+            detailsHtml += `<span class="text-xs text-orange-600 font-medium${spacing}">(Partial Data)</span>`;
+        }
 
         content.innerHTML = `
-            <h3 class="font-semibold mb-1 text-base">${name}</h3>
-            <div class="flex items-center flex-wrap gap-x-2 mb-2">${detailsHtml}</div>
-            ${isCurrent ? '<span class="text-sm text-emerald-600 font-medium">Current Selection</span>' : '<button class="view-details-button text-sm text-blue-600 hover:underline cursor-pointer font-medium">View Details →</button>'}
+            <h3 class="font-semibold mb-1 text-base truncate" title="${name}">${name}</h3>
+            ${detailsHtml ? `<div class="flex items-center flex-wrap gap-x-2">${detailsHtml}</div>` : ''}
+            ${isCurrent ? '<span class="text-xs text-emerald-600 font-medium mt-1 block">Current Selection</span>' : ''}
         `;
 
-        if (!isCurrent) {
-            const button = content.querySelector('.view-details-button');
-            if (button) { button.addEventListener('click', (e) => { e.preventDefault(); e.stopPropagation(); handleMarkerClick(id); }, true); }
-        }
+        // No button needed anymore as marker click handles navigation
+
         return content;
-    }, [currentAccommodation.id, handleMarkerClick]);
+    }, [currentAccommodation.id]);
 
     // --- Marker Update Logic ---
     const updateMarkers = useCallback(() => {
         if (!map.current || !map.current.isStyleLoaded() || !map.current.getContainer()) { return; }
-        console.log(`UpdateMarkers: Starting (Show Only Better: ${showOnlyBetter}). Received ${similarAccommodations.length} similar props.`);
+        console.log(`UpdateMarkers: Starting (Show Only Better: ${showOnlyBetter}). Received ${similarAccommodations.length} total similar props.`);
 
         // 1. Cleanup previous state
         closeAllPopups(); // Close any lingering popups
@@ -165,19 +167,20 @@ export const MapView = ({ location, currentAccommodation, similarAccommodations 
         popupsRef.current.clear(); // Clear popup references
         console.log("UpdateMarkers: Cleared old markers and popups.");
 
-        // 2. Filter based on toggle state
-        const filteredSimilar = showOnlyBetter
+        // 2. Filter similar accommodations based on toggle state *HERE*
+        const similarToConsider = showOnlyBetter
             ? similarAccommodations.filter(acc => acc.overall_score >= currentAccommodation.overall_score)
-            : similarAccommodations;
-        console.log(`UpdateMarkers: Filtered to ${filteredSimilar.length} similar accommodations.`);
+            : similarAccommodations; // Use all if unchecked
+        console.log(`UpdateMarkers: Filtered to ${similarToConsider.length} similar accommodations to display.`);
 
         // 3. Combine accommodations to display
         const accommodationsToDisplay = [
             { ...currentAccommodation, isCurrent: true, lat: location.lat, lng: location.lng },
-            ...filteredSimilar.map(acc => ({ ...acc, isCurrent: false, lat: acc.latitude, lng: acc.longitude }))
+            // Use the client-side filtered list
+            ...similarToConsider.map(acc => ({ ...acc, isCurrent: false, lat: acc.latitude, lng: acc.longitude }))
         ];
 
-        // 4. Create and add markers/popups
+        // 4. Create and add markers/popups for accommodationsToDisplay
         let addedMarkersCount = 0;
         accommodationsToDisplay.forEach(acc => {
             if (!isValidCoordinate(acc.lat) || !isValidCoordinate(acc.lng)) { return; }
@@ -195,7 +198,7 @@ export const MapView = ({ location, currentAccommodation, similarAccommodations 
                 // Store popup reference
                 popupsRef.current.set(acc.id, popup); // Associate popup with accommodation ID
 
-                // --- Simplified Event Listeners ---
+                // --- Event Listeners ---
                 let closePopupTimeout: NodeJS.Timeout | null = null;
 
                 markerElement.addEventListener('mouseenter', () => {
@@ -215,18 +218,22 @@ export const MapView = ({ location, currentAccommodation, similarAccommodations 
                     }, 200); // 200ms delay
                 });
 
-                // Click -> Fly To
+                // --- CLICK LOGIC ---
                 markerElement.addEventListener('click', (e) => {
-                    e.stopPropagation();
-                     if (acc.isCurrent) {
+                    e.stopPropagation(); // Keep this to prevent map click events if needed
+                    console.log(`Marker clicked: ${acc.name}, Is Current: ${acc.isCurrent}`); // Add log
+
+                    if (acc.isCurrent) {
+                        // Fly to current marker's location
                         map.current?.flyTo({ center: [acc.lng, acc.lat] });
                     } else {
+                        // Open similar accommodation in new tab
+                        handleMarkerClick(acc.id);
+                        // Optional: Fly to the clicked marker as well
                         map.current?.flyTo({ center: [acc.lng, acc.lat], zoom: Math.max(map.current.getZoom() || 14.5, 14.5) });
-                        // Optional: Also trigger the action the popup button does?
-                        // handleMarkerClick(acc.id);
                     }
                 });
-                // --- End Event Listeners ---
+                // --- END CLICK LOGIC ---
 
                 marker.addTo(map.current!);
                 markersRef.current.push(marker);
@@ -236,7 +243,7 @@ export const MapView = ({ location, currentAccommodation, similarAccommodations 
         });
         console.log(`UpdateMarkers: Added ${addedMarkersCount} markers.`);
 
-    }, [location, currentAccommodation, similarAccommodations, createPopupContent, handleMarkerClick, showOnlyBetter, closeAllPopups]); // Added closeAllPopups dependency
+    }, [location, currentAccommodation, similarAccommodations, createPopupContent, handleMarkerClick, showOnlyBetter, closeAllPopups]);
 
 
     // --- Effects ---
@@ -270,28 +277,32 @@ export const MapView = ({ location, currentAccommodation, similarAccommodations 
 
     // Effect for Updating Markers and Fitting Bounds
     useEffect(() => {
-        console.log("Marker/Bounds Effect: Checking conditions...");
-        if (!map.current || !isInitialized.current) { return; }
+        console.log(`Marker/Bounds Effect: Running. ShowOnlyBetter: ${showOnlyBetter}`);
+        if (!map.current || !isInitialized.current) {
+            console.log("Marker/Bounds Effect: Skipping (Map not ready).");
+            return;
+        }
 
-        // Determine the list of accommodations to consider for bounds based on the toggle
-        const accommodationsForBounds = showOnlyBetter
-            ? similarAccommodations.filter(acc => acc.overall_score >= currentAccommodation.overall_score)
-            : similarAccommodations;
-         console.log(`Marker/Bounds Effect: Using ${accommodationsForBounds.length} similar accommodations for bounds calculation.`);
-
-
+        // --- Define the update function ---
         const runUpdatesAndFitBounds = () => {
             if (!map.current || !map.current.getContainer()) { return; }
             console.log("Marker/Bounds Effect: Running updates and fitting bounds...");
 
-            // Update markers (uses internal filtering based on showOnlyBetter)
+            // 1. Update markers FIRST (this now includes the filtering logic)
             updateMarkers();
 
-            // --- Fit bounds logic using the *explicitly filtered* list ---
+            // 2. Determine accommodations for bounds based on the CURRENT toggle state
+            //    (This list should match what updateMarkers decided to display)
+            const accommodationsForBounds = showOnlyBetter
+                ? similarAccommodations.filter(acc => acc.overall_score >= currentAccommodation.overall_score)
+                : similarAccommodations;
+            console.log(`Marker/Bounds Effect: Using ${accommodationsForBounds.length} similar accommodations for bounds calculation.`);
+
+            // 3. Fit bounds logic using the filtered list
             const allCoords: mapboxgl.LngLatLike[] = [];
             if (isValidLocation) { allCoords.push([location.lng, location.lat]); }
 
-            accommodationsForBounds.forEach(acc => { // Use the list filtered for bounds
+            accommodationsForBounds.forEach(acc => {
                 if (isValidCoordinate(acc.latitude) && isValidCoordinate(acc.longitude)) {
                     allCoords.push([acc.longitude, acc.latitude]);
                 }
@@ -302,29 +313,49 @@ export const MapView = ({ location, currentAccommodation, similarAccommodations 
                     const bounds = allCoords.reduce((b, coord) => b.extend(coord), new mapboxgl.LngLatBounds(allCoords[0], allCoords[0]));
                     if (!bounds.isEmpty()) {
                         console.log("Marker/Bounds Effect: Fitting bounds:", bounds.toArray());
+                        // Add a slight delay or ensure map is idle if issues persist
                         map.current?.fitBounds(bounds, { padding: 60, maxZoom: 16, duration: 800 });
                     }
-                } catch (e) { console.error("Error fitting bounds:", e); /* ... fallback ... */ }
-            } else { console.log("Marker/Bounds Effect: No valid coordinates to fit bounds."); }
-            // --- End Fit bounds ---
+                } catch (e) { console.error("Error fitting bounds:", e); }
+            } else {
+                console.log("Marker/Bounds Effect: No valid coordinates to fit bounds.");
+                // Maybe zoom to current location if no others are shown?
+                if (isValidLocation && map.current) {
+                    map.current.flyTo({ center: [location.lng, location.lat], zoom: 13 });
+                }
+            }
         }
 
-        if (map.current.isStyleLoaded()) { runUpdatesAndFitBounds(); }
-        else { map.current.once('load', () => { if(map.current) runUpdatesAndFitBounds(); }); }
+        // --- Trigger the update ---
+        if (map.current.isStyleLoaded()) {
+            console.log("Marker/Bounds Effect: Map style loaded, running updates.");
+            runUpdatesAndFitBounds();
+        } else {
+            console.log("Marker/Bounds Effect: Map style not loaded, attaching 'load' listener.");
+            map.current.once('load', () => {
+                if(map.current) {
+                    console.log("Marker/Bounds Effect: 'load' event fired, running updates.");
+                    runUpdatesAndFitBounds();
+                }
+            });
+        }
 
-        // Cleanup for markers and popups
+        // --- Cleanup ---
         return () => {
-            console.log("Marker/Bounds Effect: Cleanup starting.");
-            closeAllPopups(); // Close popups on effect cleanup too
-            const markersToRemove = markersRef.current;
-            if (map.current && map.current.getContainer()) {
-                 markersToRemove.forEach(marker => marker.remove());
-            }
-            markersRef.current = [];
-            popupsRef.current.clear(); // Clear popup refs
+            console.log(`Marker/Bounds Effect: Cleanup starting (ShowOnlyBetter was ${showOnlyBetter}).`);
+            // No need to call closeAllPopups/remove markers here,
+            // as the *next* run of updateMarkers will handle cleanup.
+            // If you see duplicate markers, uncomment the cleanup below.
+            // closeAllPopups();
+            // const markersToRemove = markersRef.current;
+            // if (map.current && map.current.getContainer()) {
+            //      markersToRemove.forEach(marker => marker.remove());
+            // }
+            // markersRef.current = [];
+            // popupsRef.current.clear();
         };
 
-    // Added showOnlyBetter dependency
+    // Keep dependencies the same
     }, [location, currentAccommodation, similarAccommodations, updateMarkers, isValidLocation, showOnlyBetter, closeAllPopups]);
 
 
@@ -412,13 +443,14 @@ export const MapView = ({ location, currentAccommodation, similarAccommodations 
 
                 .marker-score {
                     position: relative; /* Not absolute */
-                    border: 2px solid #FFFFFF; border-radius: 50%;
+                    /* border: 2px solid #FFFFFF; */ /* Border set dynamically */
+                    border-radius: 50%;
                     display: flex; align-items: center; justify-content: center;
                     color: white; font-weight: bold; z-index: 2; /* Above pulse */
-                    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+                    /* box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3); */ /* Shadow set dynamically */
                     text-shadow: 0 1px 1px rgba(0,0,0,0.4);
                     line-height: 1;
-                    transition: background-color 0.3s ease, width 0.3s ease, height 0.3s ease;
+                    transition: background-color 0.3s ease, width 0.3s ease, height 0.3s ease, border 0.3s ease, box-shadow 0.3s ease;
                     /* pointer-events: auto; Inherited from visual-content */
                 }
 
@@ -433,15 +465,8 @@ export const MapView = ({ location, currentAccommodation, similarAccommodations 
                     transition: background-color 0.3s ease;
                 }
 
-                .marker-label {
-                    margin-top: 4px;
-                    font-size: 10px; font-weight: 500; color: #374151;
-                    background-color: rgba(255, 255, 255, 0.85);
-                    padding: 2px 5px; border-radius: 4px;
-                    white-space: nowrap; text-align: center;
-                    pointer-events: none; /* Visual only */
-                    box-shadow: 0 1px 2px rgba(0,0,0,0.1);
-                }
+                /* Remove marker-label styles if label is removed */
+                /* .marker-label { ... } */
 
                 @keyframes pulse {
                     0% { transform: translate(-50%, -50%) scale(0.7); opacity: 0.6; }
