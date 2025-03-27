@@ -120,9 +120,11 @@ export default function UpdatePasswordPage() {
             disabled={isSubmitting}
           />
         </div>
-
         {error && (
-          <Alert>
+          <Alert 
+          open={!!error}
+          onClose={() => setError(null)}
+        >
             <Terminal className="h-4 w-4" />
             <AlertTitle>Error</AlertTitle>
             <AlertDescription>{error}</AlertDescription>
