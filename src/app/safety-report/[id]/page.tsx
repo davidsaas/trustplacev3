@@ -3,9 +3,10 @@
 import { useState, useEffect } from 'react'
 import { notFound } from 'next/navigation'
 import { SafetyMetrics } from '../components/SafetyMetrics'
-import { CommunityOpinions } from '../components/CommunityOpinions'
+import { CommunityOpinions } from './components/CommunityOpinions'
 import { MapView } from '../components/MapView'
 import { RestrictedContent } from '@/app/auth/components/restricted-content'
+import { createClient } from '@/lib/supabase/client'
 import { supabaseServer } from '@/lib/supabase/server'
 import { PropertyHeader } from '../components/PropertyHeader'
 import { LOCATION_RADIUS, SAFETY_RADIUS, PRICE_RANGE } from '../constants'
@@ -13,9 +14,9 @@ import { isValidCoordinates, calculateDistance } from '../utils'
 import Loading from './loading'
 import { AppNavbar } from '@/app/components/navbar'
 
-import type { 
-  SafetyReportProps, 
-  SafetyMetric, 
+import type {
+  SafetyReportProps,
+  SafetyMetric,
   Location,
   AccommodationData,
   SimilarAccommodation
@@ -23,8 +24,8 @@ import type {
 
 // Function to find closest safety metrics for a location
 async function findClosestSafetyMetrics(location: Location): Promise<SafetyMetric[] | null> {
-  console.log('Finding safety metrics for location:', location);
-  
+  // console.log('Finding safety metrics for location:', location); // Keep logs minimal or remove if not needed
+
   const { data: metrics, error } = await supabaseServer
     .from('safety_metrics')
     .select('*')
@@ -39,11 +40,11 @@ async function findClosestSafetyMetrics(location: Location): Promise<SafetyMetri
   }
 
   if (!metrics || metrics.length === 0) {
-    console.log('No safety metrics found in radius')
+    // console.log('No safety metrics found in radius') // Keep logs minimal
     return null
   }
-  
-  console.log(`Found ${metrics.length} raw safety metrics entries in radius`)
+
+  // console.log(`Found ${metrics.length} raw safety metrics entries in radius`)
 
   // Ensure numeric values for calculations by converting string values if needed
   const processedMetrics = metrics.map(metric => ({
@@ -55,22 +56,38 @@ async function findClosestSafetyMetrics(location: Location): Promise<SafetyMetri
 
   // Group metrics by type and find the closest for each type
   const metricsByType = processedMetrics.reduce<Record<string, SafetyMetric>>((acc, metric) => {
+    // Validate metric coordinates before calculating distance
+    if (!isValidCoordinates(metric.latitude, metric.longitude)) {
+        console.warn(`Invalid coordinates for metric ${metric.metric_type} (${metric.id}), skipping.`);
+        return acc;
+    }
+
     const distance = calculateDistance(
       { lat: location.lat, lng: location.lng },
       { lat: metric.latitude, lng: metric.longitude }
     )
-    
-    if (!acc[metric.metric_type] || distance < calculateDistance(
-      { lat: location.lat, lng: location.lng },
-      { lat: acc[metric.metric_type].latitude, lng: acc[metric.metric_type].longitude }
-    )) {
+
+    // Validate coordinates of existing metric in accumulator before calculating distance
+    const existingMetric = acc[metric.metric_type];
+    let existingDistance = Infinity;
+    if (existingMetric && isValidCoordinates(existingMetric.latitude, existingMetric.longitude)) {
+        existingDistance = calculateDistance(
+            { lat: location.lat, lng: location.lng },
+            { lat: existingMetric.latitude, lng: existingMetric.longitude }
+        );
+    } else if (existingMetric) {
+        // If existing metric has invalid coordinates, replace it regardless of distance
+        console.warn(`Invalid coordinates for existing metric ${existingMetric.metric_type}, replacing.`);
+    }
+
+    if (!existingMetric || distance < existingDistance) {
       acc[metric.metric_type] = metric
     }
     return acc
   }, {})
 
   const result = Object.values(metricsByType)
-  console.log(`Returning ${result.length} grouped safety metrics by type`)
+  // console.log(`Returning ${result.length} grouped safety metrics by type`)
   return result
 }
 
@@ -87,17 +104,8 @@ async function findSimilarAccommodations(
     return [];
   }
 
-  console.log('Finding similar accommodations:', { 
-    hasPrice: price !== null, 
-    currentScore, 
-    searchRadius: LOCATION_RADIUS 
-  });
-  console.log('Location bounds:', {
-    latMin: location.lat - LOCATION_RADIUS,
-    latMax: location.lat + LOCATION_RADIUS,
-    lngMin: location.lng - LOCATION_RADIUS,
-    lngMax: location.lng + LOCATION_RADIUS
-  });
+  // console.log('Finding similar accommodations:', { hasPrice: price !== null, currentScore, searchRadius: LOCATION_RADIUS });
+  // console.log('Location bounds:', { latMin: location.lat - LOCATION_RADIUS, latMax: location.lat + LOCATION_RADIUS, lngMin: location.lng - LOCATION_RADIUS, lngMax: location.lng + LOCATION_RADIUS });
 
   try {
     // Base query with location constraints
@@ -109,18 +117,18 @@ async function findSimilarAccommodations(
       .lte('latitude', location.lat + LOCATION_RADIUS)
       .gte('longitude', location.lng - LOCATION_RADIUS)
       .lte('longitude', location.lng + LOCATION_RADIUS);
-    
+
     // Add price constraints only if we have a price
     if (price !== null && price > 0) {
       const minPrice = price * PRICE_RANGE.MIN;
       const maxPrice = price * PRICE_RANGE.MAX;
-      console.log('Adding price constraints:', { minPrice, maxPrice, originalPrice: price });
-      
+      // console.log('Adding price constraints:', { minPrice, maxPrice, originalPrice: price });
+
       query = query
         .gte('price_per_night', minPrice)
         .lte('price_per_night', maxPrice);
     } else {
-      console.log('Skipping price constraints - no price available for current accommodation');
+      // console.log('Skipping price constraints - no price available for current accommodation');
     }
 
     const { data: accommodations, error } = await query;
@@ -131,46 +139,57 @@ async function findSimilarAccommodations(
     }
 
     if (!accommodations || accommodations.length === 0) {
-      console.log('No accommodations found within the search parameters');
+      // console.log('No accommodations found within the search parameters');
       return [];
     }
 
-    console.log(`Found ${accommodations.length} accommodations in radius`);
-    
+    // console.log(`Found ${accommodations.length} accommodations in radius`);
+
     // Fetch safety metrics for each accommodation
     const similarAccommodations = await Promise.all(
       accommodations.map(async (acc) => {
         // Skip accommodations with invalid coordinates
-        if (!isValidCoordinates(acc.latitude, acc.longitude)) {
-          console.warn(`Invalid coordinates for accommodation ${acc.name} (${acc.id}): lat=${acc.latitude}, lng=${acc.longitude}`);
+        const accLat = typeof acc.latitude === 'string' ? parseFloat(acc.latitude) : acc.latitude;
+        const accLng = typeof acc.longitude === 'string' ? parseFloat(acc.longitude) : acc.longitude;
+
+        if (!isValidCoordinates(accLat, accLng)) {
+          console.warn(`Invalid coordinates for accommodation ${acc.name} (${acc.id}): lat=${accLat}, lng=${accLng}`);
           return null;
         }
-        
-        const metrics = await findClosestSafetyMetrics({ lat: acc.latitude, lng: acc.longitude })
+
+        const metrics = await findClosestSafetyMetrics({ lat: accLat, lng: accLng })
         if (!metrics || metrics.length === 0) {
-          console.log(`No safety metrics found for ${acc.name} (${acc.id})`);
+          // console.log(`No safety metrics found for ${acc.name} (${acc.id})`);
           return null; // Skip accommodations without safety metrics
         }
 
         const overall_score = Math.round(
-          metrics.reduce((acc, metric) => acc + metric.score, 0) / metrics.length * 10
+          metrics.reduce((sum, metric) => sum + metric.score, 0) / metrics.length * 10
         )
 
-        console.log(`${acc.name} (${acc.id}) - Score: ${overall_score}, Current Score: ${currentScore}`);
-        
-        // Only return accommodations with a higher score than the current one
+        // console.log(`${acc.name} (${acc.id}) - Score: ${overall_score}, Current Score: ${currentScore}`);
+
+        // Ensure hasCompleteData is always a boolean
+        const hasCompleteData = metrics ? metrics.length === 5 : false;
         return overall_score > currentScore ? {
-          ...acc,
-          overall_score
+          id: acc.id,
+          name: acc.name,
+          price_per_night: acc.price_per_night,
+          source: acc.source,
+          latitude: accLat,
+          longitude: accLng,
+          overall_score,
+          hasCompleteData // Now always boolean
         } : null;
       })
     )
 
+    // Fix the type predicate
     const filteredAccommodations = similarAccommodations
-      .filter((acc): acc is SimilarAccommodation => acc !== null)
+      .filter((acc): acc is NonNullable<typeof acc> => acc !== null)
       .sort((a, b) => b.overall_score - a.overall_score);
-    
-    console.log(`Returning ${filteredAccommodations.length} similar accommodations with higher safety scores`);
+
+    // console.log(`Returning ${filteredAccommodations.length} similar accommodations with higher safety scores`);
     return filteredAccommodations;
   } catch (err) {
     console.error('Error in findSimilarAccommodations:', err);
@@ -179,7 +198,7 @@ async function findSimilarAccommodations(
 }
 
 async function getReportData(id: string): Promise<AccommodationData | null> {
-  console.log('Fetching report data for accommodation ID:', id);
+  // console.log('Fetching report data for accommodation ID:', id);
 
   const { data: accommodation, error } = await supabaseServer
     .from('accommodations')
@@ -188,61 +207,52 @@ async function getReportData(id: string): Promise<AccommodationData | null> {
     .single()
 
   if (error || !accommodation) {
-    console.error('Error fetching accommodation:', error)
+    console.error(`Error fetching accommodation ${id}:`, error);
     return null
   }
 
-  console.log('Found accommodation:', accommodation.name, 'Price:', accommodation.price_per_night);
+  // console.log('Found accommodation:', accommodation.name, 'Price:', accommodation.price_per_night);
 
-  // Parse coordinates safely
-  const latitude = parseFloat(accommodation.latitude || accommodation.location?.lat || '')
-  const longitude = parseFloat(accommodation.longitude || accommodation.location?.lng || '')
-  const location = isValidCoordinates(latitude, longitude) ? { lat: latitude, lng: longitude } : null
+  // Parse coordinates safely, trying different possible fields
+  const latString = accommodation.latitude || accommodation.location?.lat || '';
+  const lngString = accommodation.longitude || accommodation.location?.lng || '';
+  const latitude = typeof latString === 'string' ? parseFloat(latString) : latString;
+  const longitude = typeof lngString === 'string' ? parseFloat(lngString) : lngString;
+  const location = isValidCoordinates(latitude, longitude) ? { lat: latitude, lng: longitude } : null;
 
-  console.log('Accommodation coordinates:', location);
 
-  // For Booking.com accommodations, ensure we're using the correct fields
+  // console.log('Accommodation coordinates:', location);
+
+  // Ensure image_url is valid
   const image_url = accommodation.image_url?.startsWith('http') ? accommodation.image_url : null
 
-  // Fetch safety metrics if we have valid coordinates
+  // Fetch safety metrics only if we have valid coordinates
   const safetyMetrics = location ? await findClosestSafetyMetrics(location) : null
-  console.log('Found safety metrics:', safetyMetrics?.length || 0);
+  // console.log('Found safety metrics:', safetyMetrics?.length || 0);
 
-  // Check if we have complete safety data (5 metrics)
+  // Check if we have complete safety data (assuming 5 metrics means complete)
   const hasCompleteData = safetyMetrics ? safetyMetrics.length === 5 : false
 
-  // Calculate overall score
-  const overall_score = safetyMetrics 
-    ? Math.round(safetyMetrics.reduce((acc, metric) => acc + metric.score, 0) / safetyMetrics.length * 10)
-    : 0
-  
-  console.log('Calculated overall safety score:', overall_score);
-  
-  // Debug check for similar accommodations parameters
-  const hasSimilarAccommodationsParams = !!(location && overall_score > 0);
-  console.log('Has all parameters for similar accommodations search:', hasSimilarAccommodationsParams);
+  // Calculate overall score, handle case with no metrics
+  const overall_score = (safetyMetrics && safetyMetrics.length > 0)
+    ? Math.round(safetyMetrics.reduce((sum, metric) => sum + metric.score, 0) / safetyMetrics.length * 10)
+    : 0 // Default to 0 if no metrics found
 
-  // Fetch similar accommodations if we have valid data - only require location and score
+  // console.log('Calculated overall safety score:', overall_score);
+
+  // Fetch similar accommodations if we have valid location and a score > 0
   let similar_accommodations: SimilarAccommodation[] = [];
-  
   if (location && overall_score > 0) {
-    console.log('Calling findSimilarAccommodations with:', {
-      location,
-      price: accommodation.price_per_night, // Pass the actual price, which might be null
-      currentScore: overall_score,
-      excludeId: id
-    });
-    
+    // console.log('Calling findSimilarAccommodations with:', { location, price: accommodation.price_per_night, currentScore: overall_score, excludeId: id });
     similar_accommodations = await findSimilarAccommodations(
       location,
-      accommodation.price_per_night, // Pass the actual price, which might be null
+      accommodation.price_per_night, // Pass the actual price (can be null)
       overall_score,
       id
     );
-    
-    console.log(`findSimilarAccommodations returned ${similar_accommodations.length} results`);
+    // console.log(`findSimilarAccommodations returned ${similar_accommodations.length} results`);
   } else {
-    console.log('Skipping similar accommodations search due to missing parameters');
+    // console.log('Skipping similar accommodations search due to missing location or zero score');
   }
 
   return {
@@ -256,8 +266,8 @@ async function getReportData(id: string): Promise<AccommodationData | null> {
     property_type: accommodation.property_type || accommodation.type || null,
     neighborhood: accommodation.neighborhood || (accommodation.address?.full || null),
     source: accommodation.source,
-    location,
-    safety_metrics: safetyMetrics,
+    location, // Will be null if coordinates were invalid/missing
+    safety_metrics: safetyMetrics, // Will be null if location was null or no metrics found
     overall_score,
     similar_accommodations,
     hasCompleteData
@@ -267,110 +277,155 @@ async function getReportData(id: string): Promise<AccommodationData | null> {
 export default function SafetyReportPage({ params }: SafetyReportProps) {
   const [reportData, setReportData] = useState<AccommodationData | null>(null)
   const [loading, setLoading] = useState(true)
+  const [errorOccurred, setErrorOccurred] = useState(false)
+  const [isAuthenticated, setIsAuthenticated] = useState(false)
+  const [authChecked, setAuthChecked] = useState(false)
 
+  // Validate ID early
   if (!params.id) {
     notFound()
   }
 
-  // Fetch data
+  // Fetch data and check authentication
   useEffect(() => {
+    if (!params.id) {
+      setErrorOccurred(true)
+      setLoading(false)
+      setAuthChecked(true)
+      return
+    }
+
+    let isMounted = true
+
     async function loadData() {
+      setLoading(true)
+      setErrorOccurred(false)
+      setAuthChecked(false)
+
       try {
-        const data = await getReportData(params.id)
-        if (!data) notFound()
-        setReportData(data)
+        const supabase = createClient()
+        const [data, { data: { session } }] = await Promise.all([
+          getReportData(params.id),
+          supabase.auth.getSession()
+        ])
+
+        if (!isMounted) return
+
+        setIsAuthenticated(!!session)
+        setAuthChecked(true)
+
+        if (!data) {
+          console.error(`No report data returned for ID: ${params.id}`)
+          setErrorOccurred(true)
+        } else {
+          setReportData(data)
+        }
       } catch (error) {
-        console.error("Error loading report data:", error)
-        notFound()
+        console.error("Error fetching report data:", error)
+        if (isMounted) {
+          setErrorOccurred(true)
+          setAuthChecked(true)
+        }
       } finally {
-        setLoading(false)
+        if (isMounted) {
+          setLoading(false)
+        }
       }
     }
-    
+
     loadData()
+
+    return () => {
+      isMounted = false
+    }
   }, [params.id])
 
-  if (loading || !reportData) {
+  if (errorOccurred) {
+    notFound()
+  }
+
+  if (loading || !authChecked || (!reportData && !errorOccurred)) {
     return <Loading />
   }
 
   return (
     <div className="min-h-screen bg-gray-50">
-      {/* Global Navigation */}
       <AppNavbar />
-      
-      {/* Page content with proper top padding */}
-      <div className="pt-20 pb-20">
+
+      <div className="pt-28 pb-20">
         <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
           <div className="mx-auto max-w-5xl space-y-10">
-            {/* Property header with banner */}
-            <PropertyHeader
-              name={reportData.name}
-              price_per_night={reportData.price_per_night}
-              rating={reportData.rating}
-              total_reviews={reportData.total_reviews}
-              source={reportData.source}
-              image_url={reportData.image_url}
-              url={reportData.url}
-              overall_score={reportData.overall_score}
-            />
-            
-            {/* Map section */}
-            <div className="h-[400px] mt-10">
-              {reportData.location ? (
-                <MapView 
-                  location={reportData.location}
-                  currentAccommodation={{
-                    id: reportData.id,
-                    name: reportData.name,
-                    overall_score: reportData.overall_score,
-                    hasCompleteData: reportData.hasCompleteData
-                  }}
-                  similarAccommodations={reportData.similar_accommodations.map(acc => ({
-                    ...acc,
-                    hasCompleteData: acc.hasCompleteData !== undefined ? acc.hasCompleteData : false
-                  }))}
+            {reportData && (
+              <>
+                <PropertyHeader
+                  name={reportData.name}
+                  price_per_night={reportData.price_per_night}
+                  rating={reportData.rating}
+                  total_reviews={reportData.total_reviews}
+                  source={reportData.source}
+                  image_url={reportData.image_url}
+                  url={reportData.url}
+                  overall_score={reportData.overall_score}
                 />
-              ) : (
-                <div className="h-full bg-gray-100 flex items-center justify-center rounded-xl">
-                  <p className="text-gray-500">Location coordinates not available</p>
+
+                <div className="h-[400px]">
+                  {reportData.location ? (
+                    <MapView
+                      location={reportData.location}
+                      currentAccommodation={{
+                        id: reportData.id,
+                        name: reportData.name,
+                        overall_score: reportData.overall_score,
+                        hasCompleteData: reportData.hasCompleteData
+                      }}
+                      similarAccommodations={reportData.similar_accommodations.map(acc => ({
+                        ...acc,
+                        hasCompleteData: !!acc.hasCompleteData
+                      }))}
+                    />
+                  ) : (
+                    <div className="h-full bg-gray-100 flex items-center justify-center rounded-xl">
+                      <p className="text-gray-500">Location coordinates not available</p>
+                    </div>
+                  )}
                 </div>
-              )}
-            </div>
-              
-            {/* Safety Analysis */}
-            <div className="mt-10">
-              <div className="border-b border-gray-200 bg-white px-4 py-5 sm:px-6 rounded-t-xl shadow-sm">
-                <div className="-ml-4 -mt-4 flex flex-wrap items-center justify-between sm:flex-nowrap">
-                  <div className="ml-4 mt-4">
-                    <h3 className="text-base font-semibold text-gray-900">Safety Analysis</h3>
-                    <p className="mt-1 text-sm text-gray-500">
-                      Detailed safety metrics for this location based on local data
-                    </p>
+
+                <div>
+                  <div className="border-b border-gray-200 bg-white px-4 py-5 sm:px-6 rounded-t-xl shadow-sm">
+                    <div className="-ml-4 -mt-4 flex flex-wrap items-center justify-between sm:flex-nowrap">
+                      <div className="ml-4 mt-4">
+                        <h3 className="text-base font-semibold text-gray-900">Safety Analysis</h3>
+                        <p className="mt-1 text-sm text-gray-500">
+                          Detailed safety metrics for this location based on local data
+                        </p>
+                      </div>
+                    </div>
                   </div>
+                  <RestrictedContent>
+                    <SafetyMetrics data={reportData.safety_metrics} />
+                  </RestrictedContent>
                 </div>
-              </div>
-              <RestrictedContent>
-                <SafetyMetrics data={reportData.safety_metrics} />
-              </RestrictedContent>
-            </div>
-        
-            {/* Community Opinions */}
-            <div className="mt-10">
-              <div className="border-b border-gray-200 bg-white px-4 py-5 sm:px-6 rounded-t-xl shadow-sm">
-                <div className="-ml-4 -mt-4 flex flex-wrap items-center justify-between sm:flex-nowrap">
-                  <div className="ml-4 mt-4">
-                    <h3 className="text-base font-semibold text-gray-900">Community Feedback</h3>
-                    <p className="mt-1 text-sm text-gray-500">
-                      Opinions and experiences shared by other travelers
-                    </p>
+
+                <div>
+                  <div className="border-b border-gray-200 bg-white px-4 py-5 sm:px-6 rounded-t-xl shadow-sm">
+                    <div className="-ml-4 -mt-4 flex flex-wrap items-center justify-between sm:flex-nowrap">
+                      <div className="ml-4 mt-4">
+                        <h3 className="text-base font-semibold text-gray-900">Community Feedback</h3>
+                        <p className="mt-1 text-sm text-gray-500">
+                          Opinions and experiences shared by other travelers
+                        </p>
+                      </div>
+                    </div>
                   </div>
+                  <RestrictedContent>
+                    <CommunityOpinions 
+                      reportId={params.id} 
+                      isAuthenticated={isAuthenticated}
+                    />
+                  </RestrictedContent>
                 </div>
-              </div>
-              <RestrictedContent>
-                <CommunityOpinions reportId={params.id} />
-              </RestrictedContent>
-            </div>
+              </>
+            )}
           </div>
         </div>
       </div>

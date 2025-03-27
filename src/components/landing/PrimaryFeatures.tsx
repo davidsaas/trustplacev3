@@ -17,8 +17,8 @@ import { CircleBackground } from '@/components/landing/CircleBackground'
 import { Container } from '@/components/landing/Container'
 import { PhoneFrame } from '@/components/landing/PhoneFrame'
 
-const MotionAppScreenHeader = motion(AppScreen.Header)
-const MotionAppScreenBody = motion(AppScreen.Body)
+const MotionAppScreenHeader = motion.create(AppScreen.Header)
+const MotionAppScreenBody = motion.create(AppScreen.Body)
 
 interface CustomAnimationProps {
   isForwards: boolean

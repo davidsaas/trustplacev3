@@ -1,389 +1,481 @@
 'use client'
 
 import * as React from 'react'
-import { useEffect, useRef, useCallback } from 'react'
+import { useEffect, useRef, useCallback, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import mapboxgl from 'mapbox-gl'
 import 'mapbox-gl/dist/mapbox-gl.css'
 import type { SimilarAccommodation } from '@/types/safety-report'
+import { getRiskLevel } from '../utils' // Assuming this path is correct
 
 // Initialize Mapbox access token
 const token = process.env.NEXT_PUBLIC_MAPBOX_ACCESS_TOKEN || ''
 
-// Create a custom marker element with score
+// --- Helper Functions ---
+
+const colorToRgba = (color: string, alpha: number): string => {
+    if (!color) return `rgba(156, 163, 175, ${alpha})`;
+
+    if (color.startsWith('#')) {
+        const hex = color.replace('#', '');
+        const bigint = parseInt(hex, 16);
+        const r = (bigint >> 16) & 255;
+        const g = (bigint >> 8) & 255;
+        const b = bigint & 255;
+        return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+    } else if (color.startsWith('rgb')) {
+        const match = color.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)(?:,\s*[\d.]+)?\)/);
+        if (match) {
+        return `rgba(${match[1]}, ${match[2]}, ${match[3]}, ${alpha})`;
+        }
+    }
+    console.warn("Unexpected color format for rgba conversion:", color);
+    return `rgba(156, 163, 175, ${alpha})`;
+};
+
 const createCustomMarker = (score: number, isCurrent: boolean = false, hasCompleteData: boolean = true) => {
-  const el = document.createElement('div')
-  el.className = 'custom-marker'
-  
-  // Choose background color based on data completeness
-  const backgroundColorClass = !hasCompleteData ? 'incomplete-data' : isCurrent ? 'current' : ''
-  
-  el.innerHTML = `
-    <div class="marker-inner ${backgroundColorClass}">
-      <div class="marker-score">${score}</div>
-      <div class="marker-pulse"></div>
-    </div>
-  `
-  return el
-}
+    const el = document.createElement('div')
+    el.className = 'custom-marker' // Root element given to Mapbox
 
-// Validate coordinates
+    let markerColor = '#3b82f6';
+    let haloColor = colorToRgba(markerColor, 0.3);
+    const scoreSize = isCurrent ? '28px' : '24px';
+    const fontSize = isCurrent ? '14px' : '12px';
+    const haloSize = isCurrent ? '40px' : '36px';
+    const zIndex = isCurrent ? 5 : 3; // Current marker on top
+
+    if (!hasCompleteData) {
+        markerColor = '#9ca3af';
+        haloColor = colorToRgba(markerColor, 0.3);
+    } else if (isCurrent) {
+        markerColor = '#10b981';
+        haloColor = colorToRgba(markerColor, 0.3);
+    } else if (score > 0) {
+        const riskLevel = getRiskLevel(score / 10);
+        markerColor = riskLevel.fill || '#3b82f6';
+        haloColor = colorToRgba(markerColor, 0.3);
+    }
+
+    el.style.zIndex = zIndex.toString();
+
+    const labelHtml = isCurrent ? '<div class="marker-label">Current selection</div>' : '';
+
+    // Structure: Root -> Visual Wrapper -> (Halo, Inner -> (Score, Pulse)), Label
+    el.innerHTML = `
+        <div class="marker-visual-content">
+          <div class="marker-halo" style="background-color: ${haloColor}; width: ${haloSize}; height: ${haloSize};"></div>
+          <div class="marker-inner ${isCurrent ? 'current' : ''} ${!hasCompleteData ? 'incomplete-data' : ''}">
+            <div class="marker-score" style="background-color: ${markerColor}; width: ${scoreSize}; height: ${scoreSize}; font-size: ${fontSize};">
+              ${score}
+            </div>
+            <div class="marker-pulse" style="background-color: ${colorToRgba(markerColor, 0.2)};"></div>
+          </div>
+        </div>
+        ${labelHtml}
+    `;
+    return el;
+};
+
 const isValidCoordinate = (coord: number) => {
-  return typeof coord === 'number' && !isNaN(coord) && coord !== 0
-}
+    return typeof coord === 'number' && !isNaN(coord) && coord >= -180 && coord <= 180;
+};
 
+// --- Types ---
 interface Accommodation {
-  id: string
-  name: string
-  overall_score: number
-  hasCompleteData?: boolean
+    id: string
+    name: string
+    overall_score: number
+    hasCompleteData?: boolean
 }
 
 type MapViewProps = {
-  location: {
-    lat: number
-    lng: number
-  }
-  currentAccommodation: Accommodation
-  similarAccommodations: SimilarAccommodation[]
+    location: {
+        lat: number
+        lng: number
+    }
+    currentAccommodation: Accommodation
+    similarAccommodations: SimilarAccommodation[]
 }
 
+// --- Component ---
 export const MapView = ({ location, currentAccommodation, similarAccommodations }: MapViewProps) => {
-  const mapContainer = useRef<HTMLDivElement>(null)
-  const map = useRef<mapboxgl.Map | null>(null)
-  const markers = useRef<mapboxgl.Marker[]>([])
-  const router = useRouter()
+    const mapContainer = useRef<HTMLDivElement>(null);
+    const map = useRef<mapboxgl.Map | null>(null);
+    const markersRef = useRef<mapboxgl.Marker[]>([]);
+    // Store popups associated with markers to manage their lifecycle
+    const popupsRef = useRef<Map<string, mapboxgl.Popup>>(new Map());
+    const router = useRouter();
+    const isInitialized = useRef(false);
+    const [showOnlyBetter, setShowOnlyBetter] = useState(true);
+    const isValidLocation = isValidCoordinate(location.lat) && isValidCoordinate(location.lng);
 
-  // Debug logging
-  console.log('MapView received similarAccommodations:', similarAccommodations);
-  console.log('MapView current accommodation:', currentAccommodation);
+    // --- Callbacks ---
+    const handleMarkerClick = useCallback((accommodationId: string) => {
+        router.push(`/safety-report/${accommodationId}`);
+    }, [router]);
 
-  // Validate coordinates
-  const isValidLocation = isValidCoordinate(location.lat) && isValidCoordinate(location.lng)
+    // Function to close ALL currently open popups
+    const closeAllPopups = useCallback(() => {
+        popupsRef.current.forEach((popup) => {
+            if (popup.isOpen()) {
+                popup.remove();
+            }
+        });
+        popupsRef.current.clear(); // Clear the map after closing
+    }, []);
 
-  // Function to handle marker click
-  const handleMarkerClick = useCallback((accommodationId: string) => {
-    router.push(`/safety-report/${accommodationId}`)
-  }, [router])
+    const createPopupContent = useCallback((accommodation: Accommodation | SimilarAccommodation) => {
+        // ... (popup content creation remains the same) ...
+        const isCurrent = accommodation.id === currentAccommodation.id;
+        const score = accommodation.overall_score;
+        const name = accommodation.name;
+        const id = accommodation.id;
+        const hasCompleteData = 'hasCompleteData' in accommodation ? accommodation.hasCompleteData : true;
+        const price = 'price_per_night' in accommodation ? (accommodation as SimilarAccommodation).price_per_night : null;
 
-  // Function to create popup content
-  const createPopupContent = useCallback((accommodation: Accommodation | SimilarAccommodation) => {
-    const isCurrentAccommodation = accommodation.id === currentAccommodation.id
-    const isSimilar = !isCurrentAccommodation && 'price_per_night' in accommodation
-    const hasCompleteData = 'hasCompleteData' in accommodation ? accommodation.hasCompleteData : true
+        const content = document.createElement('div');
+        content.className = 'p-3 min-w-[220px]';
 
-    const content = document.createElement('div')
-    content.className = 'p-2 min-w-[200px]'
-    content.innerHTML = `
-      <h3 class="font-semibold mb-1">${accommodation.name}</h3>
-      <div class="flex items-center gap-2 mb-2">
-        <span class="text-sm font-medium">Safety Score: ${accommodation.overall_score}</span>
-        ${isSimilar ? `<span class="text-sm text-gray-500">$${(accommodation as SimilarAccommodation).price_per_night}/night</span>` : ''}
-        ${!hasCompleteData ? '<span class="text-xs text-gray-500">(incomplete data)</span>' : ''}
-      </div>
-      ${isCurrentAccommodation ? 
-        '<span class="text-sm text-blue-600">Current Selection</span>' : 
-        '<button class="text-sm text-blue-600 hover:underline cursor-pointer">View Details →</button>'
-      }
-    `
+        let detailsHtml = `<span class="text-sm font-medium">Safety Score: ${score}</span>`;
+        if (price !== null) { detailsHtml += `<span class="text-sm text-gray-500 ml-2">$${price}/night</span>`; }
+        if (!hasCompleteData) { detailsHtml += '<span class="text-xs text-gray-500 ml-2">(incomplete data)</span>'; }
 
-    if (!isCurrentAccommodation) {
-      const button = content.querySelector('button')
-      if (button) {
-        button.addEventListener('click', (e) => {
-          e.preventDefault()
-          e.stopPropagation()
-          handleMarkerClick(accommodation.id)
-        })
-      }
+        content.innerHTML = `
+            <h3 class="font-semibold mb-1 text-base">${name}</h3>
+            <div class="flex items-center flex-wrap gap-x-2 mb-2">${detailsHtml}</div>
+            ${isCurrent ? '<span class="text-sm text-emerald-600 font-medium">Current Selection</span>' : '<button class="view-details-button text-sm text-blue-600 hover:underline cursor-pointer font-medium">View Details →</button>'}
+        `;
+
+        if (!isCurrent) {
+            const button = content.querySelector('.view-details-button');
+            if (button) { button.addEventListener('click', (e) => { e.preventDefault(); e.stopPropagation(); handleMarkerClick(id); }, true); }
+        }
+        return content;
+    }, [currentAccommodation.id, handleMarkerClick]);
+
+    // --- Marker Update Logic ---
+    const updateMarkers = useCallback(() => {
+        if (!map.current || !map.current.isStyleLoaded() || !map.current.getContainer()) { return; }
+        console.log(`UpdateMarkers: Starting (Show Only Better: ${showOnlyBetter}). Received ${similarAccommodations.length} similar props.`);
+
+        // 1. Cleanup previous state
+        closeAllPopups(); // Close any lingering popups
+        markersRef.current.forEach(marker => marker.remove());
+        markersRef.current = [];
+        popupsRef.current.clear(); // Clear popup references
+        console.log("UpdateMarkers: Cleared old markers and popups.");
+
+        // 2. Filter based on toggle state
+        const filteredSimilar = showOnlyBetter
+            ? similarAccommodations.filter(acc => acc.overall_score >= currentAccommodation.overall_score)
+            : similarAccommodations;
+        console.log(`UpdateMarkers: Filtered to ${filteredSimilar.length} similar accommodations.`);
+
+        // 3. Combine accommodations to display
+        const accommodationsToDisplay = [
+            { ...currentAccommodation, isCurrent: true, lat: location.lat, lng: location.lng },
+            ...filteredSimilar.map(acc => ({ ...acc, isCurrent: false, lat: acc.latitude, lng: acc.longitude }))
+        ];
+
+        // 4. Create and add markers/popups
+        let addedMarkersCount = 0;
+        accommodationsToDisplay.forEach(acc => {
+            if (!isValidCoordinate(acc.lat) || !isValidCoordinate(acc.lng)) { return; }
+            const hasCompleteData = acc.hasCompleteData !== undefined ? acc.hasCompleteData : true;
+
+            try {
+                const markerElement = createCustomMarker(acc.overall_score, acc.isCurrent, hasCompleteData);
+                const marker = new mapboxgl.Marker({ element: markerElement }).setLngLat([acc.lng, acc.lat]);
+
+                // Create Popup but DON'T add it yet
+                const popup = new mapboxgl.Popup({
+                    offset: 25, closeButton: false, className: 'custom-popup', maxWidth: '280px'
+                }).setDOMContent(createPopupContent(acc));
+
+                // Store popup reference
+                popupsRef.current.set(acc.id, popup); // Associate popup with accommodation ID
+
+                // --- Simplified Event Listeners ---
+                let closePopupTimeout: NodeJS.Timeout | null = null;
+
+                markerElement.addEventListener('mouseenter', () => {
+                    if (closePopupTimeout) clearTimeout(closePopupTimeout); // Cancel scheduled close
+                    closeAllPopups(); // Close others before opening new one
+                    marker.setPopup(popup);
+                    popup.addTo(map.current!);
+                    // No need to manage popupsRef here explicitly on open, handled by closeAllPopups
+                });
+
+                markerElement.addEventListener('mouseleave', () => {
+                    // Schedule closing the popup shortly after leaving the marker
+                    closePopupTimeout = setTimeout(() => {
+                         if (popup.isOpen()) {
+                              popup.remove();
+                         }
+                    }, 200); // 200ms delay
+                });
+
+                // Click -> Fly To
+                markerElement.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                     if (acc.isCurrent) {
+                        map.current?.flyTo({ center: [acc.lng, acc.lat] });
+                    } else {
+                        map.current?.flyTo({ center: [acc.lng, acc.lat], zoom: Math.max(map.current.getZoom() || 14.5, 14.5) });
+                        // Optional: Also trigger the action the popup button does?
+                        // handleMarkerClick(acc.id);
+                    }
+                });
+                // --- End Event Listeners ---
+
+                marker.addTo(map.current!);
+                markersRef.current.push(marker);
+                addedMarkersCount++;
+
+            } catch (error) { console.error("Error creating marker or popup for:", acc.name, error); }
+        });
+        console.log(`UpdateMarkers: Added ${addedMarkersCount} markers.`);
+
+    }, [location, currentAccommodation, similarAccommodations, createPopupContent, handleMarkerClick, showOnlyBetter, closeAllPopups]); // Added closeAllPopups dependency
+
+
+    // --- Effects ---
+
+    // Effect for Map Initialization (Runs ONCE)
+    useEffect(() => {
+        // ... (Initialization logic is unchanged) ...
+        console.log("Map Init Effect: Checking conditions...");
+        if (!token || !mapContainer.current || isInitialized.current) { return; }
+        // Use the corrected .some() check here for the initial error state
+        if (!isValidLocation && !similarAccommodations?.some(acc => isValidCoordinate(acc.latitude) && isValidCoordinate(acc.longitude))) {
+            console.log("Map Init Effect: Skipping due to invalid initial location and no valid similar accommodations.");
+            return; // Exit early if no valid locations at all
+        }
+        console.log("Map Init Effect: Initializing map...");
+        let mapInstance: mapboxgl.Map | null = null;
+        try {
+            mapboxgl.accessToken = token;
+            mapInstance = new mapboxgl.Map({ /* ... map options ... */
+                container: mapContainer.current, style: 'mapbox://styles/mapbox/streets-v12',
+                center: isValidLocation ? [location.lng, location.lat] : undefined, zoom: isValidLocation ? 13 : 5, antialias: true
+            });
+            map.current = mapInstance;
+            mapInstance.addControl( new mapboxgl.NavigationControl({ showCompass: false, visualizePitch: false }), 'top-right' );
+            isInitialized.current = true;
+            console.log("Map Init Effect: Map initialized successfully.");
+            mapInstance.once('load', () => { console.log("Mapbox 'load' event fired."); });
+        } catch (err) { console.error('Map initialization error:', err); if (mapInstance) mapInstance.remove(); map.current = null; isInitialized.current = false; }
+        return () => { if (mapInstance) { mapInstance.remove(); } isInitialized.current = false; };
+    }, []); // Correct empty dependency array
+
+    // Effect for Updating Markers and Fitting Bounds
+    useEffect(() => {
+        console.log("Marker/Bounds Effect: Checking conditions...");
+        if (!map.current || !isInitialized.current) { return; }
+
+        // Determine the list of accommodations to consider for bounds based on the toggle
+        const accommodationsForBounds = showOnlyBetter
+            ? similarAccommodations.filter(acc => acc.overall_score >= currentAccommodation.overall_score)
+            : similarAccommodations;
+         console.log(`Marker/Bounds Effect: Using ${accommodationsForBounds.length} similar accommodations for bounds calculation.`);
+
+
+        const runUpdatesAndFitBounds = () => {
+            if (!map.current || !map.current.getContainer()) { return; }
+            console.log("Marker/Bounds Effect: Running updates and fitting bounds...");
+
+            // Update markers (uses internal filtering based on showOnlyBetter)
+            updateMarkers();
+
+            // --- Fit bounds logic using the *explicitly filtered* list ---
+            const allCoords: mapboxgl.LngLatLike[] = [];
+            if (isValidLocation) { allCoords.push([location.lng, location.lat]); }
+
+            accommodationsForBounds.forEach(acc => { // Use the list filtered for bounds
+                if (isValidCoordinate(acc.latitude) && isValidCoordinate(acc.longitude)) {
+                    allCoords.push([acc.longitude, acc.latitude]);
+                }
+            });
+
+            if (allCoords.length > 0) {
+                try {
+                    const bounds = allCoords.reduce((b, coord) => b.extend(coord), new mapboxgl.LngLatBounds(allCoords[0], allCoords[0]));
+                    if (!bounds.isEmpty()) {
+                        console.log("Marker/Bounds Effect: Fitting bounds:", bounds.toArray());
+                        map.current?.fitBounds(bounds, { padding: 60, maxZoom: 16, duration: 800 });
+                    }
+                } catch (e) { console.error("Error fitting bounds:", e); /* ... fallback ... */ }
+            } else { console.log("Marker/Bounds Effect: No valid coordinates to fit bounds."); }
+            // --- End Fit bounds ---
+        }
+
+        if (map.current.isStyleLoaded()) { runUpdatesAndFitBounds(); }
+        else { map.current.once('load', () => { if(map.current) runUpdatesAndFitBounds(); }); }
+
+        // Cleanup for markers and popups
+        return () => {
+            console.log("Marker/Bounds Effect: Cleanup starting.");
+            closeAllPopups(); // Close popups on effect cleanup too
+            const markersToRemove = markersRef.current;
+            if (map.current && map.current.getContainer()) {
+                 markersToRemove.forEach(marker => marker.remove());
+            }
+            markersRef.current = [];
+            popupsRef.current.clear(); // Clear popup refs
+        };
+
+    // Added showOnlyBetter dependency
+    }, [location, currentAccommodation, similarAccommodations, updateMarkers, isValidLocation, showOnlyBetter, closeAllPopups]);
+
+
+    // --- Render Logic ---
+
+    if (!token) {
+        return ( <div className="h-full flex items-center justify-center rounded-xl bg-gray-100 p-4 text-center"> <p className="text-red-600 font-medium">Map configuration error: Missing API token.</p> </div> )
+    }
+    // Corrected .some() usage here
+    if (!isValidLocation && !similarAccommodations?.some(acc => isValidCoordinate(acc.latitude) && isValidCoordinate(acc.longitude))) {
+        return ( <div className="h-full flex items-center justify-center rounded-xl bg-gray-100 p-4 text-center"> <p className="text-gray-500">No valid locations to display on the map.</p> </div> )
     }
 
-    return content
-  }, [currentAccommodation.id, handleMarkerClick])
-
-  // Function to update markers - simplified without clustering
-  const updateMarkers = useCallback(() => {
-    if (!map.current) return
-    
-    // Clear existing markers
-    markers.current.forEach(marker => marker.remove())
-    markers.current = []
-    
-    // Add individual markers for similar accommodations
-    similarAccommodations.forEach(acc => {
-      // Skip accommodations with invalid coordinates
-      if (!isValidCoordinate(acc.latitude) || !isValidCoordinate(acc.longitude)) {
-        return
-      }
-      
-      // Check if accommodation has complete data
-      const hasCompleteData = acc.hasCompleteData !== undefined ? acc.hasCompleteData : true
-      
-      // Create popup but don't attach it yet
-      const popup = new mapboxgl.Popup({ 
-        offset: 25,
-        closeButton: false,
-        className: 'custom-popup'
-      }).setDOMContent(createPopupContent({...acc, hasCompleteData}))
-      
-      // Create marker
-      const marker = new mapboxgl.Marker({
-        element: createCustomMarker(acc.overall_score, false, hasCompleteData)
-      })
-        .setLngLat([acc.longitude, acc.latitude])
-        .addTo(map.current!)
-      
-      // Add hover events to show/hide popup
-      const markerElement = marker.getElement()
-      markerElement.addEventListener('mouseenter', () => {
-        marker.setPopup(popup)
-        popup.addTo(map.current!)
-      })
-      markerElement.addEventListener('mouseleave', () => {
-        popup.remove()
-      })
-      
-      // Add click handler for individual markers
-      markerElement.addEventListener('click', () => {
-        handleMarkerClick(acc.id)
-      })
-      
-      markers.current.push(marker)
-    })
-    
-    // Always add current accommodation marker
-    const hasCompleteData = currentAccommodation.hasCompleteData !== undefined ? 
-      currentAccommodation.hasCompleteData : true
-      
-    const currentPopup = new mapboxgl.Popup({ 
-      offset: 25,
-      closeButton: false,
-      className: 'custom-popup'
-    }).setDOMContent(createPopupContent(currentAccommodation))
-    
-    const currentMarker = new mapboxgl.Marker({
-      element: createCustomMarker(currentAccommodation.overall_score, true, hasCompleteData)
-    })
-      .setLngLat([location.lng, location.lat])
-      .addTo(map.current)
-    
-    // Add hover events to show/hide popup for current accommodation
-    const currentMarkerElement = currentMarker.getElement()
-    currentMarkerElement.addEventListener('mouseenter', () => {
-      currentMarker.setPopup(currentPopup)
-      currentPopup.addTo(map.current!)
-    })
-    currentMarkerElement.addEventListener('mouseleave', () => {
-      currentPopup.remove()
-    })
-    
-    markers.current.push(currentMarker)
-    
-  }, [location, currentAccommodation, createPopupContent, similarAccommodations, handleMarkerClick])
-
-  useEffect(() => {
-    // Early returns for invalid conditions
-    if (!token || !isValidLocation || !mapContainer.current || map.current) {
-      return
-    }
-
-    try {
-      // Set access token
-      mapboxgl.accessToken = token
-
-      // Initialize map with custom style
-      const mapInstance = new mapboxgl.Map({
-        container: mapContainer.current,
-        style: 'mapbox://styles/mapbox/streets-v12',
-        center: [location.lng, location.lat],
-        zoom: 13,
-        antialias: true
-      })
-
-      map.current = mapInstance
-
-      // Add navigation controls
-      mapInstance.addControl(
-        new mapboxgl.NavigationControl({
-          showCompass: false,
-          visualizePitch: false
-        }),
-        'top-right'
-      )
-      
-      // Initialize markers once map loads
-      mapInstance.on('load', () => {
-        updateMarkers()
-      })
-      
-      // Update markers when map moves or zooms
-      mapInstance.on('moveend', updateMarkers)
-      mapInstance.on('zoomend', updateMarkers)
-
-      // Fit bounds to include all markers
-      if (similarAccommodations.length > 0) {
-        const bounds = new mapboxgl.LngLatBounds()
-        bounds.extend([location.lng, location.lat])
-        similarAccommodations.forEach(acc => {
-          if (isValidCoordinate(acc.latitude) && isValidCoordinate(acc.longitude)) {
-            bounds.extend([acc.longitude, acc.latitude])
-          }
-        })
-        mapInstance.fitBounds(bounds, { padding: 50 })
-      }
-
-      // Cleanup function
-      return () => {
-        markers.current.forEach(marker => marker.remove())
-        markers.current = []
-        mapInstance.off('moveend', updateMarkers)
-        mapInstance.off('zoomend', updateMarkers)
-        mapInstance.remove()
-        map.current = null
-      }
-    } catch (err) {
-      console.error('Map initialization error:', err)
-      return
-    }
-  }, [location, similarAccommodations, updateMarkers, isValidLocation])
-
-  if (!token) {
     return (
-      <div className="h-full">
-        <div className="h-full rounded-xl bg-gray-100 flex items-center justify-center">
-          <p className="text-gray-500">Map configuration error: Missing API token</p>
+        <div className="h-full relative"> {/* Parent needs position relative for overlay */}
+            {/* Map Container */}
+            <div
+                ref={mapContainer}
+                className="map-view-container w-full h-full rounded-2xl overflow-hidden shadow-lg bg-gray-200"
+                style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }}
+                aria-label={`Map showing safety scores...`}
+            />
+
+             {/* Toggle Control Overlay */}
+             <div className="map-toggle-control absolute top-3 left-3 z-10 bg-white bg-opacity-90 backdrop-blur-sm rounded-lg shadow-md p-2 text-xs">
+                <label className="flex items-center cursor-pointer">
+                    <input
+                        type="checkbox"
+                        checked={showOnlyBetter}
+                        onChange={(e) => setShowOnlyBetter(e.target.checked)}
+                        className="mr-2 h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                    />
+                    <span className="text-gray-700 font-medium select-none">
+                        Show same or better score only
+                    </span>
+                </label>
+            </div>
+
+            {/* Styles */}
+            <style jsx global>{`
+                /* Map container style */
+                .map-view-container .mapboxgl-canvas {
+                   border-radius: 16px;
+                }
+
+                /* --- Marker Styles --- */
+                .custom-marker {
+                    /* NO position: relative */
+                    height: 60px; /* Accommodate label */
+                    display: flex;
+                    flex-direction: column;
+                    align-items: center;
+                    width: auto; /* Allow width to adjust slightly for label */
+                    min-width: 40px;
+                    cursor: pointer;
+                    pointer-events: none; /* Root passes events through */
+                    /* z-index set dynamically inline */
+                }
+
+                .marker-visual-content {
+                    position: relative; /* CONTEXT for halo/pulse */
+                    width: 40px; height: 40px;
+                    display: flex; align-items: center; justify-content: center;
+                    pointer-events: auto; /* INTERACTIVE part */
+                }
+
+                .marker-halo {
+                    position: absolute;
+                    top: 50%; left: 50%;
+                    transform: translate(-50%, -50%);
+                    border-radius: 50%;
+                    z-index: 0;
+                    pointer-events: none; /* Visual only */
+                    transition: background-color 0.3s ease;
+                }
+
+                .marker-inner {
+                    position: relative; /* Context for pulse (if needed, though pulse is absolute now) */
+                    width: 34px; height: 34px;
+                    display: flex; align-items: center; justify-content: center;
+                    z-index: 1;
+                    /* pointer-events: auto; Inherited from visual-content */
+                }
+                .marker-inner.current { width: 38px; height: 38px; }
+
+                .marker-score {
+                    position: relative; /* Not absolute */
+                    border: 2px solid #FFFFFF; border-radius: 50%;
+                    display: flex; align-items: center; justify-content: center;
+                    color: white; font-weight: bold; z-index: 2; /* Above pulse */
+                    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+                    text-shadow: 0 1px 1px rgba(0,0,0,0.4);
+                    line-height: 1;
+                    transition: background-color 0.3s ease, width 0.3s ease, height 0.3s ease;
+                    /* pointer-events: auto; Inherited from visual-content */
+                }
+
+                .marker-pulse {
+                    position: absolute;
+                    top: 50%; left: 50%; /* Center relative to visual-content */
+                    width: 100%; height: 100%;
+                    transform: translate(-50%, -50%);
+                    border-radius: 50%; z-index: 1; /* Behind score */
+                    animation: pulse 2s infinite ease-out;
+                    pointer-events: none; /* Visual only */
+                    transition: background-color 0.3s ease;
+                }
+
+                .marker-label {
+                    margin-top: 4px;
+                    font-size: 10px; font-weight: 500; color: #374151;
+                    background-color: rgba(255, 255, 255, 0.85);
+                    padding: 2px 5px; border-radius: 4px;
+                    white-space: nowrap; text-align: center;
+                    pointer-events: none; /* Visual only */
+                    box-shadow: 0 1px 2px rgba(0,0,0,0.1);
+                }
+
+                @keyframes pulse {
+                    0% { transform: translate(-50%, -50%) scale(0.7); opacity: 0.6; }
+                    70% { transform: translate(-50%, -50%) scale(1.6); opacity: 0; }
+                    100% { transform: translate(-50%, -50%) scale(1.6); opacity: 0; }
+                }
+
+                /* --- Mapbox Overrides --- */
+                /* Correct comment syntax */
+                .mapboxgl-popup-content {
+                     border-radius: 10px !important; box-shadow: 0 5px 15px rgba(0,0,0,0.2) !important;
+                     padding: 0 !important; font-family: inherit !important; background-color: white !important;
+                }
+                .mapboxgl-popup-close-button { display: none; }
+                .mapboxgl-popup-anchor-bottom .mapboxgl-popup-tip { border-top-color: white !important; }
+                .mapboxgl-popup-anchor-top .mapboxgl-popup-tip { border-bottom-color: white !important; }
+                .mapboxgl-popup-anchor-left .mapboxgl-popup-tip { border-right-color: white !important; }
+                .mapboxgl-popup-anchor-right .mapboxgl-popup-tip { border-left-color: white !important; }
+
+                .mapboxgl-ctrl-group {
+                    border: none !important; box-shadow: 0 2px 6px rgba(0,0,0,0.15) !important;
+                    border-radius: 8px !important; overflow: hidden;
+                }
+                .mapboxgl-ctrl-group button { /* ... */ }
+                .mapboxgl-ctrl-group button:hover { /* ... */ }
+                .mapboxgl-ctrl-group button:disabled { /* ... */ }
+                .mapboxgl-ctrl-group button span { /* ... */ }
+
+                .mapboxgl-canvas-container.mapboxgl-interactive { cursor: grab; }
+                .mapboxgl-canvas-container.mapboxgl-interactive.mapboxgl-track-pointer { cursor: grabbing; }
+
+                .custom-popup { z-index: 10; }
+
+            `}</style>
         </div>
-      </div>
     )
-  }
-
-  if (!isValidLocation) {
-    return (
-      <div className="h-full">
-        <div className="h-full rounded-xl bg-gray-100 flex items-center justify-center">
-          <p className="text-gray-500">Invalid location coordinates</p>
-        </div>
-      </div>
-    )
-  }
-
-  return (
-    <div className="h-full">
-      <style jsx global>{`
-        .custom-marker {
-          width: 34px;
-          height: 34px;
-          cursor: pointer;
-        }
-        
-        .marker-inner {
-          width: 34px;
-          height: 34px;
-          position: relative;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-        }
-
-        .marker-score {
-          width: 24px;
-          height: 24px;
-          background-color: #3b82f6;
-          border: 2px solid #FFFFFF;
-          border-radius: 50%;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          color: white;
-          font-weight: bold;
-          font-size: 12px;
-          z-index: 2;
-          box-shadow: 0 0 10px rgba(0, 122, 255, 0.5);
-        }
-        
-        .marker-inner.current .marker-score {
-          background-color: #10b981;
-          width: 28px;
-          height: 28px;
-          font-size: 14px;
-        }
-        
-        .marker-inner.incomplete-data .marker-score {
-          background-color: #9ca3af;
-          color: #f3f4f6;
-        }
-        
-        .marker-pulse {
-          position: absolute;
-          width: 100%;
-          height: 100%;
-          background-color: rgba(59, 130, 246, 0.2);
-          border-radius: 50%;
-          z-index: 1;
-          animation: pulse 2s infinite;
-        }
-
-        .marker-inner.current .marker-pulse {
-          background-color: rgba(16, 185, 129, 0.2);
-        }
-        
-        .marker-inner.incomplete-data .marker-pulse {
-          background-color: rgba(156, 163, 175, 0.2);
-        }
-        
-        @keyframes pulse {
-          0% {
-            transform: scale(0.5);
-            opacity: 1;
-          }
-          100% {
-            transform: scale(2);
-            opacity: 0;
-          }
-        }
-
-        .mapboxgl-popup-content {
-          border-radius: 8px;
-          box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-          padding: 0;
-        }
-
-        .mapboxgl-ctrl-group {
-          border: none !important;
-          box-shadow: 0 2px 4px rgba(0,0,0,0.1) !important;
-          border-radius: 8px !important;
-          overflow: hidden;
-        }
-
-        .mapboxgl-ctrl-group button {
-          width: 36px !important;
-          height: 36px !important;
-          background-color: rgba(255, 255, 255, 0.9) !important;
-          backdrop-filter: blur(10px);
-        }
-
-        .mapboxgl-ctrl-group button:hover {
-          background-color: rgba(255, 255, 255, 1) !important;
-        }
-
-        .mapboxgl-canvas {
-          border-radius: 8px;
-        }
-
-        .custom-popup {
-          transition: opacity 0.2s ease-in-out;
-        }
-
-        .custom-popup .mapboxgl-popup-content {
-          box-shadow: 0 4px 12px rgba(0,0,0,0.15);
-        }
-      `}</style>
-      <div
-        ref={mapContainer}
-        className="w-full h-full rounded-2xl overflow-hidden shadow-md"
-        style={{ position: 'relative' }}
-        aria-label={`Map showing location at latitude ${location.lat} and longitude ${location.lng} with similar properties`}
-      />
-    </div>
-  )
 }

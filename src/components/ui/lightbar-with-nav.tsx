@@ -19,7 +19,7 @@ const userNavigation = [
   { name: 'Sign out', href: '#' },
 ]
 
-function classNames(...classes) {
+function classNames(...classes: (string | undefined | boolean | null)[]) {
   return classes.filter(Boolean).join(' ')
 }
 

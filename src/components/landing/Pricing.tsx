@@ -6,7 +6,24 @@ import clsx from 'clsx'
 
 import { Button } from '@/components/landing/Button'
 import { Container } from '@/components/landing/Container'
-import { Logomark } from '../../../landing-page-3/src/components/Logo'
+
+// Local Logo component
+function Logomark({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 40 40" aria-hidden="true" className={className}>
+      <path
+        fillRule="evenodd"
+        clipRule="evenodd"
+        d="M20 40C8.954 40 0 31.046 0 20S8.954 0 20 0s20 8.954 20 20-8.954 20-20 20ZM4 20c0 8.837 7.163 16 16 16s16-7.163 16-16S28.837 4 20 4 4 11.163 4 20Z"
+        fill="#A3A3A3"
+      />
+      <path
+        d="M20 25.6c-3.092 0-5.6-2.508-5.6-5.6 0-3.092 2.508-5.6 5.6-5.6 3.092 0 5.6 2.508 5.6 5.6 0 3.092-2.508 5.6-5.6 5.6Z"
+        fill="#171717"
+      />
+    </svg>
+  )
+}
 
 interface Plan {
   name: string
