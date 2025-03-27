@@ -1,14 +1,17 @@
 import { memo } from 'react'
-import { ImageOff, ExternalLink, Shield } from 'lucide-react'
+import { ImageOff, ExternalLink, Shield, Info, CheckCircle, AlertTriangle } from 'lucide-react'
 import { SavedButton } from './SavedButton'
 import { PropertyMetrics } from './PropertyMetrics'
 import { getValidImageUrl, getRiskLevel } from '../utils'
 import type { PropertyHeaderProps } from '@/types/safety-report'
+import { ReportNavMenu, type ReportSection } from '../[id]/components/ReportNavMenu'
 
-type PropertyHeaderWithScoreProps = PropertyHeaderProps & {
+type PropertyHeaderWithScoreAndNavProps = PropertyHeaderProps & {
   image_url: string | null
   url?: string | null
   overall_score?: number
+  activeSection: ReportSection
+  onSectionChange: (section: ReportSection) => void
 }
 
 const AnimatedScoreCircle = ({ score, size = 120, strokeWidth = 8, overallRisk }: { 
@@ -72,7 +75,7 @@ const AnimatedScoreCircle = ({ score, size = 120, strokeWidth = 8, overallRisk }
   );
 };
 
-export const PropertyHeader = memo(({ 
+export const PropertyHeader = memo(({
   name,
   price_per_night,
   rating,
@@ -80,32 +83,35 @@ export const PropertyHeader = memo(({
   source,
   image_url,
   url,
-  overall_score = 0
-}: PropertyHeaderWithScoreProps) => {
+  overall_score = 0,
+  activeSection,
+  onSectionChange,
+}: PropertyHeaderWithScoreAndNavProps) => {
   // Extract accommodation ID from the URL or use a fallback
   const extractAccommodationId = () => {
-    // If we have a URL, try to extract ID from the last part of the URL path
     if (url) {
-      const segments = url.split('/');
-      const lastSegment = segments[segments.length - 1];
-      // If there's a query string, remove it
-      return lastSegment.split('?')[0];
+      try {
+        const urlObject = new URL(url);
+        const segments = urlObject.pathname.split('/');
+        const lastSegment = segments.filter(Boolean).pop(); // Get last non-empty segment
+        if (lastSegment) return lastSegment.split('?')[0];
+      } catch (e) {
+         console.warn("Could not parse URL for ID extraction:", url);
+      }
     }
-    
-    // If we're on a safety report page, extract ID from the URL
     if (typeof window !== 'undefined') {
       const pathSegments = window.location.pathname.split('/');
-      if (pathSegments.length > 1) {
-        const lastSegment = pathSegments[pathSegments.length - 1];
-        if (lastSegment && lastSegment !== 'undefined') {
-          return lastSegment;
+      if (pathSegments.length > 2 && pathSegments[1] === 'safety-report') { // Check if it's a report page
+        const idSegment = pathSegments[2];
+        if (idSegment && idSegment !== '[id]') { // Ensure it's not the template placeholder
+          return idSegment;
         }
       }
     }
-    
-    // Fallback: generate a deterministic ID based on name and source
-    // This ensures the same accommodation always gets the same ID
-    return `${source.toLowerCase()}-${name.toLowerCase().replace(/\s+/g, '-')}`;
+    // Fallback using name and source if needed, ensure it's somewhat unique
+    const safeName = name.toLowerCase().replace(/[^a-z0-9]/g, '-').substring(0, 50);
+    const safeSource = source.toLowerCase().replace(/[^a-z0-9]/g, '-');
+    return `${safeSource}-${safeName}-${overall_score}`; // Add score for more uniqueness
   };
 
   const accommodationId = extractAccommodationId();
@@ -115,7 +121,7 @@ export const PropertyHeader = memo(({
   const overallRisk = hasScore ? getRiskLevel(overall_score / 10) : null;
 
   return (
-    <div>
+    <div className="shadow-sm rounded-xl">
       <div className="rounded-t-xl overflow-hidden">
         {getValidImageUrl(image_url) ? (
           <img 
@@ -133,8 +139,8 @@ export const PropertyHeader = memo(({
         )}
       </div>
       
-      <div className="bg-white rounded-b-xl shadow-sm">
-        <div className="mx-auto px-4 sm:px-6 lg:px-8">
+      <div className="bg-white">
+        <div className="mx-auto px-4 pt-6 pb-4 sm:px-6 lg:px-8">
           <div className="-mt-12 sm:-mt-16 sm:flex sm:items-end sm:space-x-5">
             <div className="flex">
               {hasScore && (
@@ -154,7 +160,7 @@ export const PropertyHeader = memo(({
               )}
             </div>
             
-            <div className="sm:flex sm:min-w-0 sm:flex-1 sm:items-center sm:justify-end sm:space-x-6 sm:pb-1">
+            <div className="mt-6 sm:mt-0 sm:flex sm:min-w-0 sm:flex-1 sm:items-center sm:justify-end sm:space-x-6 sm:pb-1">
               <div className="min-w-0 flex-1 sm:hidden md:block">
                 <h1 className="truncate text-2xl font-bold text-gray-900">{name}</h1>
                 <PropertyMetrics
@@ -165,7 +171,7 @@ export const PropertyHeader = memo(({
                 />
               </div>
               
-              <div className="flex flex-col justify-stretch space-y-3 sm:flex-row sm:space-y-0 sm:space-x-4">
+              <div className="mt-6 flex flex-col justify-stretch space-y-3 sm:mt-0 sm:flex-row sm:space-y-0 sm:space-x-4">
                 <SavedButton
                   accommodationId={accommodationId}
                   accommodationName={name}
@@ -187,7 +193,7 @@ export const PropertyHeader = memo(({
             </div>
           </div>
           
-          <div className="hidden min-w-0 flex-1 sm:block md:hidden pb-6 p-10">
+          <div className="mt-6 hidden min-w-0 flex-1 sm:block md:hidden">
             <h1 className="truncate text-2xl font-bold text-gray-900">{name}</h1>
             <PropertyMetrics
               price_per_night={price_per_night}
@@ -197,6 +203,13 @@ export const PropertyHeader = memo(({
             />
           </div>
         </div>
+      </div>
+
+      <div className="bg-white rounded-b-xl border-t border-gray-200">
+        <ReportNavMenu
+          activeSection={activeSection}
+          onSectionChange={onSectionChange}
+        />
       </div>
     </div>
   )

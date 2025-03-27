@@ -56,9 +56,18 @@ export interface PropertyMetricsProps {
   source: string
 }
 
+export interface AccommodationTakeaway {
+  id: string;
+  accommodation_id: string;
+  takeaways: string[] | null;
+  generation_model?: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface AccommodationData {
   id: string
-  url: string
+  url?: string | null
   name: string
   image_url: string | null
   price_per_night: number | null
@@ -71,5 +80,6 @@ export interface AccommodationData {
   safety_metrics: SafetyMetric[] | null
   overall_score: number
   similar_accommodations: SimilarAccommodation[]
-  hasCompleteData?: boolean
+  hasCompleteData: boolean
+  accommodation_takeaways: string[] | null
 } 

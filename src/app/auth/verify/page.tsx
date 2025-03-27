@@ -2,29 +2,22 @@
 
 import Link from 'next/link'
 import { Button } from '@/components/ui/button'
+import { MailCheck } from 'lucide-react'
 
-export default function VerifyEmail() {
+export default function VerifyPage() {
   return (
-    <div className="flex min-h-screen items-center justify-center p-4">
-      <div className="w-full max-w-md text-center">
-        <h1 className="text-3xl font-bold mb-6">Check your email</h1>
-        <p className="text-muted-foreground mb-8">
-          We&apos;ve sent you a verification link. Please check your email and click the link to verify your account.
-        </p>
-        <div className="space-y-4">
-          <Link href="/auth/sign-in">
-            <Button outline className="w-full">
-              Back to Sign In
-            </Button>
-          </Link>
-          <p className="text-sm text-muted-foreground">
-            Didn&apos;t receive an email? Check your spam folder or{' '}
-            <Link href="/auth/sign-up" className="text-primary hover:underline">
-              try signing up again
-            </Link>
-          </p>
-        </div>
-      </div>
+    <div className="text-center">
+      <MailCheck className="mx-auto h-12 w-12 text-green-500 mb-4" />
+      <h2 className="text-2xl font-semibold mb-2">Check Your Email</h2>
+      <p className="text-muted-foreground mb-6">
+        We've sent a verification link to your email address. Please click the link to activate your account.
+      </p>
+      <p className="text-sm text-muted-foreground mb-4">
+        Didn't receive the email? Check your spam folder or try signing up again.
+      </p>
+      <Link href="/auth/sign-in">
+        <Button variant="outline">Back to Sign In</Button>
+      </Link>
     </div>
   )
 } 

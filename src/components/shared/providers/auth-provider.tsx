@@ -6,6 +6,7 @@ import { User, Session, AuthChangeEvent } from '@supabase/supabase-js'
 import { createClient } from '@/lib/supabase/client'
 import { AUTH_REDIRECT_URLS } from '@/lib/constants'
 import { getBaseUrl } from '@/lib/utils'
+import { ROUTES } from '@/lib/routes'
 
 type AuthContextType = {
   user: User | null
@@ -14,6 +15,8 @@ type AuthContextType = {
   signUp: (email: string, password: string) => Promise<{ error?: string, success?: boolean }>
   signOut: (returnUrl?: string) => Promise<void>
   signInWithGoogle: () => Promise<{ error: string | null }>
+  sendPasswordResetEmail: (email: string) => Promise<{ error: string | null }>
+  updatePassword: (password: string) => Promise<{ error: string | null }>
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined)
@@ -129,6 +132,36 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }, [pathname, supabase.auth])
 
+  // Send Password Reset Email
+  const sendPasswordResetEmail = useCallback(async (email: string) => {
+    setLoading(true)
+    try {
+      const { error } = await supabase.auth.resetPasswordForEmail(email, {
+        redirectTo: `${getBaseUrl()}/auth/update-password`,
+      })
+      if (error) throw error
+      return { error: null }
+    } catch (error) {
+      return { error: error instanceof Error ? error.message : 'Failed to send password reset email' }
+    } finally {
+      setLoading(false)
+    }
+  }, [supabase.auth])
+
+  // Update User Password
+  const updatePassword = useCallback(async (password: string) => {
+    setLoading(true)
+    try {
+      const { error } = await supabase.auth.updateUser({ password })
+      if (error) throw error
+      return { error: null }
+    } catch (error) {
+      return { error: error instanceof Error ? error.message : 'Failed to update password' }
+    } finally {
+      setLoading(false)
+    }
+  }, [supabase.auth])
+
   const value = {
     user,
     loading,
@@ -136,6 +169,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     signUp,
     signOut,
     signInWithGoogle,
+    sendPasswordResetEmail,
+    updatePassword,
   }
 
   return (

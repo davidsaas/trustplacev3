@@ -10,125 +10,133 @@ import { Label } from '@/components/ui/label'
 import { Loader } from 'lucide-react'
 import { FcGoogle } from 'react-icons/fc'
 import { toast } from 'sonner'
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
+import { Terminal } from 'lucide-react'
 
 export default function SignUpPage() {
-  const { signUp, signInWithGoogle, loading } = useAuth()
+  const { signUp, signInWithGoogle } = useAuth()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
-  const [error, setError] = useState('')
+  const [error, setError] = useState<string | null>(null)
+  const [isSubmitting, setIsSubmitting] = useState(false)
+  const [isGoogleSubmitting, setIsGoogleSubmitting] = useState(false)
   const searchParams = useSearchParams()
   const next = searchParams.get('next')
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault()
-    setError('')
+    setError(null)
 
     if (password.length < 6) {
       setError('Password must be at least 6 characters')
       return
     }
 
+    setIsSubmitting(true)
     const { error: signUpError, success } = await signUp(email, password)
+
     if (signUpError) {
       setError(signUpError)
       toast.error('Sign up failed')
     } else if (success) {
-      toast.success('Check your email to verify your account')
+      // AuthProvider's signUp should handle the redirect now
+      // toast.success('Check your email to verify your account')
+      // No need to reset fields, page will navigate away
     }
+    setIsSubmitting(false)
   }
 
   const handleGoogleSignIn = async () => {
-    setError('')
+    setError(null)
+    setIsGoogleSubmitting(true)
     const { error: googleError } = await signInWithGoogle()
     if (googleError) {
       setError(googleError)
       toast.error('Google sign in failed')
     }
+    // No need to set loading false here, as the page will redirect for OAuth
+    // setIsGoogleSubmitting(false); // Only set false if error occurs and flow stops
   }
 
   return (
-    <div className="w-full max-w-md space-y-8">
-      <div className="text-center">
-        <h1 className="text-3xl font-bold">Create an account</h1>
-        <p className="text-muted-foreground mt-2">
-          Sign up to get started with Trustplace
-        </p>
-      </div>
-
-      <form onSubmit={handleSubmit} className="space-y-6">
-        {error && (
-          <div className="p-3 text-sm text-red-500 bg-red-50 rounded-md">
-            {error}
-          </div>
-        )}
-
-        <div className="space-y-2">
+    <>
+      <h2 className="text-2xl font-semibold text-center mb-6">Create Account</h2>
+      <form onSubmit={handleSubmit} className="space-y-4">
+        <div>
           <Label htmlFor="email">Email</Label>
           <Input
             id="email"
             type="email"
             value={email}
-            onChange={(e) => setEmail(e.target.value)}
+            onChange={(e) => { setEmail(e.target.value); setError(null); }}
             required
-            disabled={loading}
+            placeholder="you@example.com"
+            aria-label="Email address"
+            disabled={isSubmitting || isGoogleSubmitting}
           />
         </div>
-
-        <div className="space-y-2">
+        <div>
           <Label htmlFor="password">Password</Label>
           <Input
             id="password"
             type="password"
             value={password}
-            onChange={(e) => setPassword(e.target.value)}
+            onChange={(e) => { setPassword(e.target.value); setError(null); }}
             required
-            disabled={loading}
             minLength={6}
+            placeholder="•••••••• (min. 6 characters)"
+            aria-label="Password"
+            disabled={isSubmitting || isGoogleSubmitting}
           />
         </div>
 
-        <Button type="submit" className="w-full" disabled={loading}>
-          {loading && <Loader className="mr-2 h-4 w-4 animate-spin" />}
+        {error && (
+          <Alert variant="destructive">
+            <Terminal className="h-4 w-4" />
+            <AlertTitle>Error</AlertTitle>
+            <AlertDescription>{error}</AlertDescription>
+          </Alert>
+        )}
+
+        <Button type="submit" className="w-full" disabled={isSubmitting || isGoogleSubmitting}>
+          {isSubmitting ? <Loader className="animate-spin mr-2" size={16} /> : null}
           Sign Up
         </Button>
       </form>
 
-      <div className="relative">
+      <div className="relative my-6">
         <div className="absolute inset-0 flex items-center">
-          <span className="w-full border-t" />
+          <span className="w-full border-t"></span>
         </div>
         <div className="relative flex justify-center text-xs uppercase">
-          <span className="bg-background px-2 text-muted-foreground">
-            Or continue with
-          </span>
+          <span className="bg-white px-2 text-muted-foreground">Or continue with</span>
         </div>
       </div>
 
       <Button
-        outline
-        type="button"
+        variant="outline"
         className="w-full"
         onClick={handleGoogleSignIn}
-        disabled={loading}
+        disabled={isSubmitting || isGoogleSubmitting}
+        aria-label="Sign up with Google"
       >
-        {loading ? (
-          <Loader className="mr-2 h-4 w-4 animate-spin" />
+        {isGoogleSubmitting ? (
+          <Loader className="animate-spin mr-2" size={16} />
         ) : (
-          <FcGoogle className="mr-2 h-5 w-5" />
+          <FcGoogle className="mr-2 h-4 w-4" />
         )}
         Google
       </Button>
 
-      <p className="text-center text-sm text-muted-foreground">
+      <p className="mt-4 text-center text-sm text-gray-600">
         Already have an account?{' '}
         <Link
-          href={`/auth/sign-in${next ? `?next=${next}` : ''}`}
-          className="text-primary hover:underline"
-          tabIndex={0}
+          href={`/auth/sign-in${next ? `?next=${encodeURIComponent(next)}` : ''}`}
+          className="font-medium text-primary hover:underline"
         >
-          Sign in
+          Sign In
         </Link>
       </p>
-    </div>
+    </>
   )
 } 

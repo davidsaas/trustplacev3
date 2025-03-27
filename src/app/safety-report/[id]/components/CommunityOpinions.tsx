@@ -2,45 +2,36 @@
 'use client'
 
 import React, { useState, useEffect } from 'react';
-import * as TabsPrimitive from "@radix-ui/react-tabs";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
-import { CheckCircle, AlertTriangle, MessageSquare } from 'lucide-react';
+import { MessageSquare, ExternalLink } from 'lucide-react';
 import Link from 'next/link';
+import { formatDistanceToNow } from 'date-fns';
+import { createClient } from '@/lib/supabase/client';
+import { StarIcon } from '@heroicons/react/20/solid';
 
 // --- Types ---
-interface TakeawaysData {
-  positive_takeaway: string | null;
-  negative_takeaway: string | null;
+interface CommunityOpinion {
+  id: string; // Ensure your RPC returns this if needed for keys, otherwise use index
+  external_id: string | null;
+  url: string | null;
+  username: string | null;
+  body: string;
+  source_created_at: string | null; // ISO string date
 }
 
 interface CommunityOpinionsProps {
-  reportId: string;
   isAuthenticated: boolean;
+  latitude: number | null;
+  longitude: number | null;
 }
 
-// --- Styled Components ---
-const Tabs = TabsPrimitive.Root;
-const TabsList = TabsPrimitive.List;
-const TabsTrigger = TabsPrimitive.Trigger;
-const TabsContent = TabsPrimitive.Content;
-
-// --- Helpers ---
-const preprocessTakeaway = (text: string | null | undefined): string[] => {
-    if (!text) return [];
-    return text.split('\n').map(line => line.trim()).filter(line => line.length > 0 && line !== '✓' && line !== '⚠️');
-};
-
-const stripPrefix = (line: string): string => {
-    return line.replace(/^✓\s*/, '').replace(/^⚠️\s*/, '').trim();
-};
-
 // --- Loading / Empty / Auth States ---
-const TakeawaysLoadingSkeleton = () => (
-    <div className="space-y-4 p-1">
-        <Skeleton className="h-10 w-full rounded-md" /> {/* Simulate TabsList */}
-        <Skeleton className="h-16 w-full rounded-lg mt-4" />
+const OpinionsLoadingSkeleton = () => (
+    <div className="space-y-3 p-1">
+        <Skeleton className="h-20 w-full rounded-lg" />
         <Skeleton className="h-16 w-full rounded-lg" />
+        <Skeleton className="h-18 w-full rounded-lg" />
     </div>
 );
 
@@ -50,9 +41,8 @@ const SignUpPrompt = () => (
         <div className="absolute inset-0 bg-gradient-to-b from-white/60 to-gray-100/90 backdrop-blur-md z-10 flex items-center justify-center p-4">
             <div className="text-center p-6 bg-white rounded-lg shadow-xl border border-gray-200 max-w-md">
                  <MessageSquare className="h-10 w-10 text-blue-500 mx-auto mb-3" />
-                 <h3 className="text-lg font-semibold text-gray-800 mb-2">Unlock Community Insights</h3>
-                 <p className="text-sm text-gray-600 mb-4">Sign up or log in to see AI-powered safety takeaways from local discussions and experiences.</p>
-                 {/* --- Link to your Login/Signup page --- */}
+                 <h3 className="text-lg font-semibold text-gray-800 mb-2">Unlock Community Feedback</h3>
+                 <p className="text-sm text-gray-600 mb-4">Sign up or log in to see raw comments from local discussions near this location.</p>
                  <Link href="/auth/login" passHref>
                      <Button className="w-full py-2">
                         Sign Up / Log In
@@ -62,181 +52,172 @@ const SignUpPrompt = () => (
         </div>
         {/* Blurred background content (Placeholder UI) */}
         <div className="blur-sm pointer-events-none select-none opacity-60">
-             <h3 className="text-lg font-semibold text-gray-500 mb-4">Community Safety Takeaways</h3>
-             <div className="rounded-lg bg-gray-50 p-0.5">
-                 <div className="h-10 w-full bg-gray-200 rounded-md mb-4"></div> {/* TabsList placeholder */}
-                 <div className="space-y-3">
-                    <div className="flex items-start gap-3 p-3 bg-emerald-50/50 rounded-lg">
-                         <CheckCircle className="h-5 w-5 text-gray-400 mt-0.5 flex-shrink-0" />
-                         <div className="space-y-1">
-                            <div className="h-3 w-3/4 bg-gray-300 rounded"></div>
-                            <div className="h-3 w-1/2 bg-gray-300 rounded"></div>
-                         </div>
-                    </div>
-                     <div className="flex items-start gap-3 p-3 bg-rose-50/50 rounded-lg">
-                         <AlertTriangle className="h-5 w-5 text-gray-400 mt-0.5 flex-shrink-0" />
-                          <div className="space-y-1">
-                            <div className="h-3 w-3/4 bg-gray-300 rounded"></div>
-                         </div>
-                    </div>
-                 </div>
-            </div>
+             <h3 className="text-lg font-semibold text-gray-500 mb-4">Community Feedback</h3>
+             <div className="space-y-3">
+                 <div className="p-3 bg-white rounded-lg border border-gray-200 shadow-sm">
+                     <div className="h-3 w-full bg-gray-300 rounded mb-2"></div>
+                     <div className="h-3 w-5/6 bg-gray-300 rounded"></div>
+                     <div className="mt-2 pt-2 border-t border-gray-100 flex items-center justify-between">
+                        <div className="h-2 w-1/4 bg-gray-200 rounded"></div>
+                        <div className="h-2 w-1/6 bg-gray-200 rounded"></div>
+                     </div>
+                </div>
+                 <div className="p-3 bg-white rounded-lg border border-gray-200 shadow-sm">
+                     <div className="h-3 w-full bg-gray-300 rounded mb-2"></div>
+                     <div className="h-3 w-3/4 bg-gray-300 rounded"></div>
+                     <div className="mt-2 pt-2 border-t border-gray-100 flex items-center justify-between">
+                        <div className="h-2 w-1/3 bg-gray-200 rounded"></div>
+                        <div className="h-2 w-1/5 bg-gray-200 rounded"></div>
+                     </div>
+                </div>
+             </div>
         </div>
     </div>
 );
 
+// Add Reddit logo SVG component
+const RedditLogo = () => (
+  <svg className="size-10 rounded-full bg-gray-100 p-2" viewBox="0 0 20 20" fill="#FF4500">
+    <path d="M12 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12 12 12 0 0 0 12-12A12 12 0 0 0 12 0zm5.01 4.744c.688 0 1.25.561 1.25 1.249a1.25 1.25 0 0 1-2.498.056l-2.597-.547-.8 3.747c1.824.07 3.48.632 4.674 1.488.308-.309.73-.491 1.207-.491.968 0 1.754.786 1.754 1.754 0 .716-.435 1.333-1.01 1.614a3.111 3.111 0 0 1 .042.52c0 2.694-3.13 4.87-7.004 4.87-3.874 0-7.004-2.176-7.004-4.87 0-.183.015-.366.043-.534A1.748 1.748 0 0 1 4.028 12c0-.968.786-1.754 1.754-1.754.463 0 .898.196 1.207.49 1.207-.883 2.878-1.43 4.744-1.487l.885-4.182a.342.342 0 0 1 .14-.197.35.35 0 0 1 .238-.042l2.906.617a1.214 1.214 0 0 1 1.108-.701zM9.25 12C8.561 12 8 12.562 8 13.25c0 .687.561 1.248 1.25 1.248.687 0 1.248-.561 1.248-1.249 0-.688-.561-1.249-1.249-1.249zm5.5 0c-.687 0-1.248.561-1.248 1.25 0 .687.561 1.248 1.249 1.248.688 0 1.249-.561 1.249-1.249 0-.687-.562-1.249-1.25-1.249zm-5.466 3.99a.327.327 0 0 0-.231.094.33.33 0 0 0 0 .463c.842.842 2.484.913 2.961.913.477 0 2.105-.056 2.961-.913a.361.361 0 0 0 .029-.463.33.33 0 0 0-.464 0c-.547.533-1.684.73-2.512.73-.828 0-1.979-.196-2.512-.73a.326.326 0 0 0-.232-.095z"/>
+  </svg>
+);
 
 // --- Main Component ---
-export const CommunityOpinions = ({ reportId, isAuthenticated }: CommunityOpinionsProps) => {
-  const [takeaways, setTakeaways] = useState<TakeawaysData | null>(null);
+export const CommunityOpinions = ({
+    isAuthenticated,
+    latitude,
+    longitude
+}: CommunityOpinionsProps) => {
+  const [opinions, setOpinions] = useState<CommunityOpinion[] | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [source, setSource] = useState<'cache' | 'generated' | null>(null); // Track if from cache
+  const supabase = createClient();
 
   useEffect(() => {
-    // If not authenticated, show prompt immediately, don't fetch.
     if (!isAuthenticated) {
       setLoading(false);
       setError(null);
-      setTakeaways(null);
+      setOpinions(null);
       return;
     }
-    // If no reportId, don't fetch.
-    if (!reportId) {
+    if (latitude === null || longitude === null) {
         setLoading(false);
-        setError("Cannot load insights without a report ID.");
-        setTakeaways(null);
+        setError("Location data is missing, cannot load community comments.");
+        setOpinions(null);
         return;
     }
 
-    const fetchTakeaways = async () => {
+    const fetchOpinions = async () => {
       setLoading(true);
       setError(null);
-      setTakeaways(null);
-      setSource(null);
+      setOpinions(null);
 
       try {
-        console.log(`Component: Fetching takeaways for reportId: ${reportId}`);
-        const response = await fetch(`/api/reports/${reportId}/community-takeaways`);
-        const data = await response.json();
+        console.log(`CommunityOpinions: Fetching opinions for location [${latitude}, ${longitude}]`);
+        const radiusMeters = 2000; // Consistent radius
+        const opinionLimit = 50; // Limit raw opinions displayed
 
-        if (!response.ok || !data.success) {
-          console.error("Component: API fetch failed:", data.error || response.statusText);
-          throw new Error(data.error || 'Failed to fetch community takeaways');
+        const { data: fetchedOpinions, error: opinionError } = await supabase
+            .rpc('get_opinions_within_radius', {
+                target_lat: latitude,
+                target_lon: longitude,
+                radius_meters: radiusMeters,
+                opinion_limit: opinionLimit
+            });
+
+        if (opinionError) {
+            console.error('CommunityOpinions: Error fetching opinions:', opinionError.message);
+            throw new Error('Failed to fetch community opinions.');
         }
 
-        console.log(`Component: Received takeaways (Source: ${data.source})`);
-        setTakeaways(data.takeaways);
-        setSource(data.source);
+        if (fetchedOpinions && fetchedOpinions.length > 0) {
+            console.log(`CommunityOpinions: Fetched ${fetchedOpinions.length} opinions.`);
+            setOpinions(fetchedOpinions as CommunityOpinion[]);
+        } else {
+            console.log("CommunityOpinions: No opinions found nearby.");
+            setOpinions([]); // Set to empty array for "no data" state
+        }
 
       } catch (err: any) {
-        console.error('Component: Error fetching takeaways:', err);
-        setError(err.message || 'Could not load community insights.');
+        console.error('CommunityOpinions: Error fetching community feedback:', err);
+        setError(err.message || 'Could not load community comments.');
       } finally {
         setLoading(false);
       }
     };
 
-    fetchTakeaways();
-    // Dependency array: re-fetch if reportId changes OR user logs in/out
-  }, [reportId, isAuthenticated]);
-
-  // --- Render Logic ---
+    fetchOpinions();
+  }, [isAuthenticated, latitude, longitude, supabase]);
 
   if (!isAuthenticated) {
       return <SignUpPrompt />;
   }
 
-  const positivePoints = preprocessTakeaway(takeaways?.positive_takeaway);
-  const negativePoints = preprocessTakeaway(takeaways?.negative_takeaway);
-  const hasPositive = positivePoints.length > 0;
-  const hasNegative = negativePoints.length > 0;
-  const noTakeawaysFound = !loading && !error && takeaways && !hasPositive && !hasNegative;
-  // Default to positive tab if available, otherwise negative if available, otherwise positive
-  const defaultTab = hasPositive ? "positive" : (hasNegative ? "negative" : "positive");
+  const hasOpinions = opinions && opinions.length > 0;
+  const noDataFound = !loading && !error && !hasOpinions;
 
   return (
     <div className="bg-white rounded-xl p-4 sm:p-6 shadow-sm border border-gray-100">
-       <h3 className="text-lg font-semibold text-gray-900 mb-4">Community Safety Takeaways</h3>
+       <h3 className="text-lg font-semibold text-gray-900 mb-4">Raw Community Comments</h3>
 
-        {loading && <TakeawaysLoadingSkeleton />}
+        {loading && <OpinionsLoadingSkeleton />}
 
         {error && !loading && (
            <div className="p-4 bg-rose-50 border border-rose-200 rounded-lg text-center">
-             <p className="text-sm text-rose-700 font-medium">Could not load insights</p>
+             <p className="text-sm text-rose-700 font-medium">Could not load comments</p>
              <p className="text-xs text-rose-600 mt-1">{error}</p>
-             {/* Optional: Add a retry button */}
            </div>
         )}
 
-        {noTakeawaysFound && (
+        {noDataFound && (
              <div className="text-center py-6 px-4 bg-gray-50 rounded-lg border border-gray-100">
                 <MessageSquare className="h-8 w-8 text-gray-400 mx-auto mb-2" />
-                <p className="text-sm text-gray-600 font-medium">No specific safety themes found</p>
-                <p className="text-xs text-gray-500 mt-1">AI analysis of recent community discussions for this area didn't identify recurring safety points.</p>
+                <p className="text-sm text-gray-600 font-medium">No comments found</p>
+                <p className="text-xs text-gray-500 mt-1">No recent comments were found for this specific area.</p>
              </div>
         )}
 
-        {!loading && !error && takeaways && (hasPositive || hasNegative) && (
-            <div className="rounded-lg bg-gray-100/60 p-1"> {/* Lighter background for Tabs */}
-                 <Tabs defaultValue={defaultTab} className="w-full">
-                     <TabsList className="w-full grid grid-cols-2 bg-gray-200/70 rounded-md p-1 h-auto">
-                         <TabsTrigger
-                             value="positive"
-                             disabled={!hasPositive}
-                             className="flex items-center justify-center gap-1.5 px-2 py-2 text-xs sm:text-sm font-medium data-[state=active]:bg-white data-[state=active]:shadow-sm rounded-[5px] data-[disabled]:opacity-50 data-[disabled]:pointer-events-none transition-colors"
-                         >
-                             <CheckCircle className={`h-4 w-4 flex-shrink-0 ${hasPositive ? 'text-emerald-600' : 'text-gray-400'}`} />
-                             <span>What's Good</span>
-                             {hasPositive && <span className="text-gray-500 text-xs">({positivePoints.length})</span>}
-                         </TabsTrigger>
-                         <TabsTrigger
-                             value="negative"
-                             disabled={!hasNegative}
-                             className="flex items-center justify-center gap-1.5 px-2 py-2 text-xs sm:text-sm font-medium data-[state=active]:bg-white data-[state=active]:shadow-sm rounded-[5px] data-[disabled]:opacity-50 data-[disabled]:pointer-events-none transition-colors"
-                         >
-                             <AlertTriangle className={`h-4 w-4 flex-shrink-0 ${hasNegative ? 'text-rose-600' : 'text-gray-400'}`} />
-                             <span>Watch Out For</span>
-                              {hasNegative && <span className="text-gray-500 text-xs">({negativePoints.length})</span>}
-                         </TabsTrigger>
-                     </TabsList>
+        {!loading && !error && hasOpinions && (
+          <div className="-my-10">
+            {opinions.map((opinion, index) => (
+              <div key={opinion.id || `opinion-${index}`} className="flex space-x-4 text-sm text-gray-500">
+                <div className="flex-none py-10">
+                  <RedditLogo />
+                </div>
+                <div className={`flex-1 py-10 ${index !== 0 ? 'border-t border-gray-200' : ''}`}>
+                  <h3 className="font-medium text-gray-900">
+                    {opinion.username || 'Anonymous Redditor'}
+                  </h3>
+                  <p>
+                    <time dateTime={opinion.source_created_at || ''}>
+                      {opinion.source_created_at 
+                        ? formatDistanceToNow(new Date(opinion.source_created_at), { addSuffix: true })
+                        : 'Recently'}
+                    </time>
+                  </p>
 
-                     {/* Positive Content */}
-                     <TabsContent value="positive" className="mt-4 px-0.5 sm:px-1">
-                         {hasPositive ? (
-                            <div className="space-y-2.5">
-                                {positivePoints.map((point, index) => (
-                                    <div key={`pos-${index}`} className="flex items-start gap-2.5 p-3 bg-emerald-50/80 rounded-lg border border-emerald-100/80 shadow-sm">
-                                        <CheckCircle className="h-4 w-4 text-emerald-600 mt-0.5 flex-shrink-0" aria-hidden="true" />
-                                        <p className="text-sm text-emerald-800 leading-relaxed">{stripPrefix(point)}</p>
-                                    </div>
-                                ))}
-                            </div>
-                         ) : (
-                            <p className="text-sm text-gray-500 italic text-center py-6 px-3">No positive safety takeaways identified from recent community discussions in this area.</p>
-                         )}
-                     </TabsContent>
+                  <p className="sr-only">Community feedback</p>
 
-                     {/* Negative Content */}
-                     <TabsContent value="negative" className="mt-4 px-0.5 sm:px-1">
-                          {hasNegative ? (
-                            <div className="space-y-2.5">
-                                {negativePoints.map((point, index) => (
-                                    <div key={`neg-${index}`} className="flex items-start gap-2.5 p-3 bg-rose-50/80 rounded-lg border border-rose-100/80 shadow-sm">
-                                        <AlertTriangle className="h-4 w-4 text-rose-600 mt-0.5 flex-shrink-0" aria-hidden="true" />
-                                        <p className="text-sm text-rose-800 leading-relaxed">{stripPrefix(point)}</p>
-                                    </div>
-                                ))}
-                            </div>
-                          ) : (
-                            <p className="text-sm text-gray-500 italic text-center py-6 px-3">No specific safety concerns identified from recent community discussions in this area.</p>
-                          )}
-                     </TabsContent>
-                 </Tabs>
-            </div>
+                  <div className="mt-4 text-sm/6 text-gray-500 whitespace-pre-wrap">
+                    {opinion.body}
+                  </div>
+
+                  {opinion.url && (
+                    <a
+                      href={opinion.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="mt-2 inline-flex items-center gap-1 text-sm text-blue-600 hover:text-blue-800"
+                      aria-label={`View original comment by ${opinion.username || 'anonymous'}`}
+                    >
+                      View on Reddit <ExternalLink className="h-3 w-3" />
+                    </a>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
         )}
-         {/* Optional: Display source and timestamp */}
-         {/* {source && <p className="text-xs text-gray-400 text-right mt-2">Source: {source}</p>} */}
     </div>
   );
 };
