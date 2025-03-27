@@ -10,6 +10,7 @@ import { Loader } from 'lucide-react'
 import { toast } from 'sonner'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Terminal } from 'lucide-react'
+import { ROUTES } from '@/lib/routes' // Assuming ROUTES.SIGN_IN exists
 
 export default function ForgotPasswordPage() {
   const { sendPasswordResetEmail } = useAuth()
@@ -78,7 +79,7 @@ export default function ForgotPasswordPage() {
       </form>
       <p className="mt-4 text-center text-sm text-gray-600">
         Remember your password?{' '}
-        <Link href="/auth/sign-in" className="font-medium text-primary hover:underline">
+        <Link href={ROUTES.SIGN_IN} className="font-medium text-primary hover:underline">
           Sign In
         </Link>
       </p>

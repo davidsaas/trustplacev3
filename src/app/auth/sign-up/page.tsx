@@ -12,6 +12,7 @@ import { FcGoogle } from 'react-icons/fc'
 import { toast } from 'sonner'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Terminal } from 'lucide-react'
+import { ROUTES } from '@/lib/routes'
 
 export default function SignUpPage() {
   const { signUp, signInWithGoogle } = useAuth()
@@ -131,7 +132,7 @@ export default function SignUpPage() {
       <p className="mt-4 text-center text-sm text-gray-600">
         Already have an account?{' '}
         <Link
-          href={`/auth/sign-in${next ? `?next=${encodeURIComponent(next)}` : ''}`}
+          href={`${ROUTES.SIGN_IN}${next ? `?next=${encodeURIComponent(next)}` : ''}`}
           className="font-medium text-primary hover:underline"
         >
           Sign In

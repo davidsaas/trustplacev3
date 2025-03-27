@@ -13,24 +13,18 @@ import { toast } from 'sonner'
 import { useAuth } from '@/components/shared/providers/auth-provider'
 import { ROUTES } from '@/lib/constants'
 import { parseAccommodationURL } from '@/lib/utils/url'
-import { useUrlSearch } from '@/hooks/use-url-search'
 
 function classNames(...classes: (string | boolean | undefined)[]) {
   return classes.filter(Boolean).join(' ')
 }
 
 export function AppNavbar() {
-  const {
-    searchQuery,
-    setSearchQuery,
-    isLoading: isSearchLoading,
-    handleSearchSubmit,
-  } = useUrlSearch()
-
+  const [searchQuery, setSearchQuery] = useState('')
+  const [isLoading, setIsLoading] = useState(false)
   const [avatar, setAvatar] = useState<string | null>(null)
   const pathname = usePathname()
   const router = useRouter()
-  const { user, signOut, loading: isAuthLoading } = useAuth()
+  const { user, signOut } = useAuth()
 
   const isReportPage = pathname.startsWith('/safety-report/')
 
@@ -58,8 +52,53 @@ export function AppNavbar() {
     fetchUserProfile()
   }, [user])
 
+  const handleSearch = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!searchQuery || isLoading) return
+
+    setIsLoading(true)
+
+    try {
+      const parsedUrl = parseAccommodationURL(searchQuery)
+
+      if (!parsedUrl) {
+        toast.error('Invalid URL', {
+          description: 'Please enter a valid Airbnb or Booking.com URL'
+        })
+        setIsLoading(false)
+        return
+      }
+
+      const response = await fetch('/api/process-url', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(parsedUrl)
+      })
+
+      const data = await response.json()
+
+      if (!response.ok) {
+        toast.error(data.error || 'Failed to process URL', {
+          description: response.status === 404
+            ? 'We only have data for certain accommodations in Los Angeles at the moment.'
+            : undefined
+        })
+        setIsLoading(false)
+        return
+      }
+
+      router.push(`/safety-report/${data.reportId}`)
+      setSearchQuery('')
+    } catch (error) {
+      console.error('Error processing URL:', error)
+      toast.error('An unexpected error occurred while processing the URL.')
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
   const handleSignOut = async () => {
-    await signOut(pathname)
+    await signOut(ROUTES.HOME)
   }
 
   const handleShare = () => {
@@ -97,7 +136,7 @@ export function AppNavbar() {
 
                 <div className="min-w-0 flex-1 flex items-center justify-center px-4 lg:px-0">
                   <div className="w-full max-w-md">
-                    <form onSubmit={handleSearchSubmit} className="relative">
+                    <form onSubmit={handleSearch} className="relative">
                       <div className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3">
                         <Search className="h-5 w-5 text-gray-400" aria-hidden="true" />
                       </div>
@@ -109,9 +148,9 @@ export function AppNavbar() {
                         onChange={(e) => setSearchQuery(e.target.value)}
                         className="block w-full rounded-md border-0 bg-gray-50 py-1.5 pl-10 pr-3 text-gray-900 ring-1 ring-inset ring-gray-300 placeholder:text-gray-400 focus:ring-2 focus:ring-inset focus:ring-blue-600 sm:text-sm sm:leading-6"
                         placeholder="Paste Airbnb or Booking.com URL here"
-                        disabled={isSearchLoading}
+                        disabled={isLoading}
                       />
-                      {isSearchLoading && (
+                      {isLoading && (
                         <div className="absolute inset-y-0 right-0 flex items-center pr-3">
                            <svg className="animate-spin h-5 w-5 text-gray-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
                              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
@@ -145,9 +184,7 @@ export function AppNavbar() {
                   )}
 
                   <div className="relative ml-5 shrink-0">
-                    {isAuthLoading ? (
-                      <div className="h-8 w-8 rounded-full bg-gray-100 animate-pulse"></div>
-                    ) : user ? (
+                    {user ? (
                       <Menu as="div" className="relative">
                         <div>
                           <MenuButton className="relative flex rounded-full bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2">
@@ -199,8 +236,8 @@ export function AppNavbar() {
                         </MenuItems>
                       </Menu>
                     ) : (
-                      <Link href={`${ROUTES.SIGN_IN}?next=${encodeURIComponent(pathname)}`}>
-                        <Button variant="default">
+                      <Link href={ROUTES.SIGN_IN}>
+                        <Button color="brand">
                           Sign In
                         </Button>
                       </Link>
@@ -212,7 +249,7 @@ export function AppNavbar() {
 
             <PopoverPanel as="nav" aria-label="Global" className="lg:hidden border-t border-gray-200">
               <div className="space-y-1 px-4 pt-4 pb-3">
-                <form onSubmit={(e) => { handleSearchSubmit(e); close(); }} className="relative mb-4">
+                <form onSubmit={(e) => { handleSearch(e); close(); }} className="relative mb-4">
                    <div className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3">
                      <Search className="h-5 w-5 text-gray-400" aria-hidden="true" />
                    </div>
@@ -224,7 +261,7 @@ export function AppNavbar() {
                      onChange={(e) => setSearchQuery(e.target.value)}
                      className="block w-full rounded-md border-0 bg-gray-50 py-1.5 pl-10 pr-3 text-gray-900 ring-1 ring-inset ring-gray-300 placeholder:text-gray-400 focus:ring-2 focus:ring-inset focus:ring-blue-600 sm:text-sm sm:leading-6"
                      placeholder="Paste Airbnb or Booking.com URL"
-                     disabled={isSearchLoading}
+                     disabled={isLoading}
                    />
                  </form>
 
@@ -241,11 +278,7 @@ export function AppNavbar() {
               </div>
 
               <div className="border-t border-gray-200 pt-4 pb-3">
-                {isAuthLoading ? (
-                   <div className="px-4 py-2">
-                     <div className="h-5 w-24 rounded bg-gray-100 animate-pulse"></div>
-                   </div>
-                ) : user ? (
+                {user ? (
                   <>
                     <div className="flex items-center px-4 mb-3">
                       <div className="shrink-0">
@@ -287,14 +320,14 @@ export function AppNavbar() {
                 ) : (
                   <div className="space-y-1 px-2">
                     <Link
-                      href={`${ROUTES.SIGN_IN}?next=${encodeURIComponent(pathname)}`}
+                      href={ROUTES.SIGN_IN}
                       onClick={() => close()}
                       className="block rounded-md px-3 py-2 text-base font-medium text-gray-700 hover:bg-gray-50 hover:text-gray-900"
                     >
                       Sign In
                     </Link>
                      <Link
-                      href={`${ROUTES.SIGN_UP}?next=${encodeURIComponent(pathname)}`}
+                      href={ROUTES.SIGN_UP}
                       onClick={() => close()}
                       className="block rounded-md px-3 py-2 text-base font-medium text-gray-700 hover:bg-gray-50 hover:text-gray-900"
                     >
