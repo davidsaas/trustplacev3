@@ -6,37 +6,45 @@ import { useAuth } from '@/components/shared/providers/auth-provider'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { Loader } from 'lucide-react'
+import { Loader, Terminal, X } from 'lucide-react'
 import { toast } from 'sonner'
-import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
-import { Terminal } from 'lucide-react'
+import { Alert, AlertDescription, AlertTitle, AlertBody, AlertActions } from '@/components/ui/alert'
 import { ROUTES } from '@/lib/routes' // Assuming ROUTES.SIGN_IN exists
 
 export default function ForgotPasswordPage() {
   const { sendPasswordResetEmail } = useAuth()
   const [email, setEmail] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const [message, setMessage] = useState<string | null>(null)
+  const [errorContent, setErrorContent] = useState<string | null>(null)
+  const [messageContent, setMessageContent] = useState<string | null>(null)
+  const [showErrorAlert, setShowErrorAlert] = useState(false)
+  const [showMessageAlert, setShowMessageAlert] = useState(false)
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault()
-    setError(null)
-    setMessage(null)
+    setErrorContent(null)
+    setMessageContent(null)
+    setShowErrorAlert(false)
+    setShowMessageAlert(false)
     setIsSubmitting(true)
 
     const { error: requestError } = await sendPasswordResetEmail(email)
 
     if (requestError) {
-      setError(requestError)
+      setErrorContent(requestError)
+      setShowErrorAlert(true)
       toast.error('Failed to send reset email.')
     } else {
-      setMessage('If an account exists for this email, a password reset link has been sent.')
+      setMessageContent('If an account exists for this email, a password reset link has been sent.')
+      setShowMessageAlert(true)
       toast.success('Password reset email sent.')
-      setEmail('') // Clear email field on success
+      setEmail('')
     }
     setIsSubmitting(false)
   }
+
+  const handleCloseErrorAlert = () => setShowErrorAlert(false)
+  const handleCloseMessageAlert = () => setShowMessageAlert(false)
 
   return (
     <>
@@ -56,25 +64,47 @@ export default function ForgotPasswordPage() {
           />
         </div>
 
-        {/* Temporarily comment out Alert usage to fix build */}
-        {/* {error && (
-          <Alert>
-            <Terminal className="h-4 w-4" />
-            <AlertTitle>Error</AlertTitle>
-            <AlertDescription>{error}</AlertDescription>
+        {showErrorAlert && errorContent && (
+          <Alert
+            open={showErrorAlert}
+            onClose={handleCloseErrorAlert}
+            size="sm"
+          >
+            <AlertBody>
+              <div className="flex items-start gap-3">
+                <Terminal className="h-5 w-5 text-red-600 flex-shrink-0 mt-0.5" />
+                <div>
+                  <AlertTitle className="text-red-800">Error</AlertTitle>
+                  <AlertDescription className="text-red-700">{errorContent}</AlertDescription>
+                </div>
+              </div>
+            </AlertBody>
+            <AlertActions>
+              <Button plain onClick={handleCloseErrorAlert}>OK</Button>
+            </AlertActions>
           </Alert>
-        )} */}
-        {error && <p className="text-sm text-red-600">{error}</p>} {/* Basic error display */}
+        )}
 
-        {/* Temporarily comment out Alert usage to fix build */}
-        {/* {message && (
-          <Alert>
-            <Terminal className="h-4 w-4" />
-            <AlertTitle>Success</AlertTitle>
-            <AlertDescription>{message}</AlertDescription>
+        {showMessageAlert && messageContent && (
+          <Alert
+            open={showMessageAlert}
+            onClose={handleCloseMessageAlert}
+            size="sm"
+          >
+            <AlertBody>
+              <div className="flex items-start gap-3">
+                <Terminal className="h-5 w-5 text-blue-600 flex-shrink-0 mt-0.5" />
+                <div>
+                  <AlertTitle className="text-blue-800">Success</AlertTitle>
+                  <AlertDescription className="text-blue-700">{messageContent}</AlertDescription>
+                </div>
+              </div>
+            </AlertBody>
+            <AlertActions>
+              <Button plain onClick={handleCloseMessageAlert}>OK</Button>
+            </AlertActions>
           </Alert>
-        )} */}
-        {message && <p className="text-sm text-green-600">{message}</p>} {/* Basic message display */}
+        )}
 
         <Button type="submit" className="w-full" disabled={isSubmitting}>
           {isSubmitting ? <Loader className="animate-spin mr-2" size={16} /> : null}
