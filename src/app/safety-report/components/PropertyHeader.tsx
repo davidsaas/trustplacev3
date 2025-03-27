@@ -103,7 +103,7 @@ export const PropertyHeader = memo(({
         <div className="mx-auto px-4 pt-6 pb-4 sm:px-6 lg:px-8">
           <div className="-mt-12 sm:-mt-16 sm:flex sm:items-end sm:space-x-5">
             <div className="flex">
-              <div className={`relative size-24 rounded-full ${overallRisk.bgColor} ring-4 ring-white sm:size-32 flex items-center justify-center p-2 ${overallRisk.border}`}>
+              <div className={`relative size-24 rounded-full bg-white ring-4 ring-white sm:size-32 flex items-center justify-center p-2 ${overallRisk.border}`}>
                 {hasScore ? (
                   <CircularProgressbar
                     value={animatedScore}
@@ -111,13 +111,14 @@ export const PropertyHeader = memo(({
                     styles={buildStyles({
                       rotation: 0,
                       strokeLinecap: 'round',
-                      textSize: '24px',
+                      textSize: '30px',
                       pathTransitionDuration: 1.5,
                       pathColor: overallRisk.fill,
-                      textColor: '#000',
+                      textColor: overallRisk.fill,
                       trailColor: '#e5e7eb',
                       backgroundColor: 'transparent',
                     })}
+                    className="font-extrabold"
                   />
                 ) : (
                   <div className="flex flex-col items-center justify-center text-center">
