@@ -19,6 +19,7 @@ export const SavedButton = ({
   const { saveAccommodation, isAccommodationSaved, loading } = useAccommodationsSaved()
   const [isSaving, setIsSaving] = useState(false)
   const [showPopup, setShowPopup] = useState(false)
+  const [popupMessage, setPopupMessage] = useState('')
   
   const saved = isAccommodationSaved(accommodationId)
 
@@ -26,11 +27,13 @@ export const SavedButton = ({
     if (isSaving || loading) return
     
     setIsSaving(true)
+    const message = saved ? "Removed from saved" : "Added to saved"
+    
     const result = await saveAccommodation(accommodationId, accommodationName, source)
     setIsSaving(false)
     
-    // Show animation popup on success
     if (result.success) {
+      setPopupMessage(message)
       setShowPopup(true)
       setTimeout(() => setShowPopup(false), 1500)
     }
@@ -38,23 +41,21 @@ export const SavedButton = ({
 
   return (
     <div className="relative">
-      {/* Popup animation */}
       <AnimatePresence>
         {showPopup && (
           <motion.div
             initial={{ opacity: 0, y: 10, scale: 0.8 }}
             animate={{ opacity: 1, y: -40, scale: 1 }}
             exit={{ opacity: 0, y: -60, scale: 0.8 }}
-            className="absolute z-10 left-1/2 transform -translate-x-1/2 bg-white rounded-full px-3 py-1 shadow-lg text-xs whitespace-nowrap"
+            className="absolute z-10 bottom-full mb-2 left-1/2 transform -translate-x-1/2 bg-white rounded-full px-3 py-1 shadow-lg text-xs whitespace-nowrap"
           >
             <span className="font-medium text-gray-800">
-              {saved ? "Removed from saved" : "Added to saved"}
+              {popupMessage}
             </span>
           </motion.div>
         )}
       </AnimatePresence>
       
-      {/* Heart button */}
       <motion.button 
         onClick={handleSaveClick}
         disabled={isSaving || loading}
@@ -69,12 +70,12 @@ export const SavedButton = ({
       >
         <motion.div
           animate={saved ? {
-            scale: [1, 1.2, 1],
+            scale: [1, 1.3, 1],
             transition: { duration: 0.3 }
-          } : {}}
+          } : { scale: 1 }}
         >
           <Heart 
-            className={`w-5 h-5 ${saved ? "fill-red-500" : ""} ${isSaving ? "animate-pulse" : ""}`} 
+            className={`w-5 h-5 transition-colors ${saved ? "fill-red-500" : "fill-transparent"} ${isSaving ? "animate-pulse" : ""}`} 
           />
         </motion.div>
       </motion.button>

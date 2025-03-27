@@ -1,4 +1,6 @@
-import { memo } from 'react'
+import { memo, useState, useEffect } from 'react'
+import { CircularProgressbar, buildStyles } from 'react-circular-progressbar';
+import 'react-circular-progressbar/dist/styles.css';
 import { ImageOff, ExternalLink, Shield, Info, CheckCircle, AlertTriangle } from 'lucide-react'
 import { SavedButton } from './SavedButton'
 import { PropertyMetrics } from './PropertyMetrics'
@@ -14,72 +16,9 @@ type PropertyHeaderWithScoreAndNavProps = PropertyHeaderProps & {
   onSectionChange: (section: ReportSection) => void
 }
 
-const AnimatedScoreCircle = ({ score, size = 120, strokeWidth = 8, overallRisk }: { 
-  score: number,
-  size?: number,
-  strokeWidth?: number,
-  overallRisk: ReturnType<typeof getRiskLevel>
-}) => {
-  const radius = (size - strokeWidth) / 2;
-  const circumference = 2 * Math.PI * radius;
-  const progressOffset = circumference - (score / 100) * circumference;
-  
-  return (
-    <div className="relative" style={{ width: size, height: size }}>
-      {/* Background circle */}
-      <svg width={size} height={size} className="absolute inset-0">
-        <circle
-          stroke="#e5e7eb"
-          strokeWidth={strokeWidth}
-          fill="none"
-          cx={size / 2}
-          cy={size / 2}
-          r={radius}
-        />
-      </svg>
-      
-      {/* Animated progress circle */}
-      <svg width={size} height={size} className="absolute inset-0 -rotate-90 transition-all duration-1000">
-        <circle
-          stroke={overallRisk.fill}
-          strokeWidth={strokeWidth}
-          strokeLinecap="round"
-          fill="none"
-          cx={size / 2}
-          cy={size / 2}
-          r={radius}
-          strokeDasharray={circumference}
-          strokeDashoffset={progressOffset}
-          className="transition-all duration-1000 ease-out"
-        >
-          <animate
-            attributeName="stroke-dashoffset"
-            from={circumference}
-            to={progressOffset}
-            dur="1.5s"
-            fill="freeze"
-            calcMode="spline"
-            keySplines="0.42 0 0.58 1"
-          />
-        </circle>
-      </svg>
-      
-      {/* Inner content */}
-      <div className="absolute inset-0 flex flex-col items-center justify-center">
-        <span className="text-3xl font-bold">{score}</span>
-        <div className={`text-xs mt-1 ${overallRisk.textColor} font-medium flex items-center gap-1`}>
-          <span>{overallRisk.label}</span>
-        </div>
-      </div>
-    </div>
-  );
-};
-
 export const PropertyHeader = memo(({
   name,
   price_per_night,
-  rating,
-  total_reviews,
   source,
   image_url,
   url,
@@ -87,6 +26,9 @@ export const PropertyHeader = memo(({
   activeSection,
   onSectionChange,
 }: PropertyHeaderWithScoreAndNavProps) => {
+  // State to manage the score value for animation
+  const [animatedScore, setAnimatedScore] = useState(0);
+
   // Extract accommodation ID from the URL or use a fallback
   const extractAccommodationId = () => {
     if (url) {
@@ -118,7 +60,25 @@ export const PropertyHeader = memo(({
   
   // Get overall risk level based on score
   const hasScore = overall_score > 0;
-  const overallRisk = hasScore ? getRiskLevel(overall_score / 10) : null;
+  const overallRisk = hasScore 
+    ? getRiskLevel(overall_score / 10) 
+    : { 
+        label: 'N/A', 
+        fill: '#e5e7eb', // Default gray fill
+        textColor: 'text-gray-500', 
+        bgColor: 'bg-gray-100', 
+        border: 'border-gray-200' 
+      };
+
+  // Effect to trigger the animation after mount or when overall_score changes
+  useEffect(() => {
+    // Use a small timeout to ensure the initial render with 0 happens first
+    const timer = setTimeout(() => {
+      setAnimatedScore(overall_score);
+    }, 100); // 100ms delay, adjust if needed
+
+    return () => clearTimeout(timer); // Cleanup timeout on unmount or score change
+  }, [overall_score]); // Dependency array includes overall_score
 
   return (
     <div className="shadow-sm rounded-xl">
@@ -143,21 +103,29 @@ export const PropertyHeader = memo(({
         <div className="mx-auto px-4 pt-6 pb-4 sm:px-6 lg:px-8">
           <div className="-mt-12 sm:-mt-16 sm:flex sm:items-end sm:space-x-5">
             <div className="flex">
-              {hasScore && (
-                <div className={`relative size-24 rounded-full ${overallRisk!.bgColor} ring-4 ring-white sm:size-32 flex items-center justify-center ${overallRisk!.border}`}>
-                  <AnimatedScoreCircle 
-                    score={overall_score} 
-                    size={100} 
-                    strokeWidth={8}
-                    overallRisk={overallRisk!}
+              <div className={`relative size-24 rounded-full ${overallRisk.bgColor} ring-4 ring-white sm:size-32 flex items-center justify-center p-2 ${overallRisk.border}`}>
+                {hasScore ? (
+                  <CircularProgressbar
+                    value={animatedScore}
+                    text={`${overall_score}`}
+                    styles={buildStyles({
+                      rotation: 0,
+                      strokeLinecap: 'round',
+                      textSize: '24px',
+                      pathTransitionDuration: 1.5,
+                      pathColor: overallRisk.fill,
+                      textColor: '#000',
+                      trailColor: '#e5e7eb',
+                      backgroundColor: 'transparent',
+                    })}
                   />
-                </div>
-              )}
-              {!hasScore && (
-                <div className="size-24 rounded-full bg-gray-100 ring-4 ring-white sm:size-32 flex items-center justify-center">
-                  <Shield className="size-10 text-gray-400" />
-                </div>
-              )}
+                ) : (
+                  <div className="flex flex-col items-center justify-center text-center">
+                     <Shield className="size-10 text-gray-400" />
+                     <span className="mt-1 text-xs text-gray-500 font-medium">No Score</span>
+                  </div>
+                )}
+              </div>
             </div>
             
             <div className="mt-6 sm:mt-0 sm:flex sm:min-w-0 sm:flex-1 sm:items-center sm:justify-end sm:space-x-6 sm:pb-1">
@@ -165,8 +133,6 @@ export const PropertyHeader = memo(({
                 <h1 className="truncate text-2xl font-bold text-gray-900">{name}</h1>
                 <PropertyMetrics
                   price_per_night={price_per_night}
-                  rating={rating}
-                  total_reviews={total_reviews}
                   source={source}
                 />
               </div>
@@ -197,8 +163,6 @@ export const PropertyHeader = memo(({
             <h1 className="truncate text-2xl font-bold text-gray-900">{name}</h1>
             <PropertyMetrics
               price_per_night={price_per_night}
-              rating={rating}
-              total_reviews={total_reviews}
               source={source}
             />
           </div>
