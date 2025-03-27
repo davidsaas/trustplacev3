@@ -40,16 +40,19 @@ export interface Location {
 export interface PropertyHeaderProps {
   name: string
   price_per_night: number | null
-  rating: number | null
-  total_reviews: number | null
+  // Remove rating and total_reviews if they are no longer part of the base header data
+  // rating: number | null 
+  // total_reviews: number | null
   source: string
+  // Add other props specific to PropertyHeader if needed
 }
 
 export interface PropertyMetricsProps {
   price_per_night: number | null
-  rating: number | null
-  total_reviews: number | null
-  source: string
+  // Remove rating and total_reviews as they are no longer displayed here
+  // rating: number | null 
+  // total_reviews: number | null
+  source: string // Keep source if used, otherwise remove
 }
 
 export interface AccommodationData {

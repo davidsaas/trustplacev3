@@ -51,8 +51,6 @@ export interface PropertyHeaderProps {
 
 export interface PropertyMetricsProps {
   price_per_night: number | null
-  rating: number | null
-  total_reviews: number | null
   source: string
 }
 

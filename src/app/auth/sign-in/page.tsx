@@ -60,7 +60,10 @@ export default function SignInPage() {
 
       <form onSubmit={handleSubmit} className="space-y-6">
         {error && (
-          <Alert>
+          <Alert 
+            open={!!error}
+            onClose={() => setError(null)}
+          >
             <Terminal className="h-4 w-4" />
             <AlertTitle>Error</AlertTitle>
             <AlertDescription>{error}</AlertDescription>
