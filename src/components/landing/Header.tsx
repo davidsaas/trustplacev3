@@ -7,7 +7,6 @@ import {
   PopoverButton,
   PopoverBackdrop,
   PopoverPanel,
-  Transition,
 } from '@headlessui/react'
 import { AnimatePresence, motion } from 'framer-motion'
 import { Button } from '@/components/ui/button'
@@ -62,10 +61,10 @@ function MobileNavLink(
 }
 
 export function Header() {
-  const { user, signOut, loading: isAuthLoading } = useAuth()
-  const pathname = usePathname()
+  const { user, signOut, loading } = useAuth()
   const [showUserDropdown, setShowUserDropdown] = useState(false)
   const [avatar, setAvatar] = useState<string | null>(null)
+  const pathname = usePathname()
 
   useEffect(() => {
     // Fetch user profile if logged in
@@ -93,45 +92,19 @@ export function Header() {
   }
 
   return (
-    <header className="py-10">
-      <Container>
-        <nav className="relative z-50 flex justify-between">
-          <div className="flex items-center md:gap-x-12">
+    <header>
+      <nav>
+        <Container className="relative z-50 flex justify-between py-8">
+          <div className="relative z-10 flex items-center gap-16">
             <Link href="/" aria-label="Home">
               <Logo className="h-10 w-auto" />
             </Link>
-            <div className="hidden md:flex md:gap-x-6">
+            <div className="hidden lg:flex lg:gap-10">
               <NavLinks />
             </div>
           </div>
-          <div className="flex items-center gap-x-5 md:gap-x-8">
-            <div className="hidden md:block">
-              {isAuthLoading ? (
-                <div className="flex gap-x-4">
-                  <div className="h-9 w-20 rounded-md bg-gray-100 animate-pulse"></div>
-                  <div className="h-9 w-20 rounded-md bg-gray-100 animate-pulse"></div>
-                </div>
-              ) : user ? (
-                <div className="flex items-center gap-x-4">
-                  <Link href="/saved" className="text-sm font-medium text-gray-700 hover:text-primary">
-                    Saved Properties
-                  </Link>
-                  <Button onClick={handleSignOut} variant="outline">
-                    Sign out
-                  </Button>
-                </div>
-              ) : (
-                <div className="flex items-center gap-x-4">
-                  <Link href={`${ROUTES.SIGN_IN}?next=${encodeURIComponent(pathname)}`}>
-                    <Button variant="outline">Sign in</Button>
-                  </Link>
-                  <Link href={`${ROUTES.SIGN_UP}?next=${encodeURIComponent(pathname)}`}>
-                    <Button variant="default">Sign up</Button>
-                  </Link>
-                </div>
-              )}
-            </div>
-            <Popover className="md:hidden">
+          <div className="flex items-center gap-6">
+            <Popover className="lg:hidden">
               {({ open }) => (
                 <>
                   <PopoverButton
@@ -167,7 +140,7 @@ export function Header() {
                             y: -32,
                             transition: { duration: 0.2 },
                           }}
-                          className="fixed inset-x-0 top-0 z-0 origin-top rounded-b-2xl bg-gray-50 px-6 pt-32 pb-6 shadow-2xl shadow-gray-900/20"
+                          className="absolute inset-x-0 top-0 z-0 origin-top rounded-b-2xl bg-gray-50 px-6 pt-32 pb-6 shadow-2xl shadow-gray-900/20"
                         >
                           <div className="space-y-4">
                             <MobileNavLink href="/#features">
@@ -181,32 +154,41 @@ export function Header() {
                             </MobileNavLink>
                             <MobileNavLink href="/#faqs">FAQs</MobileNavLink>
                           </div>
-                          <div className="mt-6">
-                            {isAuthLoading ? (
-                               <div className="space-y-4">
-                                 <div className="h-9 w-full rounded-md bg-gray-100 animate-pulse"></div>
-                                 <div className="h-9 w-full rounded-md bg-gray-100 animate-pulse"></div>
-                               </div>
-                            ) : user ? (
-                              <div className="mt-8 flex flex-col gap-4">
-                                <Link href="/saved" className="text-base/7 tracking-tight text-gray-700">
-                                  Saved Properties
-                                </Link>
-                                <Button variant="outline" onClick={handleSignOut}>
-                                  Sign out
+                          {loading ? (
+                            <div className="mt-8 space-y-4 animate-pulse">
+                              <div className="h-10 bg-gray-200 rounded"></div>
+                              <div className="h-10 bg-gray-300 rounded"></div>
+                            </div>
+                          ) : user ? (
+                            <div className="mt-8 flex flex-col gap-4">
+                              <Link href="/profile" className="text-base/7 tracking-tight text-gray-700">
+                                Profile
+                              </Link>
+                              <Link href="/saved" className="text-base/7 tracking-tight text-gray-700">
+                                Saved Properties
+                              </Link>
+                              <Button
+                                className="bg-primary hover:bg-primary/90 text-white"
+                                onClick={handleSignOut}
+                                aria-label="Sign out"
+                              >
+                                Sign out
+                              </Button>
+                            </div>
+                          ) : (
+                            <div className="mt-8 flex flex-col gap-4">
+                              <Link href={`/auth/sign-in?next=${encodeURIComponent(pathname)}`} passHref>
+                                <Button variant="outline" className="bg-white border-primary text-primary hover:bg-gray-50 w-full">
+                                  Sign in
                                 </Button>
-                              </div>
-                            ) : (
-                              <div className="mt-8 flex flex-col gap-4">
-                                <Link href={`${ROUTES.SIGN_IN}?next=${encodeURIComponent(pathname)}`}>
-                                  <Button variant="outline" className="w-full">Sign in</Button>
-                                </Link>
-                                <Link href={`${ROUTES.SIGN_UP}?next=${encodeURIComponent(pathname)}`}>
-                                  <Button variant="default" className="w-full">Sign up</Button>
-                                </Link>
-                              </div>
-                            )}
-                          </div>
+                              </Link>
+                              <Link href={`/auth/sign-up?next=${encodeURIComponent(pathname)}`} passHref>
+                                <Button className="bg-primary hover:bg-primary/90 text-white w-full">
+                                  Sign up
+                                </Button>
+                              </Link>
+                            </div>
+                          )}
                         </PopoverPanel>
                       </>
                     )}
@@ -214,9 +196,78 @@ export function Header() {
                 </>
               )}
             </Popover>
+            
+            {/* Desktop Nav Buttons */}
+            <div className="max-lg:hidden">
+              {loading ? (
+                <div className="flex gap-x-4 animate-pulse">
+                  <div className="h-9 w-20 bg-gray-200 rounded"></div>
+                  <div className="h-9 w-20 bg-gray-300 rounded"></div>
+                </div>
+              ) : user ? (
+                <div className="relative">
+                  <button
+                    type="button"
+                    className="flex h-8 w-8 items-center justify-center rounded-full bg-gray-100 hover:bg-gray-200 overflow-hidden"
+                    onClick={() => setShowUserDropdown(!showUserDropdown)}
+                  >
+                    {avatar ? (
+                      <img src={avatar} alt="Profile" className="h-8 w-8 object-cover" />
+                    ) : (
+                      <User className="h-4 w-4 text-gray-500" />
+                    )}
+                    <span className="sr-only">Open user menu</span>
+                  </button>
+                  
+                  {showUserDropdown && (
+                    <div className="absolute right-0 z-10 mt-2 w-48 origin-top-right rounded-md bg-white py-1 shadow-lg ring-1 ring-black ring-opacity-5 focus:outline-none">
+                      <div className="px-4 py-2 text-sm text-gray-500 border-b border-gray-100">
+                        {user.email}
+                      </div>
+                      <Link
+                        href="/profile"
+                        className="flex items-center gap-2 px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
+                        onClick={() => setShowUserDropdown(false)}
+                      >
+                        <User className="h-4 w-4" />
+                        Profile
+                      </Link>
+                      <Link
+                        href="/saved"
+                        className="flex items-center gap-2 px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
+                        onClick={() => setShowUserDropdown(false)}
+                      >
+                        <BookmarkIcon className="h-4 w-4" />
+                        Saved Properties
+                      </Link>
+                      <button
+                        className="w-full flex items-center gap-2 px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 text-left"
+                        onClick={handleSignOut}
+                      >
+                        <LogOut className="h-4 w-4" />
+                        Sign Out
+                      </button>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div className="flex items-center gap-6">
+                  <Link href={`/auth/sign-in?next=${encodeURIComponent(pathname)}`} passHref>
+                    <Button variant="outline" size="sm">
+                      Sign in
+                    </Button>
+                  </Link>
+                  <Link href={`/auth/sign-up?next=${encodeURIComponent(pathname)}`} passHref>
+                    <Button size="sm">
+                      Sign up
+                    </Button>
+                  </Link>
+                </div>
+              )}
+            </div>
           </div>
-        </nav>
-      </Container>
+        </Container>
+      </nav>
     </header>
   )
 } 

@@ -53,11 +53,11 @@ export const RestrictedContent = ({ children }: RestrictedContentProps) => {
             Get access to detailed safety insights and community opinions
           </p>
           <div className="space-x-4">
-            <Link href={`/auth/sign-up?next=${encodeURIComponent(pathname)}`}>
+            <Link href={`/auth/sign-up?next=${encodeURIComponent(pathname)}`} passHref>
               <Button>Sign Up</Button>
             </Link>
-            <Link href={`/auth/sign-in?next=${encodeURIComponent(pathname)}`}>
-              <Button className="bg-white text-gray-900 border border-gray-300 hover:bg-gray-50">Sign In</Button>
+            <Link href={`/auth/sign-in?next=${encodeURIComponent(pathname)}`} passHref>
+              <Button variant="outline" className="bg-white text-gray-900 border border-gray-300 hover:bg-gray-50">Sign In</Button>
             </Link>
           </div>
         </div>

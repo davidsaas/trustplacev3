@@ -12,6 +12,7 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Terminal } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { AuthChangeEvent, Session } from '@supabase/supabase-js'
+import { ROUTES } from '@/lib/routes' // Assuming ROUTES.SIGN_IN exists
 
 export default function UpdatePasswordPage() {
   const { updatePassword, user } = useAuth()
@@ -73,7 +74,7 @@ export default function UpdatePasswordPage() {
       toast.success('Password updated successfully. Please sign in again.')
       // Optionally sign the user out here if Supabase doesn't automatically
       // await supabase.auth.signOut();
-      router.push('/auth/sign-in') // Redirect to sign-in page
+      router.push(ROUTES.SIGN_IN) // Redirect to sign-in page
     }
     setIsSubmitting(false)
   }

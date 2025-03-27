@@ -12,6 +12,7 @@ import { toast } from 'sonner'
 import { FcGoogle } from 'react-icons/fc'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Terminal } from 'lucide-react'
+import { ROUTES } from '@/lib/routes'
 
 export default function SignInPage() {
   const { signIn, signInWithGoogle } = useAuth()
@@ -88,7 +89,7 @@ export default function SignInPage() {
           <div className="flex items-center justify-between">
             <Label htmlFor="password">Password</Label>
             <Link
-              href="/auth/forgot-password"
+              href={ROUTES.FORGOT_PASSWORD}
               className="text-sm font-medium text-primary hover:underline"
               tabIndex={isSubmitting || isGoogleSubmitting ? -1 : 0}
             >
@@ -143,7 +144,7 @@ export default function SignInPage() {
       <p className="text-center text-sm text-muted-foreground">
         Don&apos;t have an account?{' '}
         <Link
-          href={`/auth/sign-up${next ? `?next=${encodeURIComponent(next)}` : ''}`}
+          href={`${ROUTES.SIGN_UP}${next ? `?next=${encodeURIComponent(next)}` : ''}`}
           className="text-primary hover:underline"
           tabIndex={0}
         >

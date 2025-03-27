@@ -4,10 +4,6 @@ import { useId, Suspense } from 'react'
 import Image from 'next/image'
 import clsx from 'clsx'
 import { motion } from 'framer-motion'
-import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
-import { useUrlSearch } from '@/hooks/use-url-search'
-import { Loader } from 'lucide-react'
 
 import { Container } from '@/components/landing/Container'
 import { URLProcessor } from '@/app/safety-report/components/URLProcessor'
@@ -124,13 +120,6 @@ function BackgroundIllustration(props: React.ComponentPropsWithoutRef<'div'>) {
 }
 
 export function Hero() {
-  const {
-    searchQuery,
-    setSearchQuery,
-    isLoading,
-    handleSearchSubmit,
-  } = useUrlSearch()
-
   return (
     <div className="overflow-hidden py-20 sm:py-32 lg:pb-32 xl:pb-36">
       <Container>
@@ -159,21 +148,7 @@ export function Hero() {
               variants={fadeIn}
             >
               <Suspense fallback={<div>Loading...</div>}>
-                <form onSubmit={handleSearchSubmit} className="max-w-xl mx-auto flex gap-2 items-center">
-                  <Input
-                    type="text"
-                    placeholder="Paste accommodation URL here..."
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                    disabled={isLoading}
-                    className="flex-grow"
-                    aria-label="Accommodation URL"
-                  />
-                  <Button type="submit" disabled={isLoading} className="shrink-0">
-                    {isLoading ? <Loader className="animate-spin mr-2" size={16} /> : null}
-                    Get Report
-                  </Button>
-                </form>
+                <URLProcessor />
               </Suspense>
             </motion.div>
             

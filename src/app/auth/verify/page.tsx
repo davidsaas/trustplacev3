@@ -3,6 +3,7 @@
 import Link from 'next/link'
 import { Button } from '@/components/ui/button'
 import { MailCheck } from 'lucide-react'
+import { ROUTES } from '@/lib/routes' // Assuming ROUTES.SIGN_IN exists
 
 export default function VerifyPage() {
   return (
@@ -15,7 +16,7 @@ export default function VerifyPage() {
       <p className="text-sm text-muted-foreground mb-4">
         Didn't receive the email? Check your spam folder or try signing up again.
       </p>
-      <Link href="/auth/sign-in">
+      <Link href={ROUTES.SIGN_IN}>
         <Button variant="outline">Back to Sign In</Button>
       </Link>
     </div>

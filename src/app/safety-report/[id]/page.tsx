@@ -216,7 +216,7 @@ async function findSimilarAccommodations(
 }
 
 async function getReportData(id: string): Promise<AccommodationData | null> {
-  // console.log('Fetching report data for accommodation ID:', id);
+  console.log('[getReportData] Fetching report data for accommodation ID:', id); // Log start
 
   const { data: accommodation, error } = await supabaseServer
     .from('accommodations')
@@ -224,9 +224,16 @@ async function getReportData(id: string): Promise<AccommodationData | null> {
     .eq('id', id)
     .single()
 
-  if (error || !accommodation) {
-    console.error(`Error fetching accommodation ${id}:`, error);
-    return null
+  if (error) {
+    // Log the specific error when fetching the main accommodation fails
+    console.error(`[getReportData] Error fetching accommodation ${id}:`, error.message);
+    return null // Return null on direct fetch error
+  }
+
+  if (!accommodation) {
+    // Log if accommodation is not found
+    console.warn(`[getReportData] Accommodation not found for ID: ${id}`);
+    return null // Return null if not found
   }
 
   // console.log('Found accommodation:', accommodation.name, 'Price:', accommodation.price_per_night);
@@ -292,6 +299,7 @@ async function getReportData(id: string): Promise<AccommodationData | null> {
     // console.log('Skipping similar accommodations search due to missing location or zero score');
   }
 
+  console.log('[getReportData] Successfully processed data for:', accommodation.name); // Log success
   return {
     id: accommodation.id,
     url: accommodation.url,
@@ -322,12 +330,14 @@ export default function SafetyReportPage({ params }: SafetyReportProps) {
 
   // Validate ID early
   if (!params.id) {
+    console.error("[SafetyReportPage] No ID provided in params.");
     notFound()
   }
 
   // Fetch data and check authentication
   useEffect(() => {
     if (!params.id) {
+      console.error("[SafetyReportPage Effect] Effect running without params.id.");
       setErrorOccurred(true)
       setLoading(false)
       setAuthChecked(true)
@@ -335,38 +345,51 @@ export default function SafetyReportPage({ params }: SafetyReportProps) {
     }
 
     let isMounted = true
+    console.log(`[SafetyReportPage Effect] Starting data load for ID: ${params.id}`);
 
     async function loadData() {
+      // Reset states at the beginning
       setLoading(true)
       setErrorOccurred(false)
       setAuthChecked(false)
+      setReportData(null) // Clear previous data
 
       try {
         const supabase = createClient()
+        console.log("[SafetyReportPage Effect] Fetching report data and session concurrently...");
         const [data, { data: { session } }] = await Promise.all([
           getReportData(params.id),
           supabase.auth.getSession()
         ])
+        console.log("[SafetyReportPage Effect] Promise.all resolved.");
 
-        if (!isMounted) return
+        if (!isMounted) {
+          console.log("[SafetyReportPage Effect] Component unmounted before state update.");
+          return
+        }
 
+        console.log("[SafetyReportPage Effect] Auth session:", session ? `User ${session.user.id}` : 'No session');
         setIsAuthenticated(!!session)
-        setAuthChecked(true)
+        setAuthChecked(true) // Mark auth as checked regardless of data outcome
 
         if (!data) {
-          console.error(`No report data returned for ID: ${params.id}`)
+          // Explicitly handle null data from getReportData as an error case for this page
+          console.error(`[SafetyReportPage Effect] No report data returned or fetch failed for ID: ${params.id}`)
           setErrorOccurred(true)
         } else {
+          console.log("[SafetyReportPage Effect] Report data received:", data.name);
           setReportData(data)
         }
       } catch (error) {
-        console.error("Error fetching report data:", error)
+        console.error("[SafetyReportPage Effect] Error during loadData:", error)
         if (isMounted) {
           setErrorOccurred(true)
-          setAuthChecked(true)
+          // Ensure authChecked is also set in catch block if Promise.all failed before setting it
+          if (!authChecked) setAuthChecked(true);
         }
       } finally {
         if (isMounted) {
+          console.log("[SafetyReportPage Effect] Setting loading to false.");
           setLoading(false)
         }
       }
@@ -375,22 +398,37 @@ export default function SafetyReportPage({ params }: SafetyReportProps) {
     loadData()
 
     return () => {
+      console.log(`[SafetyReportPage Effect] Cleanup for ID: ${params.id}`);
       isMounted = false
     }
-  }, [params.id])
+  }, [params.id]) // Removed authChecked from dependency array
 
   const handleSectionChange = (section: ReportSection) => {
     setActiveSection(section)
   }
 
-  if (errorOccurred) {
+  // Check error state *after* loading is false
+  if (!loading && errorOccurred) {
+    console.log("[SafetyReportPage Render] Error occurred, rendering notFound.");
     notFound()
   }
 
-  if (loading || !authChecked || (!reportData && !errorOccurred)) {
+  // Updated loading condition: Show loading only while actively loading OR if auth hasn't been checked yet.
+  // Once loading is false and auth is checked, we should either have data or have triggered notFound.
+  if (loading || !authChecked) {
+     console.log(`[SafetyReportPage Render] Rendering Loading component (loading: ${loading}, authChecked: ${authChecked})`);
     return <Loading />
   }
 
+  // If loading is false, auth is checked, and no error occurred, but reportData is still null,
+  // this indicates an unexpected state. Log it, but maybe render notFound.
+  if (!reportData) {
+      console.error("[SafetyReportPage Render] Unexpected state: Loading finished, auth checked, no error, but no report data. Rendering notFound.");
+      notFound();
+      // return null; // Or return null / a specific error component
+  }
+
+  console.log("[SafetyReportPage Render] Rendering main content for:", reportData.name);
   // Helper to render section content
   const renderSectionContent = () => {
     if (!reportData) return null;
