@@ -1,10 +1,9 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import React, { useState, useEffect, Suspense, lazy } from 'react'
 import { notFound } from 'next/navigation'
 import { SafetyMetrics } from '../components/SafetyMetrics'
 import { CommunityOpinions } from './components/CommunityOpinions'
-import { MapView } from '../components/MapView'
 import { RestrictedContent } from '@/app/auth/components/restricted-content'
 import { createClient } from '@/lib/supabase/client'
 import { supabaseServer } from '@/lib/supabase/server'
@@ -13,14 +12,33 @@ import { LOCATION_RADIUS, SAFETY_RADIUS, PRICE_RANGE } from '../constants'
 import { isValidCoordinates, calculateDistance } from '../utils'
 import Loading from './loading'
 import { AppNavbar } from '@/app/components/navbar'
+import { OverviewSection } from './components/OverviewSection'
+import type { ReportSection } from './components/ReportNavMenu'
 
 import type {
   SafetyReportProps,
   SafetyMetric,
   Location,
   AccommodationData,
-  SimilarAccommodation
+  SimilarAccommodation,
+  AccommodationTakeaway
 } from '@/types/safety-report'
+
+// Lazily import MapView
+const LazyMapView = lazy(() => import('../components/MapView').then(module => ({ default: module.MapView })));
+
+// Simple placeholder for map loading
+const MapLoadingPlaceholder = () => (
+  <div className="h-full bg-gray-100 flex items-center justify-center rounded-xl">
+    <div className="text-center">
+      <svg className="animate-spin h-8 w-8 text-gray-400 mx-auto mb-2" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+      </svg>
+      <p className="text-sm text-gray-500">Loading map...</p>
+    </div>
+  </div>
+);
 
 // Function to find closest safety metrics for a location
 async function findClosestSafetyMetrics(location: Location): Promise<SafetyMetric[] | null> {
@@ -240,6 +258,25 @@ async function getReportData(id: string): Promise<AccommodationData | null> {
 
   // console.log('Calculated overall safety score:', overall_score);
 
+  // --- Fetch Accommodation Takeaways ---
+  let accommodationTakeaways: string[] | null = null;
+  const { data: takeawayData, error: takeawayError } = await supabaseServer
+    .from('accommodation_takeaways')
+    .select('takeaways') // Select only the takeaways array
+    .eq('accommodation_id', id)
+    .maybeSingle(); // Fetch one record or null
+
+  if (takeawayError) {
+    console.error(`Error fetching accommodation takeaways for ${id}:`, takeawayError.message);
+    // Don't fail the whole page load, just log the error
+  } else if (takeawayData && takeawayData.takeaways) {
+    accommodationTakeaways = takeawayData.takeaways;
+    // console.log(`Found ${accommodationTakeaways.length} accommodation takeaways.`);
+  } else {
+    // console.log(`No accommodation takeaways found for ${id}.`);
+  }
+  // --- End Fetch Accommodation Takeaways ---
+
   // Fetch similar accommodations if we have valid location and a score > 0
   let similar_accommodations: SimilarAccommodation[] = [];
   if (location && overall_score > 0) {
@@ -270,7 +307,8 @@ async function getReportData(id: string): Promise<AccommodationData | null> {
     safety_metrics: safetyMetrics, // Will be null if location was null or no metrics found
     overall_score,
     similar_accommodations,
-    hasCompleteData
+    hasCompleteData,
+    accommodation_takeaways: accommodationTakeaways // Add to return object
   }
 }
 
@@ -280,6 +318,7 @@ export default function SafetyReportPage({ params }: SafetyReportProps) {
   const [errorOccurred, setErrorOccurred] = useState(false)
   const [isAuthenticated, setIsAuthenticated] = useState(false)
   const [authChecked, setAuthChecked] = useState(false)
+  const [activeSection, setActiveSection] = useState<ReportSection>('overview')
 
   // Validate ID early
   if (!params.id) {
@@ -340,6 +379,10 @@ export default function SafetyReportPage({ params }: SafetyReportProps) {
     }
   }, [params.id])
 
+  const handleSectionChange = (section: ReportSection) => {
+    setActiveSection(section)
+  }
+
   if (errorOccurred) {
     notFound()
   }
@@ -348,86 +391,132 @@ export default function SafetyReportPage({ params }: SafetyReportProps) {
     return <Loading />
   }
 
+  // Helper to render section content
+  const renderSectionContent = () => {
+    if (!reportData) return null;
+
+    switch (activeSection) {
+      case 'overview':
+        return <OverviewSection takeaways={reportData.accommodation_takeaways} />;
+      case 'map':
+        return (
+          <div>
+            <div className="border-b border-gray-200 bg-white px-4 py-5 sm:px-6 rounded-t-xl shadow-sm">
+              <div className="-ml-4 -mt-4 flex flex-wrap items-center justify-between sm:flex-nowrap">
+                <div className="ml-4 mt-4">
+                  <h3 className="text-base font-semibold text-gray-900">Map View</h3>
+                  <p className="mt-1 text-sm text-gray-500">
+                    Property location and nearby safer alternatives.
+                  </p>
+                </div>
+              </div>
+            </div>
+            <div className="h-[400px] bg-white rounded-b-xl shadow-sm overflow-hidden">
+              {/* Use Suspense to wrap the lazy-loaded map */}
+              <Suspense fallback={<MapLoadingPlaceholder />}>
+                {reportData.location ? (
+                  <LazyMapView // Use the lazy component
+                    location={reportData.location}
+                    currentAccommodation={{
+                      id: reportData.id,
+                      name: reportData.name,
+                      overall_score: reportData.overall_score,
+                      hasCompleteData: reportData.hasCompleteData
+                    }}
+                    similarAccommodations={reportData.similar_accommodations.map(acc => ({
+                      ...acc,
+                      hasCompleteData: !!acc.hasCompleteData
+                    }))}
+                  />
+                ) : (
+                  <div className="h-full bg-gray-100 flex items-center justify-center">
+                    <p className="text-gray-500">Location coordinates not available</p>
+                  </div>
+                )}
+              </Suspense>
+            </div>
+          </div>
+        );
+      case 'safety':
+        return (
+          <div>
+            <div className="border-b border-gray-200 bg-white px-4 py-5 sm:px-6 rounded-t-xl shadow-sm">
+              <div className="-ml-4 -mt-4 flex flex-wrap items-center justify-between sm:flex-nowrap">
+                <div className="ml-4 mt-4">
+                  <h3 className="text-base font-semibold text-gray-900">Safety Analysis</h3>
+                  <p className="mt-1 text-sm text-gray-500">
+                    Detailed safety metrics for this location based on local data.
+                  </p>
+                </div>
+              </div>
+            </div>
+            <RestrictedContent>
+              <SafetyMetrics data={reportData.safety_metrics} />
+            </RestrictedContent>
+          </div>
+        );
+      case 'community':
+        return (
+          <div>
+            <div className="border-b border-gray-200 bg-white px-4 py-5 sm:px-6 rounded-t-xl shadow-sm">
+              <div className="-ml-4 -mt-4 flex flex-wrap items-center justify-between sm:flex-nowrap">
+                <div className="ml-4 mt-4">
+                  <h3 className="text-base font-semibold text-gray-900">Community Feedback</h3>
+                  <p className="mt-1 text-sm text-gray-500">
+                    AI takeaways and raw comments from local discussions.
+                  </p>
+                </div>
+              </div>
+            </div>
+            <RestrictedContent>
+              <CommunityOpinions
+                isAuthenticated={isAuthenticated}
+                latitude={reportData.location?.lat ?? null}
+                longitude={reportData.location?.lng ?? null}
+              />
+            </RestrictedContent>
+          </div>
+        );
+      default:
+        return null;
+    }
+  }
+
   return (
     <div className="min-h-screen bg-gray-50">
       <AppNavbar />
 
-      <div className="pt-28 pb-20">
-        <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
-          <div className="mx-auto max-w-5xl space-y-10">
-            {reportData && (
-              <>
-                <PropertyHeader
-                  name={reportData.name}
-                  price_per_night={reportData.price_per_night}
-                  rating={reportData.rating}
-                  total_reviews={reportData.total_reviews}
-                  source={reportData.source}
-                  image_url={reportData.image_url}
-                  url={reportData.url}
-                  overall_score={reportData.overall_score}
-                />
-
-                <div className="h-[400px]">
-                  {reportData.location ? (
-                    <MapView
-                      location={reportData.location}
-                      currentAccommodation={{
-                        id: reportData.id,
-                        name: reportData.name,
-                        overall_score: reportData.overall_score,
-                        hasCompleteData: reportData.hasCompleteData
-                      }}
-                      similarAccommodations={reportData.similar_accommodations.map(acc => ({
-                        ...acc,
-                        hasCompleteData: !!acc.hasCompleteData
-                      }))}
-                    />
-                  ) : (
-                    <div className="h-full bg-gray-100 flex items-center justify-center rounded-xl">
-                      <p className="text-gray-500">Location coordinates not available</p>
-                    </div>
-                  )}
+      <div className="pt-6 sm:pt-8">
+        {reportData && (
+          <>
+            <div className="bg-gray-50">
+              <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+                <div className="mx-auto max-w-5xl">
+                  <PropertyHeader
+                    name={reportData.name}
+                    price_per_night={reportData.price_per_night}
+                    rating={reportData.rating}
+                    total_reviews={reportData.total_reviews}
+                    source={reportData.source}
+                    image_url={reportData.image_url}
+                    url={reportData.url}
+                    overall_score={reportData.overall_score}
+                    activeSection={activeSection}
+                    onSectionChange={handleSectionChange}
+                  />
                 </div>
+              </div>
+            </div>
 
-                <div>
-                  <div className="border-b border-gray-200 bg-white px-4 py-5 sm:px-6 rounded-t-xl shadow-sm">
-                    <div className="-ml-4 -mt-4 flex flex-wrap items-center justify-between sm:flex-nowrap">
-                      <div className="ml-4 mt-4">
-                        <h3 className="text-base font-semibold text-gray-900">Safety Analysis</h3>
-                        <p className="mt-1 text-sm text-gray-500">
-                          Detailed safety metrics for this location based on local data
-                        </p>
-                      </div>
-                    </div>
-                  </div>
-                  <RestrictedContent>
-                    <SafetyMetrics data={reportData.safety_metrics} />
-                  </RestrictedContent>
+            <div className="mt-6 sm:mt-8 pb-10">
+              <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+                <div className="mx-auto max-w-5xl">
+                  {renderSectionContent()}
                 </div>
-
-                <div>
-                  <div className="border-b border-gray-200 bg-white px-4 py-5 sm:px-6 rounded-t-xl shadow-sm">
-                    <div className="-ml-4 -mt-4 flex flex-wrap items-center justify-between sm:flex-nowrap">
-                      <div className="ml-4 mt-4">
-                        <h3 className="text-base font-semibold text-gray-900">Community Feedback</h3>
-                        <p className="mt-1 text-sm text-gray-500">
-                          Opinions and experiences shared by other travelers
-                        </p>
-                      </div>
-                    </div>
-                  </div>
-                  <RestrictedContent>
-                    <CommunityOpinions 
-                      reportId={params.id} 
-                      isAuthenticated={isAuthenticated}
-                    />
-                  </RestrictedContent>
-                </div>
-              </>
-            )}
-          </div>
-        </div>
+              </div>
+            </div>
+          </>
+        )}
       </div>
     </div>
   )

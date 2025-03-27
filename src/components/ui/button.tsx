@@ -35,8 +35,11 @@ const styles = {
   outline: [
     // Base
     'border-zinc-950/10 text-zinc-950 data-active:bg-zinc-950/[2.5%] data-hover:bg-zinc-950/[2.5%]',
+    // Dark mode (optional, adjust if needed)
+    'dark:border-white/10 dark:text-white dark:data-active:bg-white/[2.5%] dark:data-hover:bg-white/[2.5%]',
     // Icon
     '[--btn-icon:var(--color-zinc-500)] data-active:[--btn-icon:var(--color-zinc-700)] data-hover:[--btn-icon:var(--color-zinc-700)]',
+    'dark:[--btn-icon:var(--color-zinc-400)] dark:data-active:[--btn-icon:var(--color-zinc-300)] dark:data-hover:[--btn-icon:var(--color-zinc-300)]',
   ],
   plain: [
     // Base
@@ -136,6 +139,10 @@ const styles = {
     rose: [
       'text-white [--btn-hover-overlay:var(--color-white)]/10 [--btn-bg:var(--color-rose-500)] [--btn-border:var(--color-rose-600)]/90',
       '[--btn-icon:var(--color-rose-300)] data-active:[--btn-icon:var(--color-rose-200)] data-hover:[--btn-icon:var(--color-rose-200)]',
+    ],
+    brand: [
+      'text-white [--btn-hover-overlay:var(--color-white)]/10 [--btn-bg:var(--color-pink-600)] [--btn-border:var(--color-pink-700)]/90',
+      '[--btn-icon:var(--color-pink-300)] data-active:[--btn-icon:var(--color-pink-200)] data-hover:[--btn-icon:var(--color-pink-200)]',
     ],
   },
 }

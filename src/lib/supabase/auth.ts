@@ -1,6 +1,7 @@
 import { createClient } from './client'
 import { AUTH_REDIRECT_URLS } from '@/lib/constants'
 import { AuthError, User, Provider } from '@supabase/supabase-js'
+import { getBaseUrl } from '@/lib/utils'
 
 type AuthResponse = {
   error: AuthError | null
@@ -65,7 +66,7 @@ export const signInWithGoogle = async (): Promise<AuthResponse> => {
     const { data, error } = await supabase.auth.signInWithOAuth({
       provider: 'google',
       options: {
-        redirectTo: `${window.location.origin}${AUTH_REDIRECT_URLS.OAUTH_CALLBACK}`,
+        redirectTo: `${getBaseUrl()}${AUTH_REDIRECT_URLS.OAUTH_CALLBACK}`,
       },
     })
 

@@ -10,23 +10,28 @@ import { Label } from '@/components/ui/label'
 import { Loader } from 'lucide-react'
 import { toast } from 'sonner'
 import { FcGoogle } from 'react-icons/fc'
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
+import { Terminal } from 'lucide-react'
 
 export default function SignInPage() {
-  const { signIn, signInWithGoogle, loading } = useAuth()
+  const { signIn, signInWithGoogle } = useAuth()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
-  const [error, setError] = useState('')
+  const [error, setError] = useState<string | null>(null)
+  const [isSubmitting, setIsSubmitting] = useState(false)
+  const [isGoogleSubmitting, setIsGoogleSubmitting] = useState(false)
   const searchParams = useSearchParams()
   const router = useRouter()
   const next = searchParams.get('next')
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault()
-    setError('')
+    setError(null)
+    setIsSubmitting(true)
 
-    const { error } = await signIn(email, password)
-    if (error) {
-      setError(error)
+    const { error: signInError } = await signIn(email, password)
+    if (signInError) {
+      setError(signInError)
       toast.error('Sign in failed')
     } else {
       toast.success('Signed in successfully')
@@ -36,13 +41,15 @@ export default function SignInPage() {
         router.push('/')
       }
     }
+    setIsSubmitting(false)
   }
 
   const handleGoogleSignIn = async () => {
-    setError('')
-    const { error } = await signInWithGoogle()
-    if (error) {
-      setError(error)
+    setError(null)
+    setIsGoogleSubmitting(true)
+    const { error: googleError } = await signInWithGoogle()
+    if (googleError) {
+      setError(googleError)
       toast.error('Google sign in failed')
     }
   }
@@ -56,9 +63,11 @@ export default function SignInPage() {
 
       <form onSubmit={handleSubmit} className="space-y-6">
         {error && (
-          <div className="p-3 text-sm text-red-500 bg-red-50 rounded-md">
-            {error}
-          </div>
+          <Alert variant="destructive">
+            <Terminal className="h-4 w-4" />
+            <AlertTitle>Error</AlertTitle>
+            <AlertDescription>{error}</AlertDescription>
+          </Alert>
         )}
 
         <div className="space-y-2">
@@ -67,26 +76,39 @@ export default function SignInPage() {
             id="email"
             type="email"
             value={email}
-            onChange={(e) => setEmail(e.target.value)}
+            onChange={(e) => { setEmail(e.target.value); setError(null); }}
             required
-            disabled={loading}
+            placeholder="you@example.com"
+            aria-label="Email address"
+            disabled={isSubmitting || isGoogleSubmitting}
           />
         </div>
 
         <div className="space-y-2">
-          <Label htmlFor="password">Password</Label>
+          <div className="flex items-center justify-between">
+            <Label htmlFor="password">Password</Label>
+            <Link
+              href="/auth/forgot-password"
+              className="text-sm font-medium text-primary hover:underline"
+              tabIndex={isSubmitting || isGoogleSubmitting ? -1 : 0}
+            >
+              Forgot password?
+            </Link>
+          </div>
           <Input
             id="password"
             type="password"
             value={password}
-            onChange={(e) => setPassword(e.target.value)}
+            onChange={(e) => { setPassword(e.target.value); setError(null); }}
             required
-            disabled={loading}
+            placeholder="••••••••"
+            aria-label="Password"
+            disabled={isSubmitting || isGoogleSubmitting}
           />
         </div>
 
-        <Button type="submit" className="w-full" disabled={loading}>
-          {loading && <Loader className="mr-2 h-4 w-4 animate-spin" />}
+        <Button type="submit" className="w-full" disabled={isSubmitting || isGoogleSubmitting}>
+          {isSubmitting ? <Loader className="animate-spin mr-2" size={16} /> : null}
           Sign In
         </Button>
       </form>
@@ -103,14 +125,15 @@ export default function SignInPage() {
       </div>
 
       <Button
-        outline
+        variant="outline"
         type="button"
         className="w-full"
         onClick={handleGoogleSignIn}
-        disabled={loading}
+        disabled={isSubmitting || isGoogleSubmitting}
+        aria-label="Sign in with Google"
       >
-        {loading ? (
-          <Loader className="mr-2 h-4 w-4 animate-spin" />
+        {isGoogleSubmitting ? (
+          <Loader className="animate-spin mr-2" size={16} />
         ) : (
           <FcGoogle className="mr-2 h-5 w-5" />
         )}
@@ -120,7 +143,7 @@ export default function SignInPage() {
       <p className="text-center text-sm text-muted-foreground">
         Don&apos;t have an account?{' '}
         <Link
-          href={`/auth/sign-up${next ? `?next=${next}` : ''}`}
+          href={`/auth/sign-up${next ? `?next=${encodeURIComponent(next)}` : ''}`}
           className="text-primary hover:underline"
           tabIndex={0}
         >
