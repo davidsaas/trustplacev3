@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 """
-LA Safety Metrics Processor - Lean Implementation
+LA Safety Metrics Processor - Enhanced Implementation
 Processes LAPD crime data and creates safety metrics linked to census blocks
+using geospatial matching via Supabase RPC.
+Schema Aligned Version. V5 - Pre-calculate Neighbors for Speed.
 """
 
 import os
@@ -9,7 +11,7 @@ import json
 import requests
 import pandas as pd
 import numpy as np
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from dotenv import load_dotenv
 from supabase import create_client, Client
 import uuid
@@ -18,18 +20,17 @@ import logging
 from sodapy import Socrata
 from tqdm import tqdm
 import time
-import random
 import math
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-# Load environment variables
+# --- Configuration ---
 load_dotenv()
 SUPABASE_URL = os.environ.get("NEXT_PUBLIC_SUPABASE_URL")
-SUPABASE_KEY = os.environ.get("SUPABASE_SERVICE_ROLE_KEY") # Use service role key for database operations
-LA_APP_TOKEN = os.environ.get("LA_APP_TOKEN")  # LA City Data app token
+SUPABASE_KEY = os.environ.get("SUPABASE_SERVICE_ROLE_KEY") # Use service role key
+LA_APP_TOKEN = os.environ.get("LA_APP_TOKEN")
 
 if not SUPABASE_URL or not SUPABASE_KEY:
     logger.error("Missing Supabase credentials in .env file")
@@ -38,547 +39,539 @@ if not SUPABASE_URL or not SUPABASE_KEY:
 # LAPD API configuration
 LAPD_DOMAIN = "data.lacity.org"
 LAPD_DATASET_ID = "2nrs-mtv8"
+SOCRATA_TIMEOUT = 60 # Timeout in seconds for Socrata requests
+
+# Geospatial configuration
+NEIGHBOR_RADIUS_METERS = 400 # Radius for finding neighbors (e.g., 400m ~ 1/4 mile)
 
 # Initialize clients
-supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
-socrata_client = Socrata(LAPD_DOMAIN, LA_APP_TOKEN) if LA_APP_TOKEN else Socrata(LAPD_DOMAIN, None)
+try:
+    supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
+    logger.info("Supabase client initialized.")
+except Exception as e:
+    logger.error(f"Failed to initialize Supabase client: {e}")
+    sys.exit(1)
 
-# Define LA bounds for filtering
-LA_BOUNDS = {
-    'lat': (33.70, 34.83),
-    'lon': (-118.67, -117.65)
-}
+# Initialize Socrata client
+socrata_client = Socrata(LAPD_DOMAIN, LA_APP_TOKEN, timeout=SOCRATA_TIMEOUT) if LA_APP_TOKEN else Socrata(LAPD_DOMAIN, None, timeout=SOCRATA_TIMEOUT)
+logger.info(f"Socrata client initialized with timeout: {SOCRATA_TIMEOUT} seconds.")
 
-# Define safety metric types and their MO codes based on crime mapping guides
+
+# Define safety metric types and their MO codes (V4 mapping)
 SAFETY_METRICS = {
     'night': {
         'question': 'Can I go outside after dark?',
         'description': 'Safety for pedestrians during evening/night hours',
-        'crime_codes': ['210', '220', '230', '231', '235', '236', '250', '251', '761', '762', '763', '860'],
-        'time_filter': lambda hour: hour >= 18 or hour < 6  # 6 PM to 6 AM
+        'crime_codes': [
+            '110', '113', '121', '122', '815', '820', '821', '210', '220',
+            '230', '231', '235', '236', '250', '251', '624', '761', '762',
+            '763', '860', '930'
+        ],
+        'time_filter': lambda hour: hour >= 18 or hour < 6
     },
     'vehicle': {
         'question': 'Can I park here safely?',
         'description': 'Risk of vehicle theft and break-ins',
-        'crime_codes': ['330', '331', '410', '420', '421', '330', '331', '440', '441', '442', '443', '444', '445']
+        'crime_codes': [
+            '330', '331', '410', '420', '421', '510', '520', '433', '647'
+        ]
     },
     'child': {
         'question': 'Are kids safe here?',
         'description': 'Overall safety concerning crimes that could affect children',
-        'crime_codes': ['235', '236', '627', '760', '762', '922', '237', '812', '813', '814', '815']
+        'crime_codes': [
+            '235', '627', '237', '812', '813', '814', '815', '121', '122',
+            '820', '821', '760', '762', '921', '922', '236'
+        ]
     },
     'transit': {
         'question': 'Is it safe to use public transport?',
         'description': 'Safety at and around transit locations',
-        'crime_codes': ['210', '220', '230', '231', '476', '946', '761', '762', '763', '475', '352']
+        'crime_codes': [
+            '210', '220', '230', '231', '350', '351', '352', '450', '451',
+            '452', '624', '761', '762', '763', '930', '946', '860'
+        ]
     },
     'women': {
         'question': 'Would I be harassed here?',
         'description': 'Assessment of crimes that disproportionately affect women',
-        'crime_codes': ['121', '122', '815', '820', '821', '236', '626', '627', '647', '860', '921', '922']
+        'crime_codes': [
+            '121', '122', '815', '820', '821', '236', '626', '624', '763',
+            '860', '922', '930'
+        ]
     }
 }
 
-def fetch_crime_data(days_back=7, max_records=1000):
-    """Fetch crime data from LAPD API using SODA client"""
-    logger.info("Fetching crime data from LAPD API")
-    
-    # Calculate date range - go further back to ensure we get data
-    end_date = datetime(2024, 3, 1)  # Use a specific date we know has data
+
+# --- Data Fetching (Unchanged) ---
+def fetch_crime_data(days_back=90, max_records=300000):
+    # (Code remains the same as V4)
+    logger.info(f"Fetching crime data from LAPD API for the last {days_back} days.")
+    end_date = datetime.now(timezone.utc)
     start_date = end_date - timedelta(days=days_back)
-    
-    # Format dates for SODA API
-    start_date_str = start_date.strftime('%Y-%m-%dT00:00:00.000')
-    end_date_str = end_date.strftime('%Y-%m-%dT23:59:59.999')
-    
-    logger.info(f"Date range: {start_date.date()} to {end_date.date()}")
-    
+    start_date_str = start_date.strftime('%Y-%m-%dT%H:%M:%S.%f')[:-3]
+    end_date_str = end_date.strftime('%Y-%m-%dT%H:%M:%S.%f')[:-3]
+    logger.info(f"Date range (UTC): {start_date_str} to {end_date_str}")
     try:
-        # Prepare the query with a where clause for date range
-        where_clause = f"date_occ between '{start_date_str}' and '{end_date_str}'"
-        
-        # Get total count first
+        where_clause = f"date_occ between '{start_date_str}' AND '{end_date_str}' AND lat != 0 AND lon != 0"
         count_query = socrata_client.get(LAPD_DATASET_ID, select="COUNT(*)", where=where_clause)
         total_count = int(count_query[0]['COUNT'])
-        total_records = min(total_count, max_records)
-        logger.info(f"Total records available: {total_count}, fetching {total_records}")
-        
-        # Fetch data in batches
+        records_to_fetch = min(total_count, max_records)
+        logger.info(f"Total relevant records available: {total_count}. Fetching up to {records_to_fetch:,} records.")
+        if records_to_fetch == 0:
+            logger.warning("No crime records found for the specified date range and criteria.")
+            return []
         all_data = []
-        batch_size = 500  # Smaller batch size for testing
+        batch_size = 1000
         offset = 0
-        
-        with tqdm(total=total_records, desc="Fetching records", unit="records") as pbar:
-            while offset < total_records:
+        with tqdm(total=records_to_fetch, desc="Fetching records", unit="records") as pbar:
+            while offset < records_to_fetch:
+                fetch_limit = min(batch_size, records_to_fetch - offset)
                 try:
-                    # Fetch batch with order by date_occ
                     batch = socrata_client.get(
-                        LAPD_DATASET_ID,
-                        where=where_clause,
-                        order="date_occ DESC",
-                        limit=min(batch_size, total_records - offset),
-                        offset=offset
+                        LAPD_DATASET_ID, where=where_clause, order="date_occ DESC",
+                        limit=fetch_limit, offset=offset
                     )
-                    
                     if not batch:
+                        logger.warning(f"Received empty batch at offset {offset}, stopping fetch.")
                         break
-                    
                     all_data.extend(batch)
                     batch_len = len(batch)
                     pbar.update(batch_len)
-                    
                     offset += batch_len
-                    if len(all_data) >= total_records:
-                        break
-                        
-                    time.sleep(0.1)  # Small delay to avoid rate limiting
-                    
+                    time.sleep(0.1) # Be courteous
+                except requests.exceptions.RequestException as req_err:
+                    logger.error(f"Network error fetching batch at offset {offset}: {req_err}")
+                    logger.info("Waiting 5 seconds before retrying fetch...")
+                    time.sleep(5)
                 except Exception as e:
                     logger.error(f"Error fetching batch at offset {offset}: {str(e)}")
                     if len(all_data) > 0:
-                        logger.info(f"Proceeding with {len(all_data)} records fetched so far")
+                        logger.warning(f"Proceeding with {len(all_data)} records fetched so far due to error.")
                         break
-                    else:
-                        raise
-        
+                    else: raise
         logger.info(f"Fetch complete. Total records fetched: {len(all_data):,}")
         return all_data
-        
     except Exception as e:
-        logger.error(f"Error in fetch_crime_data: {str(e)}")
+        logger.error(f"Fatal error in fetch_crime_data: {str(e)}", exc_info=True)
         raise
-    finally:
-        socrata_client.close()
 
+# --- Geospatial Matching (Unchanged) ---
 def validate_coordinate(lat, lon):
-    """Validate if coordinates are within reasonable bounds"""
+    # (Code remains the same as V4)
     try:
-        lat, lon = float(lat), float(lon)
-        return (
-            -90 <= lat <= 90 and
-            -180 <= lon <= 180 and
-            not (abs(lat) < 0.0001 and abs(lon) < 0.0001)  # Avoid null island
-        )
-    except (TypeError, ValueError):
+        lat_f, lon_f = float(lat), float(lon)
+        return (-90 < lat_f < 90 and -180 < lon_f < 180 and abs(lat_f) > 1e-6 and abs(lon_f) > 1e-6)
+    except (TypeError, ValueError, AttributeError):
         return False
 
-def find_census_blocks_batch(unique_coords):
-    """Find census blocks for multiple coordinates (more efficient)"""
-    logger.info("Finding census blocks for crime locations using a batch approach")
-    
-    # Get all census blocks first
+def find_census_blocks_batch_rpc(unique_coords_list):
+    # (Code remains the same as V4)
+    logger.info(f"Finding census blocks for {len(unique_coords_list)} unique coordinates via RPC.")
+    if not unique_coords_list: return {}
+    points_json = [{"lat": lat, "lon": lon} for lat, lon in unique_coords_list]
     try:
-        # Simple approach: just get basic data - limit the number of blocks for faster processing
-        result = supabase.table('census_blocks').select('id, block_group_id, total_population, housing_units').limit(1000).execute()
-        all_blocks = result.data
-        logger.info(f"Loaded {len(all_blocks)} census blocks")
-        
-        if len(all_blocks) == 0:
-            logger.error("No census blocks found in database")
+        response = supabase.rpc('match_points_to_block_groups', {'points_json': points_json}).execute()
+        if response.data and isinstance(response.data, list) and len(response.data) == len(unique_coords_list):
+            coord_to_block = {}
+            matched_count = 0
+            for i, (lat, lon) in enumerate(unique_coords_list):
+                block_info = response.data[i]
+                if block_info and isinstance(block_info, dict) and 'id' in block_info:
+                    block_info['total_population'] = block_info.get('total_population') or 0
+                    block_info['housing_units'] = block_info.get('housing_units') or 0
+                    coord_to_block[(lat, lon)] = block_info
+                    matched_count += 1
+                else:
+                     coord_to_block[(lat, lon)] = None
+            logger.info(f"Successfully matched {matched_count} out of {len(unique_coords_list)} coordinates to census blocks (using PK 'id').")
+            return coord_to_block
+        else:
+            logger.error(f"Unexpected response structure or length mismatch from RPC: {response.data}")
+            if hasattr(response, 'error') and response.error: logger.error(f"RPC Error details: {response.error}")
             return {}
-        
-        # Create a dictionary for results
-        coord_to_block = {}
-        
-        # Simple approach: just assign each unique coordinate to a random census block
-        # This is just to test the pipeline without relying on geospatial functions
-        if len(all_blocks) > 0:
-            logger.info("Using random block assignment for testing")
-            # Create a deterministic mapping for consistent testing
-            for i, (lat, lon) in enumerate(unique_coords):
-                # Use coordinate hash to pick a block (deterministic but seems random)
-                block_index = hash(f"{lat:.6f},{lon:.6f}") % len(all_blocks)
-                coord_to_block[(lat, lon)] = all_blocks[block_index]
-        
-        logger.info(f"Found census blocks for {len(coord_to_block)} unique locations")
-        return coord_to_block
-    
     except Exception as e:
-        logger.error(f"Error in batch finding census blocks: {str(e)}")
-        logger.info("No mock or fallback data will be generated")
+        logger.error(f"Error calling Supabase RPC 'match_points_to_block_groups': {str(e)}", exc_info=True)
         return {}
 
+
+# --- Data Processing (Unchanged) ---
 def process_crime_data(crime_data):
-    """Process crime data and prepare for safety metrics calculation"""
-    logger.info(f"Processing {len(crime_data)} crime records")
-    
+    # (Code remains the same as V4)
+    if not crime_data:
+        logger.warning("No crime data provided for processing.")
+        return None
+    logger.info(f"Processing {len(crime_data)} raw crime records.")
     try:
-        # Convert to DataFrame for easier processing
         df = pd.DataFrame(crime_data)
-        
-        # Ensure date_occ is datetime
-        df['date_occ'] = pd.to_datetime(df['date_occ'])
+        logger.info(f"Initial DataFrame shape: {df.shape}")
+
+        df['date_occ'] = pd.to_datetime(df['date_occ'], errors='coerce')
+        df.dropna(subset=['date_occ'], inplace=True)
         df['hour'] = df['date_occ'].dt.hour
-        
-        # Ensure lat/lon are numeric
+        df['crm_cd'] = df['crm_cd'].astype(str)
         df['lat'] = pd.to_numeric(df['lat'], errors='coerce')
         df['lon'] = pd.to_numeric(df['lon'], errors='coerce')
-        
-        # Filter valid coordinates
-        df = df[df.apply(lambda row: validate_coordinate(row['lat'], row['lon']), axis=1)]
-        logger.info(f"Records with valid coordinates: {len(df)}")
-        
-        # Filter to LA boundaries
-        df = df[
-            (df['lat'].between(*LA_BOUNDS['lat'])) & 
-            (df['lon'].between(*LA_BOUNDS['lon']))
-        ]
-        logger.info(f"Records within LA bounds: {len(df)}")
-        
-        if len(df) == 0:
-            raise ValueError("No valid records found after filtering")
-            
-        # Add block group information
-        logger.info("Finding census blocks for crime locations")
-        
-        # Get unique coordinates to reduce database calls
-        unique_coords = []
-        for _, row in df[['lat', 'lon']].drop_duplicates().iterrows():
-            unique_coords.append((row['lat'], row['lon']))
-            
-        coord_to_block = find_census_blocks_batch(unique_coords)
-        
-        if not coord_to_block:
-            logger.error("No census blocks could be matched to crime locations")
+
+        initial_count = len(df)
+        df = df[df.apply(lambda row: validate_coordinate(row['lat'], row['lon']), axis=1)].copy()
+        validated_count = len(df)
+        logger.info(f"Records after coordinate validation: {validated_count} (removed {initial_count - validated_count})")
+        if df.empty:
+            logger.warning("No valid crime records remain after cleaning and validation.")
             return None
-        
-        # Map census blocks to crime records
-        df['block_info'] = df.apply(
-            lambda row: coord_to_block.get((row['lat'], row['lon'])), 
-            axis=1
-        )
-        
-        # Filter crimes that could be mapped to census blocks
-        df = df.dropna(subset=['block_info'])
-        logger.info(f"Final records with block mapping: {len(df)}")
-        
-        if len(df) == 0:
-            logger.error("No records could be matched to census blocks")
+
+        logger.info("Extracting unique coordinates for block matching.")
+        unique_coords_df = df[['lat', 'lon']].drop_duplicates()
+        unique_coords_list = list(unique_coords_df.itertuples(index=False, name=None))
+        coord_to_block_map = find_census_blocks_batch_rpc(unique_coords_list)
+        if not coord_to_block_map and unique_coords_list:
+            logger.error("Failed to map coordinates to census blocks via RPC. Cannot proceed.")
             return None
-        
-        # Extract block IDs and calculate population density
-        df['block_id'] = df['block_info'].apply(lambda x: x['id'] if x else None)
-        df['block_group_id'] = df['block_info'].apply(lambda x: x['block_group_id'] if x else None)
-        df['population'] = df['block_info'].apply(lambda x: x.get('total_population') or 0)
-        df['housing_units'] = df['block_info'].apply(lambda x: x.get('housing_units') or 0)
-        
-        # Use safer population density calculation
-        df['population_density'] = df.apply(
+
+        logger.info("Mapping census block information back to crime records.")
+        df['coord_tuple'] = list(zip(df['lat'], df['lon']))
+        df['block_info'] = df['coord_tuple'].apply(lambda coord: coord_to_block_map.get(coord))
+        initial_count_map = len(df)
+        df = df.dropna(subset=['block_info']).copy()
+        mapped_count = len(df)
+        logger.info(f"Records after mapping to blocks: {mapped_count} (removed {initial_count_map - mapped_count} unmapped)")
+        if df.empty:
+            logger.error("No crime records could be successfully mapped to census blocks.")
+            return None
+
+        df['census_block_id'] = df['block_info'].apply(lambda x: x.get('id'))
+        df.dropna(subset=['census_block_id'], inplace=True)
+        if df.empty:
+             logger.error("No records remaining after requiring census_block_id.")
+             return None
+
+        df['population'] = pd.to_numeric(df['block_info'].apply(lambda x: x.get('total_population', 0)), errors='coerce').fillna(0).astype(int)
+        df['housing_units'] = pd.to_numeric(df['block_info'].apply(lambda x: x.get('housing_units', 0)), errors='coerce').fillna(0).astype(int)
+        df['population_density_proxy'] = df.apply(
             lambda row: row['population'] / row['housing_units'] if row['housing_units'] > 0 else 0,
             axis=1
-        )
-        
+        ).astype(float)
+
+        df.drop(columns=['coord_tuple', 'block_info'], inplace=True)
+
+        logger.info(f"Successfully processed {len(df)} crime records with census block mapping.")
         return df
-        
+
     except Exception as e:
-        logger.error(f"Error processing crime data: {str(e)}")
+        logger.exception(f"Error during process_crime_data: {e}")
         return None
 
-def calculate_metrics(df):
-    """Calculate all safety metrics for each block group"""
-    logger.info("Calculating safety metrics for block groups")
-    
+# --- Metric Calculation (Functions Unchanged) ---
+
+def calculate_weighted_incidents(direct_incidents, neighbor_incident_map, density_proxy_value):
+    # (Code remains the same as V4)
+    try:
+        weighted_incidents = float(direct_incidents)
+        neighbor_weight = 0.5
+        for neighbor_id, incidents in neighbor_incident_map.items():
+            weighted_incidents += incidents * neighbor_weight
+        density_factor = 1.0
+        if density_proxy_value > 0:
+             density_factor = min(max(density_proxy_value / 3.0, 0.5), 2.0)
+        return weighted_incidents * density_factor
+    except Exception as e:
+        logger.error(f"Error calculating weighted incidents (direct={direct_incidents}, neighbors={len(neighbor_incident_map)}, density={density_proxy_value}): {str(e)}")
+        return float(direct_incidents)
+
+def calculate_safety_score(weighted_incidents):
+    # (Code remains the same as V4)
+    try:
+        w_inc = float(weighted_incidents)
+        if w_inc <= 1: score = 9
+        elif w_inc <= 3: score = 8
+        elif w_inc <= 7: score = 7
+        elif w_inc <= 12: score = 6
+        elif w_inc <= 20: score = 5
+        elif w_inc <= 30: score = 4
+        elif w_inc <= 50: score = 3
+        else: score = 2
+        return max(0, min(10, int(round(score))))
+    except (ValueError, TypeError) as e:
+        logger.error(f"Invalid input for safety score calculation: {weighted_incidents}. Error: {e}")
+        return 5
+    except Exception as e:
+        logger.error(f"Error calculating safety score for weighted incidents {weighted_incidents}: {str(e)}")
+        return 5
+
+def get_risk_description(metric_type, score, direct_incidents, weighted_incidents, density_proxy_value, incidents_per_1000, neighbor_count):
+    # (Code remains the same as V4)
+    try:
+        if score >= 8: risk_level = "Very Low Risk"
+        elif score >= 7: risk_level = "Low Risk"
+        elif score >= 6: risk_level = "Moderate Risk"
+        elif score >= 4: risk_level = "High Risk"
+        else: risk_level = "Very High Risk"
+        base_description = SAFETY_METRICS[metric_type]['description']
+        if density_proxy_value > 3: density_category = "high housing density"
+        elif density_proxy_value > 1.5: density_category = "medium housing density"
+        elif density_proxy_value > 0: density_category = "low housing density"
+        else: density_category = "unknown housing density"
+        description = f"{risk_level} ({base_description.lower()})."
+        description += f" Based on {direct_incidents} relevant incident(s) reported recently in this block."
+        # Optional: Uncomment/modify to include neighbor context
+        # description += f" Analysis considers activity from {neighbor_count} nearby blocks (within {NEIGHBOR_RADIUS_METERS}m)."
+        debug_info = f"metric={metric_type}, score={score}, direct={direct_incidents}, w_inc={weighted_incidents:.1f}, " \
+                     f"inc_p1k={incidents_per_1000:.1f}, dens_proxy={density_proxy_value:.2f}, neighbors={neighbor_count}"
+        logger.debug(f"Risk Description Details: {debug_info}")
+        return description
+    except Exception as e:
+        logger.error(f"Error generating risk description: {str(e)}")
+        return "Risk level could not be determined due to an error."
+
+
+# --- Metric Calculation (Main Logic - MODIFIED FOR SPEED) ---
+def calculate_metrics(processed_df):
+    """Calculate all safety metrics for each relevant census block, pre-calculating neighbors."""
+    if processed_df is None or processed_df.empty:
+        logger.warning("No processed data available to calculate metrics.")
+        return {}
+    logger.info("Calculating safety metrics for census blocks.")
+
     results = {}
-    
-    # Get LA city ID
-    city_result = supabase.table('cities').select('id').eq('name', 'Los Angeles').execute()
-    la_city_id = city_result.data[0]['id'] if city_result.data else None
-    
-    if not la_city_id:
-        logger.error("Could not find Los Angeles city ID")
-        raise ValueError("Missing LA city ID")
-    
-    # Process each metric type
+    la_city_id = None
+    try:
+        city_result = supabase.table('cities').select('id').eq('name', 'Los Angeles').limit(1).single().execute()
+        if city_result.data:
+            la_city_id = city_result.data['id']
+            logger.info(f"Found Los Angeles city ID: {la_city_id}")
+        else:
+            logger.error("Could not find 'Los Angeles' in the 'cities' table.")
+            raise ValueError("Missing LA city ID")
+    except Exception as e:
+        logger.error(f"Error fetching city ID: {e}", exc_info=True)
+        raise
+
+    now = datetime.now(timezone.utc)
+    expires_at = now + timedelta(days=90)
+
+    # --- *** SPEED IMPROVEMENT: Pre-calculate Neighbors *** ---
+    logger.info("Pre-calculating neighbors for all unique blocks...")
+    neighbor_cache = {}
+    # Get all unique block IDs that actually have crime incidents in the processed data
+    unique_block_ids_in_data = processed_df['census_block_id'].unique()
+    logger.info(f"Found {len(unique_block_ids_in_data)} unique blocks with incidents to check for neighbors.")
+
+    # Loop through unique blocks ONCE to fetch neighbors
+    for block_id in tqdm(unique_block_ids_in_data, desc="Fetching neighbors"):
+        try:
+            neighbor_response = supabase.rpc('find_block_neighbors_within_radius', {
+                'target_block_id': block_id,
+                'radius_meters': NEIGHBOR_RADIUS_METERS
+            }).execute()
+
+            if neighbor_response.data:
+                neighbor_ids = [item['neighbor_block_id'] for item in neighbor_response.data]
+                neighbor_cache[block_id] = neighbor_ids
+            else:
+                neighbor_cache[block_id] = [] # Store empty list if no neighbors or error
+                if hasattr(neighbor_response, 'error') and neighbor_response.error:
+                     logger.warning(f"RPC error finding neighbors for {block_id}: {neighbor_response.error}")
+        except Exception as rpc_err:
+            logger.error(f"Exception calling RPC find_block_neighbors_within_radius for {block_id}: {rpc_err}")
+            neighbor_cache[block_id] = [] # Store empty list on exception
+
+    logger.info(f"Pre-calculation complete. Found neighbor sets for {len(neighbor_cache)} blocks.")
+    # --- *** END SPEED IMPROVEMENT *** ---
+
+
+    # --- Main Metric Calculation Loop ---
     for metric_type, metric_info in SAFETY_METRICS.items():
-        logger.info(f"Processing {metric_type} safety metrics")
-        
-        # Filter for relevant crimes
-        metric_df = df[df['crm_cd'].isin(metric_info['crime_codes'])].copy()
-        
-        # Apply time filter if present
+        logger.info(f"--- Processing Metric: {metric_type} ---")
+
+        metric_crimes_df = processed_df[processed_df['crm_cd'].isin(metric_info['crime_codes'])].copy()
         if 'time_filter' in metric_info:
-            metric_df = metric_df[metric_df['hour'].apply(metric_info['time_filter'])]
-        
-        # Group by block group and calculate statistics
-        block_stats = metric_df.groupby('block_group_id').agg({
-            'crm_cd': 'count',
-            'lat': 'mean',
-            'lon': 'mean',
-            'population_density': 'mean',
-            'population': 'first'
-        }).reset_index()
-        
-        # Rename columns for clarity
-        block_stats.rename(columns={'crm_cd': 'direct_incidents'}, inplace=True)
-        
-        # Calculate weighted incidents and scores
-        metrics = []
-        
-        for _, block in block_stats.iterrows():
-            # Calculate weighted incidents considering neighboring blocks
-            neighboring_blocks = find_neighboring_blocks(df, block['block_group_id'], metric_df['crm_cd'].count())
-            
-            # Calculate total weighted incidents
-            direct_incidents = block['direct_incidents']
-            weighted_incidents = calculate_weighted_incidents(direct_incidents, neighboring_blocks, block['population_density'])
-            
-            # Calculate safety score
-            score = calculate_safety_score(direct_incidents, weighted_incidents, block['population_density'])
-            
-            # Calculate incidents per 1000 population
-            incidents_per_1000 = (direct_incidents / block['population']) * 1000 if block['population'] > 0 else 0
-            
-            # Generate risk description
+            metric_crimes_df = metric_crimes_df[metric_crimes_df['hour'].apply(metric_info['time_filter'])]
+
+        if metric_crimes_df.empty:
+            logger.info(f"No relevant incidents found for metric '{metric_type}'.")
+            results[metric_type] = []
+            continue
+
+        logger.info(f"Found {len(metric_crimes_df)} incidents for metric '{metric_type}'.")
+
+        block_group_stats = metric_crimes_df.groupby('census_block_id').agg(
+            direct_incidents=('crm_cd', 'size'),
+            latitude=('lat', 'mean'),
+            longitude=('lon', 'mean'),
+            population=('population', 'first'),
+            housing_units=('housing_units', 'first'),
+            population_density_proxy=('population_density_proxy', 'first')
+        ).reset_index()
+
+        logger.info(f"Aggregated stats for {len(block_group_stats)} census blocks for metric '{metric_type}'.")
+
+        metric_incident_map = block_group_stats.set_index('census_block_id')['direct_incidents'].to_dict()
+
+        metric_records = []
+        # --- Loop through each block that has incidents for THIS metric ---
+        # --- THIS LOOP IS NOW MUCH FASTER ---
+        for _, block_row in tqdm(block_group_stats.iterrows(), total=len(block_group_stats), desc=f"Calculating {metric_type} metrics"):
+            current_block_id = block_row['census_block_id']
+            direct_incidents = block_row['direct_incidents']
+            pop_density_proxy = block_row['population_density_proxy']
+            population = block_row['population']
+
+            # --- *** Use the pre-calculated neighbor cache *** ---
+            neighbor_ids = neighbor_cache.get(current_block_id, []) # Efficient dictionary lookup
+            # --- *** No RPC call inside this loop anymore! *** ---
+
+            neighbor_incident_map = {
+                nid: metric_incident_map.get(nid, 0) for nid in neighbor_ids if nid in metric_incident_map
+            }
+            neighbor_count = len(neighbor_ids)
+
+            weighted_incidents = calculate_weighted_incidents(direct_incidents, neighbor_incident_map, pop_density_proxy)
+            score = calculate_safety_score(weighted_incidents)
+            incidents_per_1000 = (direct_incidents / population) * 1000 if population > 0 else 0.0
+
             description = get_risk_description(
-                metric_type, 
-                score,
-                direct_incidents,
-                weighted_incidents,
-                block['population_density'],
-                incidents_per_1000
+                metric_type, score, direct_incidents, weighted_incidents, pop_density_proxy, incidents_per_1000, neighbor_count
             )
-            
-            # Create a simple deterministic ID by hashing the combination of metric_type and block_group_id
-            # This ensures the same ID is generated for the same combination every time
-            id_string = f"{metric_type}:{block['block_group_id']}"
-            stable_id = str(uuid.uuid5(uuid.NAMESPACE_DNS, id_string))
-            
-            # Create metric record
-            metric = {
-                'id': stable_id,
+
+            id_string = f"{la_city_id}:{current_block_id}:{metric_type}"
+            stable_metric_id = str(uuid.uuid5(uuid.NAMESPACE_DNS, id_string))
+
+            geom_string = f"SRID=4326;POINT({block_row['longitude']} {block_row['latitude']})"
+
+            metric_record = {
+                'id': stable_metric_id,
                 'city_id': la_city_id,
-                'block_group_id': block['block_group_id'],
-                'latitude': float(block['lat']),
-                'longitude': float(block['lon']),
-                'geom': f"SRID=4326;POINT({block['lon']} {block['lat']})",
+                'block_group_id': current_block_id, # Ensure this matches target column name
+                'latitude': float(block_row['latitude']),
+                'longitude': float(block_row['longitude']),
+                'geom': geom_string,
                 'metric_type': metric_type,
                 'score': score,
                 'question': metric_info['question'],
                 'description': description,
                 'direct_incidents': int(direct_incidents),
                 'weighted_incidents': float(weighted_incidents),
-                'population_density': float(block['population_density']),
+                'population_density': float(pop_density_proxy), # Ensure this matches target column name
                 'incidents_per_1000': float(incidents_per_1000),
-                'created_at': datetime.now().isoformat(),
-                'expires_at': (datetime.now() + timedelta(days=90)).isoformat()
+                'created_at': now.isoformat(),
+                'expires_at': expires_at.isoformat()
+                # 'neighbor_count': neighbor_count # Optional
             }
-            
-            metrics.append(metric)
-        
-        # Add to results
-        results[metric_type] = metrics
-        logger.info(f"Generated {len(metrics)} metrics for {metric_type}")
-    
+            metric_records.append(metric_record)
+
+        results[metric_type] = metric_records
+        logger.info(f"Generated {len(metric_records)} metrics for type '{metric_type}'.")
+
     return results
 
-def find_neighboring_blocks(df, block_group_id, total_incidents):
-    """Find neighboring block groups based on the block_group_id prefix"""
-    try:
-        # Simple approach: use the first 9 digits as tract identifier
-        prefix = block_group_id[:9] if block_group_id and len(block_group_id) >= 9 else None
-        if not prefix:
-            return []
-        
-        # Find all blocks that share the same tract prefix
-        neighbors = df[
-            (df['block_group_id'].str.startswith(prefix)) & 
-            (df['block_group_id'] != block_group_id)
-        ]['block_group_id'].unique()
-        
-        neighbor_stats = []
-        for neighbor_id in neighbors:
-            # Count incidents in this neighbor
-            incidents = len(df[df['block_group_id'] == neighbor_id])
-            # Add to stats list
-            neighbor_stats.append({
-                'block_group_id': neighbor_id,
-                'incidents': incidents,
-                'weight': 0.5  # 50% weight for neighboring blocks
-            })
-        
-        return neighbor_stats
-    except Exception as e:
-        logger.error(f"Error finding neighboring blocks: {str(e)}")
-        return []
 
-def calculate_weighted_incidents(direct_incidents, neighboring_blocks, population_density):
-    """Calculate weighted incidents including neighboring blocks"""
-    try:
-        # Start with direct incidents
-        weighted_incidents = direct_incidents
-        
-        # Add weighted contributions from neighboring blocks
-        for neighbor in neighboring_blocks:
-            weighted_incidents += neighbor['incidents'] * neighbor['weight']
-        
-        # Adjust for population density (higher density can amplify impact)
-        density_factor = min(max(population_density / 3, 0.5), 2.0)
-        
-        return weighted_incidents * density_factor
-    except Exception as e:
-        logger.error(f"Error calculating weighted incidents: {str(e)}")
-        return direct_incidents
-
-def calculate_safety_score(direct_incidents, weighted_incidents, population_density):
-    """Calculate a safety score from 0-10 based on weighted incidents"""
-    try:
-        # Base calculation using weighted incidents
-        if weighted_incidents <= 2: score = 8
-        elif weighted_incidents <= 5: score = 7
-        elif weighted_incidents <= 10: score = 6
-        elif weighted_incidents <= 15: score = 5
-        elif weighted_incidents <= 25: score = 4
-        elif weighted_incidents <= 40: score = 3
-        else: score = 2
-        
-        return score
-    except Exception as e:
-        logger.error(f"Error calculating safety score: {str(e)}")
-        return 5  # Default to middle score on error
-
-def get_risk_description(metric_type, score, direct_incidents, weighted_incidents, population_density, incidents_per_1000):
-    """Generate a description of the risk level with debug information"""
-    try:
-        # Risk level description
-        risk_level = "Very safe area" if score >= 8 else \
-                   "Generally safe area" if score >= 6 else \
-                   "Exercise caution" if score >= 4 else \
-                   "Extra caution advised"
-        
-        # Base description
-        description = f"{risk_level}. {SAFETY_METRICS[metric_type]['description']}"
-        
-        # Add debug information
-        density_category = "high-density" if population_density > 3 else \
-                         "medium-density" if population_density > 1.5 else \
-                         "low-density" if population_density > 0 else \
-                         "unknown-density"
-        
-        debug_info = f" [DEBUG: {direct_incidents} direct incidents, {weighted_incidents:.1f} weighted, " \
-                    f"{incidents_per_1000:.1f} per 1000 pop, {density_category} area]"
-        
-        return f"{description}{debug_info}"
-    except Exception as e:
-        logger.error(f"Error generating risk description: {str(e)}")
-        return "Unable to determine risk level"
-
-def upload_metrics(metrics_by_type, test_mode=True):
-    """Upload metrics to Supabase"""
-    logger.info("Uploading metrics to Supabase")
-    
-    total_metrics = sum(len(metrics) for metrics in metrics_by_type.values())
-    uploaded = 0
-    
-    # First, clean up existing metrics before inserting new ones
-    try:
-        if total_metrics > 0:
-            logger.info("Clearing existing safety metrics")
-            
-            if test_mode:
-                # In test mode, we need to delete metrics by type since Supabase doesn't allow DELETE without WHERE
-                logger.info("TEST MODE: Clearing metrics by type")
-                # Delete for each metric type (we can't delete all at once)
-                for metric_type in SAFETY_METRICS.keys():
-                    supabase.table('safety_metrics') \
-                        .delete() \
-                        .eq('metric_type', metric_type) \
-                        .execute()
-                logger.info("Cleared existing metrics for all types")
-            else:
-                # In production mode, only delete metrics for the types we're about to upload
-                logger.info("PRODUCTION MODE: Clearing only metrics for types we're updating")
-                for metric_type in metrics_by_type.keys():
-                    if metrics_by_type[metric_type]:
-                        supabase.table('safety_metrics') \
-                            .delete() \
-                            .eq('metric_type', metric_type) \
-                            .execute()
-                        logger.info(f"Cleared all existing records for {metric_type}")
-            
-            logger.info("Existing records cleared successfully")
-    except Exception as e:
-        logger.error(f"Error clearing existing metrics: {str(e)}")
-    
-    # Process each metric type
+# --- Data Uploading (Unchanged) ---
+def upload_metrics(metrics_by_type, test_mode=False):
+    # (Code remains the same as V4)
+    logger.info("--- Uploading metrics to Supabase using UPSERT ---")
+    if not metrics_by_type:
+        logger.warning("No metrics generated to upload.")
+        return
+    all_metrics = []
+    metric_types_processed = set()
     for metric_type, metrics in metrics_by_type.items():
-        if not metrics:
-            logger.info(f"No metrics to upload for {metric_type}")
-            continue
-            
-        logger.info(f"Uploading {len(metrics)} metrics for {metric_type}")
-        
-        # Upload in smaller batches for efficiency and to avoid request size limits
-        batch_size = 50  # Smaller batch size to avoid issues
-        for i in range(0, len(metrics), batch_size):
-            batch = metrics[i:i+batch_size]
-            try:
-                logger.info(f"Uploading batch {i//batch_size + 1}/{(len(metrics) + batch_size - 1)//batch_size}")
-                
-                # Use simple insert after deleting the old records
-                result = supabase.table('safety_metrics').insert(batch).execute()
-                uploaded += len(batch)
-                logger.info(f"Successfully uploaded batch with {len(batch)} records")
-            except Exception as e:
-                logger.error(f"Error uploading batch: {str(e)}")
-                # Log the first record for debugging
-                if batch:
-                    logger.error(f"Sample record that failed: {json.dumps(batch[0], default=str)[:500]}...")
-    
-    logger.info(f"Upload complete. {uploaded}/{total_metrics} metrics uploaded successfully.")
+        if metrics:
+            all_metrics.extend(metrics)
+            metric_types_processed.add(metric_type)
+    total_metrics_to_upload = len(all_metrics)
+    logger.info(f"Total metrics to upsert: {total_metrics_to_upload:,} across types: {', '.join(metric_types_processed)}")
+    if total_metrics_to_upload == 0:
+        logger.info("No metrics to upload.")
+        return
 
+    uploaded_count = 0
+    failed_count = 0
+    batch_size = 500
+    num_batches = math.ceil(total_metrics_to_upload / batch_size)
+    for i in range(num_batches):
+        batch = all_metrics[i * batch_size : (i + 1) * batch_size]
+        logger.info(f"Upserting batch {i + 1}/{num_batches} ({len(batch)} records)")
+        try:
+            # ** Make sure 'safety_metrics' table exists and 'id' is primary key **
+            # ** Make sure the foreign key constraint issue from previous error is fixed **
+            result = supabase.table('safety_metrics').upsert(
+                batch, on_conflict='id'
+            ).execute()
+            if hasattr(result, 'error') and result.error:
+                logger.error(f"Error upserting batch {i + 1}: {result.error}")
+                failed_count += len(batch)
+                if batch: logger.error(f"Sample record from failed batch: {json.dumps(batch[0], default=str)[:500]}...")
+            elif result.data:
+                 count_in_batch = len(result.data)
+                 uploaded_count += count_in_batch
+                 logger.info(f"Batch {i + 1} upsert successful ({count_in_batch} records processed in response).")
+                 if count_in_batch < len(batch): logger.warning(f"Batch {i+1} response count ({count_in_batch}) < batch size ({len(batch)}).")
+            else:
+                 logger.warning(f"Batch {i + 1} upsert response did not contain data, but no explicit error reported. Assuming success for {len(batch)} records.")
+                 uploaded_count += len(batch)
+        except Exception as e:
+            # Catch potential APIError for detailed logging
+            logger.error(f"Exception upserting batch {i + 1}: {str(e)}", exc_info=True)
+            # Log specific details if available (like the previous FK error)
+            if hasattr(e, 'message'): logger.error(f"API Error Details: {e.message}")
+            failed_count += len(batch)
+            if batch: logger.error(f"Sample record from failed batch: {json.dumps(batch[0], default=str)[:500]}...")
+    logger.info(f"Upsert complete.")
+    logger.info(f"Attempted: {total_metrics_to_upload:,}, Succeeded (approx): {uploaded_count:,}, Failed: {failed_count:,}")
+    if failed_count > 0: logger.warning("Some records failed to upsert. Check logs.")
+
+
+# --- Main Execution (Unchanged) ---
 def main(test_mode=False):
-    """Main function to process safety metrics"""
+    # (Code remains the same as V4)
     start_time = datetime.now()
-    logger.info(f"Starting safety metrics processing at {start_time.isoformat()}")
-    logger.info(f"Running in {'TEST' if test_mode else 'PRODUCTION'} mode")
+    logger.info(f"====== Starting Safety Metrics Processing run at {start_time.isoformat()} ======")
+    logger.info(f"Mode: {'TEST' if test_mode else 'PRODUCTION'}")
+    logger.info(f"Using neighbor radius: {NEIGHBOR_RADIUS_METERS} meters")
 
-    # Set processing parameters based on mode
-    days_back = 500  # Increased from 120 to 360 days for even better historical coverage
-    max_records = 500000  # Increased from 100000 to 300000 for most comprehensive dataset
-    
+    days_back = 800
+    max_records = 500000
+    if test_mode:
+        logger.info("TEST MODE: Using smaller dataset parameters.")
+        days_back = 30
+        max_records = 5000
+
     try:
-        # 1. Fetch crime data
-        logger.info("=== STEP 1: Fetching crime data ===")
-        crime_data = fetch_crime_data(days_back=days_back, max_records=max_records)
-        if not crime_data or len(crime_data) == 0:
-            logger.error("No crime data fetched. Exiting.")
+        logger.info(f"\n=== STEP 1: Fetching Crime Data ({days_back} days, max {max_records:,} records) ===")
+        raw_crime_data = fetch_crime_data(days_back=days_back, max_records=max_records)
+        if not raw_crime_data:
+            logger.warning("No crime data fetched. Pipeline stopped.")
             return
-        logger.info(f"Successfully fetched {len(crime_data)} crime records")
-        
-        # 2. Process crime data
-        logger.info("=== STEP 2: Processing crime data ===")
-        processed_data = process_crime_data(crime_data)
-        if processed_data is None or len(processed_data) == 0:
-            logger.error("No processed data available. Exiting.")
+
+        logger.info(f"\n=== STEP 2: Processing and Mapping {len(raw_crime_data):,} Crime Records ===")
+        processed_df = process_crime_data(raw_crime_data)
+        del raw_crime_data
+        if processed_df is None or processed_df.empty:
+            logger.error("Crime data processing failed or yielded no results. Pipeline stopped.")
             return
-        logger.info(f"Successfully processed {len(processed_data)} crime records")
-        
-        # 3. Calculate safety metrics
-        logger.info("=== STEP 3: Calculating safety metrics ===")
-        metrics = calculate_metrics(processed_data)
-        total_metrics = sum(len(m) for m in metrics.values())
+
+        logger.info(f"\n=== STEP 3: Calculating Safety Metrics from {len(processed_df):,} Processed Records ===")
+        metrics_by_type = calculate_metrics(processed_df) # This function is now faster
+        del processed_df
+        total_metrics = sum(len(m) for m in metrics_by_type.values())
         if total_metrics == 0:
-            logger.error("No safety metrics generated. Exiting.")
-            return
-        logger.info(f"Successfully calculated {total_metrics} total metrics across {len(metrics)} categories")
-        
-        # 4. Upload metrics to Supabase
-        logger.info("=== STEP 4: Uploading metrics to Supabase ===")
-        upload_metrics(metrics, test_mode)
-        
+            logger.warning("No safety metrics were generated.")
+
+        logger.info(f"Generated {total_metrics:,} total metrics across {len(metrics_by_type)} categories.")
+
+        logger.info("\n=== STEP 4: Uploading Metrics to Supabase ===")
+        upload_metrics(metrics_by_type, test_mode=test_mode)
+
         end_time = datetime.now()
-        duration = (end_time - start_time).total_seconds() / 60.0
-        logger.info(f"Processing complete! Total time: {duration:.2f} minutes")
-        
+        duration = (end_time - start_time).total_seconds()
+        logger.info(f"\n====== Safety Metrics Processing COMPLETED ======")
+        logger.info(f"Total execution time: {duration:.2f} seconds ({duration / 60.0:.2f} minutes)") # Expect this to be much lower now
+
     except Exception as e:
-        logger.error(f"Error in main execution: {str(e)}")
-        import traceback
-        logger.error(traceback.format_exc())
+        logger.critical(f"An unhandled error occurred in the main execution pipeline: {e}", exc_info=True)
         sys.exit(1)
 
 if __name__ == "__main__":
-    # Test mode with a larger sample
-    # main(test_mode=True)
-    
-    # Production mode for full dataset
-    main(test_mode=False) 
+    RUN_IN_TEST_MODE = False
+    main(test_mode=RUN_IN_TEST_MODE)
