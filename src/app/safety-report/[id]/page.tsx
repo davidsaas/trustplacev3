@@ -118,7 +118,7 @@ async function findClosestSafetyMetricsBatch(locations: Location[]): Promise<Rec
 async function findSimilarAccommodations(
   location: Location,
   price: number | null,
-  currentScore: number,
+  currentScore: number, // Keep currentScore for potential future use, but don't filter here
   excludeId: string
 ): Promise<SimilarAccommodation[]> {
   // Validate inputs
@@ -184,23 +184,23 @@ async function findSimilarAccommodations(
     console.log(`[findSimilarAccommodations] Received metrics for ${Object.keys(metricsByLocation).length} locations.`);
 
     // 4. Process accommodations with fetched metrics
-    const similarAccommodations = validAccommodations.map(acc => {
+    const similarAccommodationsProcessed = validAccommodations.map(acc => {
       const accLat = typeof acc.latitude === 'string' ? parseFloat(acc.latitude) : acc.latitude;
       const accLng = typeof acc.longitude === 'string' ? parseFloat(acc.longitude) : acc.longitude;
       const locKey = `${accLat},${accLng}`;
       const metrics = metricsByLocation[locKey];
 
       if (!metrics || metrics.length === 0) {
-        return null; // Skip if no metrics found for this location
+        return null; // Skip if no metrics found
       }
 
       const overall_score = Math.round(
         metrics.reduce((sum, metric) => sum + metric.score, 0) / metrics.length * 10
       );
+      const hasCompleteData = metrics.length === 5;
 
-      const hasCompleteData = metrics.length === 5; // Assuming 5 means complete
-
-      return overall_score > currentScore ? {
+      // RETURN ALL accommodations with scores, remove the score filter here
+      return {
         id: acc.id,
         name: acc.name,
         price_per_night: acc.price_per_night,
@@ -209,15 +209,16 @@ async function findSimilarAccommodations(
         longitude: accLng,
         overall_score,
         hasCompleteData
-      } : null;
+      };
+      // REMOVED: overall_score > currentScore ? { ... } : null;
     });
 
-    // 5. Filter and sort results
-    const filteredAccommodations = similarAccommodations
+    // 5. Filter out nulls (due to missing metrics) and sort
+    const filteredAccommodations = similarAccommodationsProcessed
       .filter((acc): acc is NonNullable<typeof acc> => acc !== null)
-      .sort((a, b) => b.overall_score - a.overall_score);
+      .sort((a, b) => b.overall_score - a.overall_score); // Keep sorting
 
-    console.log(`[findSimilarAccommodations] Returning ${filteredAccommodations.length} similar accommodations.`);
+    console.log(`[findSimilarAccommodations] Returning ${filteredAccommodations.length} nearby accommodations.`);
     return filteredAccommodations;
 
   } catch (err) {
