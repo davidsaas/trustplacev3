@@ -12,6 +12,7 @@ import { toast } from 'sonner'
 import { useAuth } from '@/components/shared/providers/auth-provider'
 import { ROUTES } from '@/lib/constants'
 import { parseAccommodationURL } from '@/lib/utils/url'
+import { SavedAccommodationsDrawer } from '@/components/ui/drawer'
 
 function classNames(...classes: (string | boolean | undefined)[]) {
   return classes.filter(Boolean).join(' ')
@@ -21,6 +22,7 @@ export function AppNavbar() {
   const [searchQuery, setSearchQuery] = useState('')
   const [isLoading, setIsLoading] = useState(false)
   const [avatar, setAvatar] = useState<string | null>(null)
+  const [isSavedDrawerOpen, setIsSavedDrawerOpen] = useState(false)
   const pathname = usePathname()
   const router = useRouter()
   const { user, signOut, supabase, loading } = useAuth()
@@ -97,6 +99,14 @@ export function AppNavbar() {
 
   const handleSignOut = async () => {
     await signOut(ROUTES.HOME)
+  }
+
+  const handleOpenSavedDrawer = () => {
+    setIsSavedDrawerOpen(true)
+  }
+
+  const handleCloseSavedDrawer = () => {
+    setIsSavedDrawerOpen(false)
   }
 
   const handleShare = () => {
@@ -216,13 +226,13 @@ export function AppNavbar() {
                             </Link>
                           </MenuItem>
                           <MenuItem>
-                            <Link
-                              href="/saved"
-                              className="flex items-center gap-2 px-4 py-2 text-sm text-gray-700 data-focus:bg-gray-100"
+                            <button
+                              onClick={handleOpenSavedDrawer}
+                              className="w-full flex items-center gap-2 px-4 py-2 text-sm text-gray-700 data-focus:bg-gray-100 text-left"
                             >
                               <BookmarkIcon className="h-4 w-4" />
-                              Saved Properties
-                            </Link>
+                              Saved
+                            </button>
                           </MenuItem>
                           <MenuItem>
                             <button
@@ -311,13 +321,12 @@ export function AppNavbar() {
                       >
                         <User className="h-5 w-5" /> Profile
                       </Link>
-                      <Link
-                        href="/saved"
-                        onClick={() => close()}
-                        className="flex items-center gap-3 rounded-md px-3 py-2 text-base font-medium text-gray-700 hover:bg-gray-50 hover:text-gray-900"
+                      <button
+                        onClick={() => { handleOpenSavedDrawer(); close(); }}
+                        className="w-full flex items-center gap-3 rounded-md px-3 py-2 text-base font-medium text-gray-700 hover:bg-gray-50 hover:text-gray-900 text-left"
                       >
-                        <BookmarkIcon className="h-5 w-5" /> Saved Properties
-                      </Link>
+                        <BookmarkIcon className="h-5 w-5" /> Saved
+                      </button>
                       <button
                         onClick={() => { handleSignOut(); close(); }}
                         className="w-full flex items-center gap-3 rounded-md px-3 py-2 text-base font-medium text-gray-700 hover:bg-gray-50 hover:text-gray-900 text-left"
@@ -349,6 +358,11 @@ export function AppNavbar() {
           </>
         )}
       </Popover>
+
+      <SavedAccommodationsDrawer
+        open={isSavedDrawerOpen}
+        onClose={handleCloseSavedDrawer}
+      />
     </>
   )
 } 

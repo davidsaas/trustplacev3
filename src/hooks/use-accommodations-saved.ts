@@ -1,20 +1,19 @@
 'use client'
 
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useState } from 'react'
 import { useRouter, usePathname } from 'next/navigation'
 import { useSupabase } from '@/components/shared/providers/auth-provider'
 import { createClient } from '@/lib/supabase/client'
 
 type SavedAccommodation = {
-  id: string // This is the internal id from the saved_accommodations table
-  accommodation_id: string // This is the reference to the accommodation table
+  id: string // Saved accommodation record ID
+  accommodation_id: string // Actual accommodation ID
   name: string
   source: string
   savedAt: string
-  url?: string
+  url: string
+  imageUrl?: string
 }
-
-const STORAGE_KEY = 'accommodations-saved-temp'
 
 export const useAccommodationsSaved = () => {
   const [saved, setSaved] = useState<SavedAccommodation[]>([])
@@ -23,48 +22,60 @@ export const useAccommodationsSaved = () => {
   const router = useRouter()
   const pathname = usePathname()
 
-  // Load saved accommodations from database or localStorage
-  useEffect(() => {
-    const fetchSavedAccommodations = async () => {
-      setLoading(true)
-      try {
-        if (user) {
-          // If logged in, fetch from Supabase
-          const supabase = createClient()
-          const { data, error } = await supabase
-            .from('saved_accommodations')
-            .select('*')
-            .order('saved_at', { ascending: false })
-          
-          if (error) throw error
-          
-          setSaved(data.map(item => ({
-            id: item.id,
-            accommodation_id: item.accommodation_id,
-            name: item.name,
-            source: item.source,
-            savedAt: item.saved_at,
-            url: item.url
-          })))
-          
-          // Clear any temporary saved accommodations
-          localStorage.removeItem(STORAGE_KEY)
-        } else {
-          // If not logged in, get from localStorage
-          const stored = localStorage.getItem(STORAGE_KEY)
-          if (stored) {
-            setSaved(JSON.parse(stored))
-          }
-        }
-      } catch (error) {
-        console.error('Error loading saved accommodations:', error)
-      } finally {
-        setLoading(false)
-      }
-    }
+  const fetchSavedAccommodations = useCallback(async () => {
+    if (loading || !user) return;
 
-    fetchSavedAccommodations()
-  }, [user])
+    setLoading(true)
+    try {
+      const supabase = createClient()
+      const { data: savedData, error: savedError } = await supabase
+        .from('saved_accommodations')
+        .select('id, accommodation_id, name, source, saved_at, url')
+        .eq('user_id', user.id)
+        .order('saved_at', { ascending: false })
+
+      if (savedError) throw savedError
+      if (!savedData || savedData.length === 0) {
+        setSaved([])
+        setLoading(false);
+        return;
+      }
+
+      const accommodationIds = savedData.map(item => item.accommodation_id)
+
+      const { data: detailsData, error: detailsError } = await supabase
+        .from('accommodations')
+        .select('id, image_url')
+        .in('id', accommodationIds)
+
+      if (detailsError) {
+        console.warn('Could not fetch accommodation details (images):', detailsError)
+      }
+
+      const detailsMap = new Map(
+        detailsData?.map(item => [item.id, { imageUrl: item.image_url }]) || []
+      )
+
+      const combinedData = savedData.map(item => ({
+        id: item.id,
+        accommodation_id: item.accommodation_id,
+        name: item.name,
+        source: item.source,
+        savedAt: item.saved_at,
+        url: item.url,
+        imageUrl: detailsMap.get(item.accommodation_id)?.imageUrl,
+      }))
+
+      console.log("Combined Data with Images:", combinedData);
+      setSaved(combinedData)
+
+    } catch (error) {
+      console.error('Error loading saved accommodations:', error)
+      setSaved([])
+    } finally {
+      setLoading(false)
+    }
+  }, [user, loading])
 
   const handleSaveAccommodation = useCallback(async (
     accommodationId: string,
@@ -74,54 +85,30 @@ export const useAccommodationsSaved = () => {
     try {
       setLoading(true)
       
-      // If user is not logged in, redirect to sign in page
       if (!user) {
-        // Store the current accommodation temporarily
-        const tempSaved = {
-          id: crypto.randomUUID(),
-          accommodation_id: accommodationId,
-          name: accommodationName,
-          source,
-          savedAt: new Date().toISOString(),
-          url: pathname
-        }
-        
-        const stored = localStorage.getItem(STORAGE_KEY)
-        const existingItems = stored ? JSON.parse(stored) : []
-        const updatedItems = [tempSaved, ...existingItems.filter((item: SavedAccommodation) => item.accommodation_id !== accommodationId)]
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(updatedItems))
-        
-        // Redirect to sign in page with return URL
         router.push(`/auth/sign-in?next=${pathname}`)
         return { success: false, error: 'Please sign in to save accommodations' }
       }
       
-      // If logged in, save to Supabase
       const supabase = createClient()
-      
-      // Check if already saved
       const { data: existing } = await supabase
         .from('saved_accommodations')
-        .select('*')
+        .select('id')
         .eq('user_id', user.id)
         .eq('accommodation_id', accommodationId)
         .maybeSingle()
       
       if (existing) {
-        // Already saved, so delete (toggle functionality)
         const { error } = await supabase
           .from('saved_accommodations')
           .delete()
-          .eq('user_id', user.id)
-          .eq('accommodation_id', accommodationId)
+          .eq('id', existing.id)
         
         if (error) throw error
         
-        // Update local state
         setSaved(prev => prev.filter(item => item.accommodation_id !== accommodationId))
         return { success: true, saved: false }
       } else {
-        // Not saved yet, so save it
         const newSaved = {
           user_id: user.id,
           accommodation_id: accommodationId,
@@ -134,26 +121,24 @@ export const useAccommodationsSaved = () => {
         const { data, error } = await supabase
           .from('saved_accommodations')
           .insert(newSaved)
-          .select()
+          .select('id, accommodation_id, name, source, saved_at, url')
+          .single()
         
         if (error) throw error
         
-        // Update local state with the actual database record
-        const savedRecord = data?.[0]
-        if (savedRecord) {
+        if (data) {
           setSaved(prev => [
             {
-              id: savedRecord.id,
-              accommodation_id: savedRecord.accommodation_id,
-              name: savedRecord.name,
-              source: savedRecord.source,
-              savedAt: savedRecord.saved_at,
-              url: savedRecord.url
+              id: data.id,
+              accommodation_id: data.accommodation_id,
+              name: data.name,
+              source: data.source,
+              savedAt: data.saved_at,
+              url: data.url,
             },
             ...prev
-          ])
+          ].sort((a, b) => new Date(b.savedAt).getTime() - new Date(a.savedAt).getTime()))
         }
-        
         return { success: true, saved: true }
       }
     } catch (error) {
@@ -162,7 +147,7 @@ export const useAccommodationsSaved = () => {
     } finally {
       setLoading(false)
     }
-  }, [user, pathname, router])
+  }, [user, pathname, router, fetchSavedAccommodations])
 
   const isAccommodationSaved = useCallback((accommodationId: string) => {
     return saved.some(item => item.accommodation_id === accommodationId)
@@ -171,6 +156,7 @@ export const useAccommodationsSaved = () => {
   return {
     saved,
     loading,
+    fetchSavedAccommodations,
     saveAccommodation: handleSaveAccommodation,
     isAccommodationSaved
   }
