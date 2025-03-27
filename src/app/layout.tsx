@@ -6,6 +6,7 @@ import { cn, getBaseUrl } from "@/lib/utils";
 import { AuthProvider } from "@/components/shared/providers/auth-provider";
 import { ThemeProvider } from "@/components/shared/providers/theme-provider";
 import { Toaster } from 'sonner';
+import 'leaflet/dist/leaflet.css';
 
 const inter = Inter({ subsets: ["latin"] });
 

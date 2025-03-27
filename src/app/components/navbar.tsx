@@ -8,7 +8,6 @@ import { MagnifyingGlassIcon as Search } from '@heroicons/react/20/solid'
 import { Bars3Icon, XMarkIcon } from '@heroicons/react/24/outline'
 import { User, BookmarkIcon, LogOut, Share2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { createClient } from '@/lib/supabase/client'
 import { toast } from 'sonner'
 import { useAuth } from '@/components/shared/providers/auth-provider'
 import { ROUTES } from '@/lib/constants'
@@ -24,18 +23,17 @@ export function AppNavbar() {
   const [avatar, setAvatar] = useState<string | null>(null)
   const pathname = usePathname()
   const router = useRouter()
-  const { user, signOut } = useAuth()
+  const { user, signOut, supabase, loading } = useAuth()
 
   const isReportPage = pathname.startsWith('/safety-report/')
 
   useEffect(() => {
     const fetchUserProfile = async () => {
-      if (!user) {
+      if (!user || !supabase) {
         setAvatar(null)
         return
       }
 
-      const supabase = createClient()
       const { data } = await supabase
         .from('profiles')
         .select('avatar_url')
@@ -50,7 +48,7 @@ export function AppNavbar() {
     }
 
     fetchUserProfile()
-  }, [user])
+  }, [user, supabase])
 
   const handleSearch = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -184,7 +182,9 @@ export function AppNavbar() {
                   )}
 
                   <div className="relative ml-5 shrink-0">
-                    {user ? (
+                    {loading ? (
+                      <div className="h-8 w-8 rounded-full bg-gray-200 animate-pulse"></div>
+                    ) : user ? (
                       <Menu as="div" className="relative">
                         <div>
                           <MenuButton className="relative flex rounded-full bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2">
@@ -236,8 +236,8 @@ export function AppNavbar() {
                         </MenuItems>
                       </Menu>
                     ) : (
-                      <Link href={ROUTES.SIGN_IN}>
-                        <Button color="brand">
+                      <Link href={`${ROUTES.SIGN_IN}?next=${encodeURIComponent(pathname)}`}>
+                        <Button>
                           Sign In
                         </Button>
                       </Link>
@@ -278,7 +278,16 @@ export function AppNavbar() {
               </div>
 
               <div className="border-t border-gray-200 pt-4 pb-3">
-                {user ? (
+                {loading ? (
+                   <div className="px-4 space-y-3 animate-pulse">
+                      <div className="flex items-center gap-3">
+                        <div className="h-10 w-10 rounded-full bg-gray-200"></div>
+                        <div className="h-4 w-32 bg-gray-200 rounded"></div>
+                      </div>
+                      <div className="h-8 w-full bg-gray-200 rounded"></div>
+                      <div className="h-8 w-full bg-gray-200 rounded"></div>
+                   </div>
+                ) : user ? (
                   <>
                     <div className="flex items-center px-4 mb-3">
                       <div className="shrink-0">
@@ -320,14 +329,14 @@ export function AppNavbar() {
                 ) : (
                   <div className="space-y-1 px-2">
                     <Link
-                      href={ROUTES.SIGN_IN}
+                      href={`${ROUTES.SIGN_IN}?next=${encodeURIComponent(pathname)}`}
                       onClick={() => close()}
                       className="block rounded-md px-3 py-2 text-base font-medium text-gray-700 hover:bg-gray-50 hover:text-gray-900"
                     >
                       Sign In
                     </Link>
                      <Link
-                      href={ROUTES.SIGN_UP}
+                      href={`${ROUTES.SIGN_UP}?next=${encodeURIComponent(pathname)}`}
                       onClick={() => close()}
                       className="block rounded-md px-3 py-2 text-base font-medium text-gray-700 hover:bg-gray-50 hover:text-gray-900"
                     >

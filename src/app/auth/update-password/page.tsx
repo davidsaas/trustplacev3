@@ -122,7 +122,7 @@ export default function UpdatePasswordPage() {
         </div>
 
         {error && (
-          <Alert variant="destructive">
+          <Alert>
             <Terminal className="h-4 w-4" />
             <AlertTitle>Error</AlertTitle>
             <AlertDescription>{error}</AlertDescription>

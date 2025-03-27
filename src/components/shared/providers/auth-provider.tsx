@@ -2,19 +2,22 @@
 
 import { createContext, useContext, useEffect, useState, useCallback } from 'react'
 import { useRouter, usePathname } from 'next/navigation'
-import { User, Session, AuthChangeEvent } from '@supabase/supabase-js'
+import { User, Session, AuthChangeEvent, SupabaseClient } from '@supabase/supabase-js'
 import { createClient } from '@/lib/supabase/client'
 import { AUTH_REDIRECT_URLS } from '@/lib/constants'
 import { getBaseUrl } from '@/lib/utils'
 import { ROUTES } from '@/lib/routes'
 
+const REDIRECT_PATH_STORAGE_KEY = 'auth_redirect_path'
+
 type AuthContextType = {
+  supabase: SupabaseClient
   user: User | null
   loading: boolean
   signIn: (email: string, password: string) => Promise<{ error: string | null }>
-  signUp: (email: string, password: string) => Promise<{ error?: string, success?: boolean }>
+  signUp: (email: string, password: string, redirectToPath?: string | null) => Promise<{ error?: string, success?: boolean }>
   signOut: (returnUrl?: string) => Promise<void>
-  signInWithGoogle: () => Promise<{ error: string | null }>
+  signInWithGoogle: (redirectToPath?: string | null) => Promise<{ error: string | null }>
   sendPasswordResetEmail: (email: string) => Promise<{ error: string | null }>
   updatePassword: (password: string) => Promise<{ error: string | null }>
 }
@@ -26,19 +29,27 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const pathname = usePathname()
   const [user, setUser] = useState<User | null>(null)
   const [loading, setLoading] = useState(true)
+  const [initialAuthCheckComplete, setInitialAuthCheckComplete] = useState(false); // Track initial check
   const supabase = createClient()
 
   // Initialize session and listen for auth changes
   useEffect(() => {
+    let isMounted = true; // Prevent state updates on unmounted component
+
     // Check active session and set the user
     const getSession = async () => {
       try {
         const { data: { session } } = await supabase.auth.getSession()
-        setUser(session?.user ?? null)
+        if (isMounted) {
+          setUser(session?.user ?? null)
+        }
       } catch (error) {
         console.error('Error getting session:', error)
       } finally {
-        setLoading(false)
+        if (isMounted) {
+          setLoading(false)
+          setInitialAuthCheckComplete(true); // Mark initial check done
+        }
       }
     }
 
@@ -46,19 +57,56 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     // Listen for changes on auth state
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      (_event: AuthChangeEvent, session: Session | null) => {
-        setUser(session?.user ?? null)
-        setLoading(false)
+      async (_event: AuthChangeEvent, session: Session | null) => {
+        if (!isMounted) return;
+
+        const currentUser = session?.user ?? null;
+        let previousUser: User | null = null;
+        setUser(current => {
+            previousUser = current;
+            return currentUser;
+        });
+
+        setLoading(false);
+
+        // --- Redirect Logic ---
+        if (_event === 'SIGNED_IN' && currentUser && !previousUser && initialAuthCheckComplete) {
+          const redirectPath = localStorage.getItem(REDIRECT_PATH_STORAGE_KEY);
+          localStorage.removeItem(REDIRECT_PATH_STORAGE_KEY); // Clear it immediately
+
+          if (redirectPath && !redirectPath.startsWith('/auth/')) {
+            console.log(`[AuthProvider] Redirecting to stored path: ${redirectPath}`);
+            router.push(redirectPath);
+          } else {
+            console.log(`[AuthProvider] Redirecting to default path: ${ROUTES.HOME}`);
+            router.push(ROUTES.HOME); // Default redirect if no path or invalid path
+          }
+        }
+        // --- End Redirect Logic ---
       }
     )
 
     return () => {
+      isMounted = false;
       subscription.unsubscribe()
     }
-  }, [supabase.auth])
+  }, [supabase.auth, router, initialAuthCheckComplete])
+
+  // Helper to store redirect path
+  const storeRedirectPath = (path?: string | null) => {
+    const pathToStore = path || pathname; // Use provided path or current pathname
+    if (pathToStore && !pathToStore.startsWith('/auth/')) {
+      localStorage.setItem(REDIRECT_PATH_STORAGE_KEY, pathToStore);
+      console.log(`[AuthProvider] Stored redirect path: ${pathToStore}`);
+    } else {
+      // Avoid storing auth paths
+      localStorage.removeItem(REDIRECT_PATH_STORAGE_KEY);
+    }
+  }
 
   // Sign in with email and password
   const signIn = useCallback(async (email: string, password: string) => {
+    storeRedirectPath(); // Store current path before signing in
     setLoading(true)
     try {
       const { error } = await supabase.auth.signInWithPassword({
@@ -73,22 +121,27 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     } finally {
       setLoading(false)
     }
-  }, [supabase.auth])
+  }, [supabase.auth, pathname]) // Add pathname dependency
 
   // Sign up with email and password
-  const signUp = useCallback(async (email: string, password: string) => {
+  const signUp = useCallback(async (email: string, password: string, redirectToPath?: string | null) => {
+    storeRedirectPath(redirectToPath); // Store intended redirect path before signing up
     setLoading(true)
     try {
+      // Use redirectToPath if provided, otherwise fallback to current pathname
+      const finalRedirectPath = redirectToPath || pathname;
       const { error } = await supabase.auth.signUp({
         email,
         password,
         options: {
-          emailRedirectTo: `${getBaseUrl()}${AUTH_REDIRECT_URLS.OAUTH_CALLBACK}?next=${pathname}`,
+          // Keep emailRedirectTo for email verification link, but don't rely on its 'next' for post-signin redirect
+          emailRedirectTo: `${getBaseUrl()}${AUTH_REDIRECT_URLS.OAUTH_CALLBACK}?next=${encodeURIComponent(finalRedirectPath)}`,
         },
       })
 
       if (error) throw error
-      
+
+      // Redirect to verify page, the main redirect happens via onAuthStateChange
       router.push(AUTH_REDIRECT_URLS.AFTER_SIGN_UP)
       return { success: true }
     } catch (error) {
@@ -96,10 +149,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     } finally {
       setLoading(false)
     }
-  }, [router, pathname, supabase.auth])
+  }, [router, pathname, supabase.auth]) // Add pathname dependency
 
   // Sign out
   const signOut = useCallback(async (returnUrl?: string) => {
+    localStorage.removeItem(REDIRECT_PATH_STORAGE_KEY); // Clear any stored path on sign out
     try {
       await supabase.auth.signOut()
       if (returnUrl) {
@@ -113,13 +167,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [router, supabase.auth])
 
   // Sign in with Google
-  const signInWithGoogle = useCallback(async () => {
+  const signInWithGoogle = useCallback(async (redirectToPath?: string | null) => {
+    storeRedirectPath(redirectToPath); // Store intended redirect path before OAuth
     setLoading(true)
     try {
+       // Use redirectToPath if provided, otherwise fallback to current pathname
+      const finalRedirectPath = redirectToPath || pathname;
       const { error } = await supabase.auth.signInWithOAuth({
         provider: 'google',
         options: {
-          redirectTo: `${getBaseUrl()}${AUTH_REDIRECT_URLS.OAUTH_CALLBACK}?next=${pathname}`,
+           // Keep redirectTo for the OAuth callback itself, but don't rely on its 'next' for post-signin redirect
+          redirectTo: `${getBaseUrl()}${AUTH_REDIRECT_URLS.OAUTH_CALLBACK}?next=${encodeURIComponent(finalRedirectPath)}`,
         },
       })
 
@@ -128,7 +186,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     } catch (error) {
       return { error: error instanceof Error ? error.message : 'Google sign in failed' }
     } finally {
-      setLoading(false)
+      // Don't set loading false here for OAuth, page redirects
+      // setLoading(false)
     }
   }, [pathname, supabase.auth])
 
@@ -163,6 +222,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [supabase.auth])
 
   const value = {
+    supabase,
     user,
     loading,
     signIn,

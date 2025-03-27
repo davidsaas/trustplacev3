@@ -14,7 +14,6 @@ import { Container } from '@/components/landing/Container'
 import { Logo } from '@/components/landing/Logo'
 import { NavLinks } from '@/components/landing/NavLinks'
 import { useAuth } from '@/components/shared/providers/auth-provider'
-import { createClient } from '@/lib/supabase/client'
 import { User, BookmarkIcon, LogOut } from 'lucide-react'
 import { ROUTES } from '@/lib/constants'
 import { usePathname } from 'next/navigation'
@@ -61,30 +60,30 @@ function MobileNavLink(
 }
 
 export function Header() {
-  const { user, signOut, loading } = useAuth()
+  const { user, signOut, loading, supabase } = useAuth()
   const [showUserDropdown, setShowUserDropdown] = useState(false)
   const [avatar, setAvatar] = useState<string | null>(null)
   const pathname = usePathname()
 
   useEffect(() => {
-    // Fetch user profile if logged in
     const fetchUserProfile = async () => {
-      if (!user) return
-      
-      const supabase = createClient()
+      if (!user || !supabase) return
+
       const { data } = await supabase
         .from('profiles')
         .select('avatar_url')
         .eq('id', user.id)
         .single()
-      
+
       if (data?.avatar_url) {
         setAvatar(data.avatar_url)
+      } else {
+        setAvatar(null)
       }
     }
-    
+
     fetchUserProfile()
-  }, [user])
+  }, [user, supabase])
 
   const handleSignOut = async () => {
     await signOut(pathname)
@@ -154,41 +153,43 @@ export function Header() {
                             </MobileNavLink>
                             <MobileNavLink href="/#faqs">FAQs</MobileNavLink>
                           </div>
-                          {loading ? (
-                            <div className="mt-8 space-y-4 animate-pulse">
-                              <div className="h-10 bg-gray-200 rounded"></div>
-                              <div className="h-10 bg-gray-300 rounded"></div>
-                            </div>
-                          ) : user ? (
-                            <div className="mt-8 flex flex-col gap-4">
-                              <Link href="/profile" className="text-base/7 tracking-tight text-gray-700">
-                                Profile
-                              </Link>
-                              <Link href="/saved" className="text-base/7 tracking-tight text-gray-700">
-                                Saved Properties
-                              </Link>
-                              <Button
-                                className="bg-primary hover:bg-primary/90 text-white"
-                                onClick={handleSignOut}
-                                aria-label="Sign out"
-                              >
-                                Sign out
-                              </Button>
-                            </div>
-                          ) : (
-                            <div className="mt-8 flex flex-col gap-4">
-                              <Link href={`/auth/sign-in?next=${encodeURIComponent(pathname)}`} passHref>
-                                <Button variant="outline" className="bg-white border-primary text-primary hover:bg-gray-50 w-full">
-                                  Sign in
+                          <div className="mt-8">
+                            {loading ? (
+                              <div className="space-y-4 animate-pulse">
+                                <div className="h-10 bg-gray-200 rounded"></div>
+                                <div className="h-10 bg-gray-300 rounded"></div>
+                              </div>
+                            ) : user ? (
+                              <div className="flex flex-col gap-4">
+                                <Link href="/profile" className="text-base/7 tracking-tight text-gray-700">
+                                  Profile
+                                </Link>
+                                <Link href="/saved" className="text-base/7 tracking-tight text-gray-700">
+                                  Saved Properties
+                                </Link>
+                                <Button
+                                  className="bg-primary hover:bg-primary/90 text-white"
+                                  onClick={handleSignOut}
+                                  aria-label="Sign out"
+                                >
+                                  Sign out
                                 </Button>
-                              </Link>
-                              <Link href={`/auth/sign-up?next=${encodeURIComponent(pathname)}`} passHref>
-                                <Button className="bg-primary hover:bg-primary/90 text-white w-full">
-                                  Sign up
-                                </Button>
-                              </Link>
-                            </div>
-                          )}
+                              </div>
+                            ) : (
+                              <div className="flex flex-col gap-4">
+                                <Link href={`/auth/sign-in?next=${encodeURIComponent(pathname)}`} passHref>
+                                  <Button className="bg-white border-primary text-primary hover:bg-gray-50 w-full">
+                                    Sign in
+                                  </Button>
+                                </Link>
+                                <Link href={`/auth/sign-up?next=${encodeURIComponent(pathname)}`} passHref>
+                                  <Button className="bg-primary hover:bg-primary/90 text-white w-full">
+                                    Sign up
+                                  </Button>
+                                </Link>
+                              </div>
+                            )}
+                          </div>
                         </PopoverPanel>
                       </>
                     )}
@@ -197,7 +198,6 @@ export function Header() {
               )}
             </Popover>
             
-            {/* Desktop Nav Buttons */}
             <div className="max-lg:hidden">
               {loading ? (
                 <div className="flex gap-x-4 animate-pulse">
@@ -253,12 +253,12 @@ export function Header() {
               ) : (
                 <div className="flex items-center gap-6">
                   <Link href={`/auth/sign-in?next=${encodeURIComponent(pathname)}`} passHref>
-                    <Button variant="outline" size="sm">
+                    <Button>
                       Sign in
                     </Button>
                   </Link>
                   <Link href={`/auth/sign-up?next=${encodeURIComponent(pathname)}`} passHref>
-                    <Button size="sm">
+                    <Button>
                       Sign up
                     </Button>
                   </Link>

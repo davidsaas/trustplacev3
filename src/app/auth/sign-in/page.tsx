@@ -36,11 +36,6 @@ export default function SignInPage() {
       toast.error('Sign in failed')
     } else {
       toast.success('Signed in successfully')
-      if (next && !next.startsWith('/auth/')) {
-        router.push(next)
-      } else {
-        router.push('/')
-      }
     }
     setIsSubmitting(false)
   }
@@ -48,11 +43,12 @@ export default function SignInPage() {
   const handleGoogleSignIn = async () => {
     setError(null)
     setIsGoogleSubmitting(true)
-    const { error: googleError } = await signInWithGoogle()
+    const { error: googleError } = await signInWithGoogle(next)
     if (googleError) {
       setError(googleError)
       toast.error('Google sign in failed')
     }
+    setIsGoogleSubmitting(false)
   }
 
   return (
@@ -64,7 +60,7 @@ export default function SignInPage() {
 
       <form onSubmit={handleSubmit} className="space-y-6">
         {error && (
-          <Alert variant="destructive">
+          <Alert>
             <Terminal className="h-4 w-4" />
             <AlertTitle>Error</AlertTitle>
             <AlertDescription>{error}</AlertDescription>
@@ -126,7 +122,6 @@ export default function SignInPage() {
       </div>
 
       <Button
-        variant="outline"
         type="button"
         className="w-full"
         onClick={handleGoogleSignIn}
