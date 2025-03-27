@@ -28,7 +28,8 @@ const reviews = [
   // More reviews...
 ]
 
-function classNames(...classes) {
+// TODO: Move this to a utils file as it's duplicated in navbar-search.tsx
+function classNames(...classes: (string | undefined | null | false)[]) {
   return classes.filter(Boolean).join(' ')
 }
 
