@@ -3,7 +3,7 @@
 LA Safety Metrics Processor - Enhanced Implementation
 Processes LAPD crime data and creates safety metrics linked to census blocks
 using geospatial matching via Supabase RPC.
-Schema Aligned Version. V5 - Pre-calculate Neighbors for Speed.
+Schema Aligned Version. V6 - Added Property & Daytime Metrics.
 """
 
 import os
@@ -21,6 +21,8 @@ from sodapy import Socrata
 from tqdm import tqdm
 import time
 import math
+from scipy.spatial import KDTree
+from postgrest.exceptions import APIError
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -57,48 +59,129 @@ socrata_client = Socrata(LAPD_DOMAIN, LA_APP_TOKEN, timeout=SOCRATA_TIMEOUT) if 
 logger.info(f"Socrata client initialized with timeout: {SOCRATA_TIMEOUT} seconds.")
 
 
-# Define safety metric types and their MO codes (V4 mapping)
+# Define safety metric types and their MO codes (V6 mapping)
 SAFETY_METRICS = {
     'night': {
         'question': 'Can I go outside after dark?',
         'description': 'Safety for pedestrians during evening/night hours',
         'crime_codes': [
-            '110', '113', '121', '122', '815', '820', '821', '210', '220',
-            '230', '231', '235', '236', '250', '251', '624', '761', '762',
-            '763', '860', '930'
+            '110', '113', '121', '122', '815', '820', '821', '210', '220', # Violent crimes
+            '230', '231', '235', '236', '250', '251', # Assaults, Domestic Violence
+            '624', '761', '762', '763', '860', '930', # Battery, Public Intox/Conduct, Indecent Exposure
+            # Added based on UCR list review
+            '353', # Drunkroll
+            '453', # Drunkroll - attempted
+            '623', # Battery on Police Officer
         ],
-        'time_filter': lambda hour: hour >= 18 or hour < 6
+        'time_filter': lambda hour: hour >= 18 or hour < 6 # 6 PM to 5:59 AM
     },
     'vehicle': {
         'question': 'Can I park here safely?',
         'description': 'Risk of vehicle theft and break-ins',
         'crime_codes': [
-            '330', '331', '410', '420', '421', '510', '520', '433', '647'
+            '330', '331', # Burglary FROM Vehicle
+            '410', '420', '421', # Theft FROM Vehicle (Grand/Petty)
+            '510', '520', # Vehicle Stolen / Attempt
+            '433', # Theft, Vehicle Parts
+            '647' # Vandalism to Vehicle
+            # No additions identified from UCR list review
         ]
     },
     'child': {
         'question': 'Are kids safe here?',
         'description': 'Overall safety concerning crimes that could affect children',
         'crime_codes': [
-            '235', '627', '237', '812', '813', '814', '815', '121', '122',
-            '820', '821', '760', '762', '921', '922', '236'
+            '235', '627', '237', # Child Abuse/Neglect/Endangerment
+            '812', '813', '814', # Sex Offenses involving Children
+            '815', '121', '122', # Sex Offenses (General - risk indicator)
+            '820', '821', # Aggravated Assault (General - risk indicator)
+            '760', '762', # Lewd Conduct / Annoying Children
+            '921', '922', # Missing Persons (Juvenile) / Found Juvenile (Indicators)
+            '236' # Domestic Violence (Environmental risk)
+            # No additions identified from UCR list review
         ]
     },
     'transit': {
         'question': 'Is it safe to use public transport?',
         'description': 'Safety at and around transit locations',
         'crime_codes': [
-            '210', '220', '230', '231', '350', '351', '352', '450', '451',
-            '452', '624', '761', '762', '763', '930', '946', '860'
+            '210', '220', # Robbery
+            '230', '231', # Assault w/ Deadly Weapon
+            '350', '351', # Theft, Person / Pickpocket (Note: 351 is Pursesnatch)
+            # '450', '451', '452', # Pickpocket (if distinct codes exist) - Replaced by specific codes below
+            '624', # Battery / Simple Assault
+            '761', '762', '763', # Public Intox/Conduct
+            '930', # Disorderly Conduct
+            '946', # Drunk Driving / DUI (Indicator of risky behavior near transit)
+            '860', # Indecent Exposure
+            # Added based on UCR list review
+            '352', # Pickpocket
+            '450', # Theft from person - attempted
+            '451', # Pursesnatch - attempted
+            '452', # Pickpocket - attempted
+            '480', # Bicycle - stolen
+            '485', # Bicycle - attempted stolen
         ]
+        # Note: May need refinement based on how LAPD codes transit-specific offenses
     },
     'women': {
         'question': 'Would I be harassed here?',
         'description': 'Assessment of crimes that disproportionately affect women',
         'crime_codes': [
-            '121', '122', '815', '820', '821', '236', '626', '624', '763',
-            '860', '922', '930'
+            '121', '122', # Rape / Attempt
+            '815', '820', '821', # Sex Offenses / Aggravated Assault
+            '236', # Domestic Violence
+            '626', # Battery with Sexual Contact
+            '624', # Battery / Simple Assault (often involves harassment)
+            '763', # Annoying/Molesting
+            '860', # Indecent Exposure
+            '922', # Stalking (if code exists, else covered by others) - Note: 922 is Found Juvenile in child metric, check LAPD codes if Stalking has a specific code. Keeping 763 for now.
+            '930' # Disorderly Conduct (can include harassment)
+            # No additions identified from UCR list review
         ]
+    },
+    # --- NEW METRICS ---
+    'property': {
+        'question': 'How likely is a break-in or theft at my rental/home?',
+        'description': 'Risk of residential burglary, non-vehicle theft, and vandalism',
+        'crime_codes': [
+            '310', # BURGLARY
+            '320', # BURGLARY, ATTEMPTED
+            '341', # THEFT-GRAND ($950.01 & OVER)
+            '343', # THEFT, GRAND ($950.01 & OVER) - ATTEMPT (Note: UCR list has 343 as Shoplifting, but keeping script's likely intent)
+            '350', # THEFT, PERSON (e.g. from yard/porch if not burglary)
+            '351', # THEFT, PERSON - ATTEMPT (Note: UCR list has 351 as Pursesnatch)
+            '440', # THEFT-PLAIN - PETTY ($950 & UNDER)
+            '441', # THEFT-PLAIN - PETTY ($950 & UNDER) - ATTEMPT
+            '740', # VANDALISM - FELONY ($400 & OVER)
+            '745', # VANDALISM - MISDEMEANOR ($399 OR UNDER)
+            # Added based on UCR list review
+            '450', # Theft from person - attempted
+            '451', # Pursesnatch - attempted
+            '480', # Bicycle - stolen
+            '485', # Bicycle - attempted stolen
+        ]
+        # Excludes vehicle-specific theft/burglary covered in 'vehicle' metric
+    },
+    'daytime': {
+        'question': 'How safe is it to walk around during the day?',
+        'description': 'Safety for pedestrians and general activity during daytime hours (9 AM - 5 PM)',
+        'crime_codes': [
+            '210', '220', # Robbery
+            '230', '231', # Assault w/ Deadly Weapon
+            '624', # Battery / Simple Assault
+            '626', # Battery with Sexual Contact
+            '860', # Indecent Exposure
+            '930', # Disorderly Conduct/Drunk/Drugs
+            '236', # Intimate Partner Assault (if public)
+            '350', '351', # Theft, Person (Pickpocket/Snatching)
+            # Consider adding others if data suggests daytime prevalence
+            # Added based on UCR list review
+            '450', # Theft from person - attempted
+            '451', # Pursesnatch - attempted
+            '623', # Battery on Police Officer
+        ],
+        'time_filter': lambda hour: 9 <= hour < 17 # 9:00 AM to 4:59 PM
     }
 }
 
@@ -522,16 +605,246 @@ def upload_metrics(metrics_by_type, test_mode=False):
     if failed_count > 0: logger.warning("Some records failed to upsert. Check logs.")
 
 
-# --- Main Execution (Unchanged) ---
+# --- NEW: Accommodation Score Update Logic ---
+def calculate_distance_km(lat1, lon1, lat2, lon2):
+    """Calculate distance between two lat/lon points in kilometers using Haversine formula."""
+    # Radius of Earth in kilometers
+    R = 6371.0
+
+    lat1_rad = math.radians(lat1)
+    lon1_rad = math.radians(lon1)
+    lat2_rad = math.radians(lat2)
+    lon2_rad = math.radians(lon2)
+
+    dlon = lon2_rad - lon1_rad
+    dlat = lat2_rad - lat1_rad
+
+    a = math.sin(dlat / 2)**2 + math.cos(lat1_rad) * math.cos(lat2_rad) * math.sin(dlon / 2)**2
+    c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
+
+    distance = R * c
+    return distance
+
+def update_accommodation_safety_scores(supabase_client: Client):
+    """
+    Calculates and updates the overall_safety_score for accommodations
+    based on the latest safety_metrics.
+    """
+    logger.info("Starting accommodation overall safety score update...")
+    MAX_METRIC_DISTANCE_KM = 1.0 # Only consider metrics within 1km (adjust as needed)
+    REQUIRED_METRIC_TYPES = set(SAFETY_METRICS.keys())
+    logger.info(f"Calculating overall score based on {len(REQUIRED_METRIC_TYPES)} required metric types: {', '.join(sorted(list(REQUIRED_METRIC_TYPES)))}")
+
+    try:
+        # 1. Fetch all current safety metrics for the relevant city (e.g., LA City ID 1)
+        # Assuming LA city_id is 1, adjust if necessary OR remove if accommodations don't have city_id
+        metrics_response = supabase_client.table('safety_metrics') \
+                                          .select('id, latitude, longitude, metric_type, score') \
+                                          .eq('city_id', 1) \
+                                          .not_.is_('latitude', 'null') \
+                                          .not_.is_('longitude', 'null') \
+                                          .execute()
+
+        if not metrics_response.data:
+            logger.warning("No safety metrics found to calculate accommodation scores.")
+            return
+
+        metrics_df = pd.DataFrame(metrics_response.data)
+        metrics_df['latitude'] = pd.to_numeric(metrics_df['latitude'], errors='coerce')
+        metrics_df['longitude'] = pd.to_numeric(metrics_df['longitude'], errors='coerce')
+        metrics_df.dropna(subset=['latitude', 'longitude'], inplace=True)
+
+        if metrics_df.empty:
+            logger.warning("No valid safety metrics after cleaning.")
+            return
+
+        logger.info(f"Loaded {len(metrics_df)} valid safety metrics.")
+
+        # 2. Build KDTree from metric coordinates for fast nearest neighbor search
+        metric_coords = metrics_df[['latitude', 'longitude']].values
+        try:
+             metric_tree = KDTree(metric_coords)
+             logger.info("KDTree built for safety metrics.")
+        except Exception as tree_err:
+             logger.error(f"Failed to build KDTree: {tree_err}", exc_info=True)
+             return
+
+
+        # 3. Fetch all accommodations with valid coordinates (FIXED: city_id filter removed/commented)
+        acc_response = supabase_client.table('accommodations') \
+                                      .select('id, latitude, longitude') \
+                                      .not_.is_('latitude', 'null') \
+                                      .not_.is_('longitude', 'null') \
+                                      .execute() # Removed .eq('city_id', 1)
+
+        if not acc_response.data:
+            logger.info("No accommodations found with valid coordinates to update scores for.")
+            return
+
+        accommodations = acc_response.data
+        logger.info(f"Fetched {len(accommodations)} accommodations to update scores.")
+
+        # 4. Prepare updates
+        updates_to_make = []
+        processed_count = 0
+        scores_calculated_count = 0 # Count how many scores were non-null
+        missing_types_logged_count = 0 # Counter for logging missing types
+        MAX_MISSING_TYPE_LOGS = 20 # Limit how many detailed missing logs we show
+
+        for acc in tqdm(accommodations, desc="Calculating accommodation scores"):
+            try:
+                acc_id = acc['id']
+                acc_lat = float(acc['latitude'])
+                acc_lon = float(acc['longitude'])
+
+                # 5. Find nearest metrics using KDTree
+                k_neighbors = 50 # Check the nearest 50 metrics (adjust as needed)
+                # Handle potential errors if KDTree query fails
+                try:
+                    distances, indices = metric_tree.query([acc_lat, acc_lon], k=min(k_neighbors, len(metric_coords))) # Ensure k <= number of points
+                except Exception as query_err:
+                    logger.warning(f"KDTree query failed for Acc {acc_id} at ({acc_lat}, {acc_lon}): {query_err}")
+                    continue # Skip this accommodation if query fails
+
+                closest_metrics_by_type = {}
+
+                # Iterate through the nearest neighbors found
+                valid_indices = [idx for idx in indices if idx < len(metrics_df)] # Filter out potential out-of-bounds indices
+                # DEBUG: Log the number of valid neighbors found within k
+                # logger.debug(f"Acc {acc_id}: KDTree found {len(valid_indices)} potential metrics nearby.")
+
+                for index in valid_indices:
+                    metric = metrics_df.iloc[index]
+                    metric_lat = metric['latitude']
+                    metric_lon = metric['longitude']
+                    metric_type = metric['metric_type']
+                    metric_score = metric['score']
+
+                    # Calculate actual distance
+                    dist_km = calculate_distance_km(acc_lat, acc_lon, metric_lat, metric_lon)
+
+                    # Only consider metrics within the defined radius
+                    if dist_km > MAX_METRIC_DISTANCE_KM:
+                        continue
+
+                    # If we haven't found a metric of this type yet, or this one is closer
+                    if metric_type not in closest_metrics_by_type or dist_km < closest_metrics_by_type[metric_type]['distance']:
+                        closest_metrics_by_type[metric_type] = {
+                            'score': metric_score,
+                            'distance': dist_km
+                            # DEBUG: Optionally log found metric
+                            # logger.debug(f"Acc {acc_id}: Found metric '{metric_type}' (Score: {metric_score}) at distance {dist_km:.3f}km.")
+                        }
+
+                # 6. Calculate overall score
+                found_metric_types = set(closest_metrics_by_type.keys())
+                overall_score = None # Default to None
+
+                # Check if ALL required types were found
+                if found_metric_types == REQUIRED_METRIC_TYPES:
+                    total_score = sum(m['score'] for m in closest_metrics_by_type.values())
+                    # Replicate frontend calculation: average * 10, rounded.
+                    average_score = total_score / len(REQUIRED_METRIC_TYPES)
+                    overall_score = int(round(average_score * 10))
+                    scores_calculated_count += 1 # Increment count of successful calculations
+                    logger.debug(f"Acc {acc_id}: Found all {len(REQUIRED_METRIC_TYPES)} types. Total={total_score}, Avg={average_score:.2f}, Overall={overall_score}")
+                else:
+                    # *** START ENHANCED LOGGING ***
+                    missing_types = REQUIRED_METRIC_TYPES - found_metric_types
+                    # Log detailed missing types only for a limited number of accommodations
+                    if missing_types and missing_types_logged_count < MAX_MISSING_TYPE_LOGS:
+                         logger.warning(f"Acc {acc_id}: Score is NULL. Found {len(found_metric_types)}/{len(REQUIRED_METRIC_TYPES)} types. "
+                                        f"Missing types within {MAX_METRIC_DISTANCE_KM}km: {', '.join(sorted(list(missing_types)))}")
+                         # Log the types that *were* found for context
+                         if found_metric_types:
+                             logger.warning(f"Acc {acc_id}: Found types: {', '.join(sorted(list(found_metric_types)))}")
+                         else:
+                             logger.warning(f"Acc {acc_id}: Found NO metric types within {MAX_METRIC_DISTANCE_KM}km.")
+                         missing_types_logged_count += 1
+                    elif missing_types and missing_types_logged_count == MAX_MISSING_TYPE_LOGS:
+                        logger.warning(f"Acc {acc_id}: Score is NULL due to missing types (Further detailed logs suppressed).")
+                        missing_types_logged_count += 1
+                    # *** END ENHANCED LOGGING ***
+
+                # 7. Append update, even if score is None (to clear old scores)
+                updates_to_make.append({
+                    'id': acc_id,
+                    'overall_safety_score': overall_score
+                })
+                processed_count += 1
+
+            except (ValueError, TypeError) as coord_err:
+                 logger.warning(f"Skipping accommodation {acc.get('id', 'N/A')} due to invalid coordinates: {coord_err}")
+            except Exception as calc_err:
+                logger.error(f"Error calculating score for accommodation {acc.get('id', 'N/A')}: {calc_err}", exc_info=False) # Keep log concise
+
+        logger.info(f"Processed {processed_count} accommodations. Calculated {scores_calculated_count} non-null overall scores.")
+        if scores_calculated_count == 0 and processed_count > 0:
+            logger.critical(f"CRITICAL: No overall safety scores were calculated for any of the {processed_count} processed accommodations. Check 'Missing types' logs above.")
+        elif processed_count > 0 and scores_calculated_count < processed_count:
+             logger.warning(f"WARNING: Only {scores_calculated_count} out of {processed_count} processed accommodations received a non-null score. Check 'Missing types' logs.")
+
+
+        # 8. Batch update accommodations
+        batch_size = 100 # Adjust batch size as needed
+        total_updated = 0
+        total_failed = 0
+        logger.info(f"Starting batch updates for {len(updates_to_make)} accommodations...")
+
+        for i in range(0, len(updates_to_make), batch_size):
+            batch = updates_to_make[i:i + batch_size]
+            batch_number = (i // batch_size) + 1
+            logger.info(f"Updating accommodation scores batch {batch_number}/{math.ceil(len(updates_to_make) / batch_size)} ({len(batch)} records)")
+            try:
+                # Use .update() instead of .upsert()
+                updated_in_batch = 0
+                failed_in_batch = 0
+                for update_item in batch:
+                    try:
+                        # Update requires a filter (.eq) first
+                        result = supabase_client.table('accommodations') \
+                                               .update({'overall_safety_score': update_item['overall_safety_score']}) \
+                                               .eq('id', update_item['id']) \
+                                               .execute()
+                        # Check result.data or status code if needed, assuming success if no exception
+                        updated_in_batch += 1
+                    except APIError as update_err:
+                        logger.error(f"APIError updating accommodation {update_item['id']}: {update_err}", exc_info=False)
+                        failed_in_batch += 1
+                    except Exception as generic_err:
+                         logger.error(f"Generic error updating accommodation {update_item['id']}: {generic_err}", exc_info=False)
+                         failed_in_batch += 1
+
+                logger.info(f"Batch {batch_number} update attempt finished. Updated: {updated_in_batch}, Failed: {failed_in_batch}")
+                total_updated += updated_in_batch
+                total_failed += failed_in_batch
+
+            except APIError as e: # Keep outer catch for potential broader API issues
+                logger.error(f"APIError during accommodation scores batch {batch_number}: {e}", exc_info=False) # Log concise error
+                total_failed += len(batch) # Assume all failed if batch operation itself failed (though less likely now)
+            except Exception as e: # Catch potential unexpected errors during batch processing
+                logger.error(f"Unexpected error during accommodation scores batch {batch_number}: {e}", exc_info=True)
+                total_failed += len(batch)
+            # Add a small delay between batches if needed to avoid rate limiting
+            # time.sleep(0.1)
+
+        logger.info(f"Finished accommodation score update. Updated: {total_updated}, Failed: {total_failed}")
+
+    except Exception as e:
+        logger.error(f"An error occurred during the accommodation score update process: {e}", exc_info=True)
+    finally:
+        logger.info("Accommodation score update process finished.")
+        logger.info("\n====== Safety Metrics Processing COMPLETED ======")
+
+# --- Main Execution ---
 def main(test_mode=False):
-    # (Code remains the same as V4)
     start_time = datetime.now()
     logger.info(f"====== Starting Safety Metrics Processing run at {start_time.isoformat()} ======")
     logger.info(f"Mode: {'TEST' if test_mode else 'PRODUCTION'}")
     logger.info(f"Using neighbor radius: {NEIGHBOR_RADIUS_METERS} meters")
 
-    days_back = 800
-    max_records = 500000
+    days_back = 100
+    max_records = 5000
     if test_mode:
         logger.info("TEST MODE: Using smaller dataset parameters.")
         days_back = 30
@@ -563,10 +876,20 @@ def main(test_mode=False):
         logger.info("\n=== STEP 4: Uploading Metrics to Supabase ===")
         upload_metrics(metrics_by_type, test_mode=test_mode)
 
+        # --- NEW STEP 5: Update Accommodation Scores ---
+        logger.info("\n=== STEP 5: Updating Overall Scores for Accommodations ===")
+        try:
+            # Ensure supabase client is initialized and passed
+            update_accommodation_safety_scores(supabase)
+            logger.info("Accommodation score update process finished.")
+        except Exception as score_update_err:
+            logger.error(f"Failed to update accommodation scores: {score_update_err}", exc_info=True)
+            # Decide if this error should be critical or just logged
+
         end_time = datetime.now()
         duration = (end_time - start_time).total_seconds()
         logger.info(f"\n====== Safety Metrics Processing COMPLETED ======")
-        logger.info(f"Total execution time: {duration:.2f} seconds ({duration / 60.0:.2f} minutes)") # Expect this to be much lower now
+        logger.info(f"Total execution time: {duration:.2f} seconds ({duration / 60.0:.2f} minutes)")
 
     except Exception as e:
         logger.critical(f"An unhandled error occurred in the main execution pipeline: {e}", exc_info=True)

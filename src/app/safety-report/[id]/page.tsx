@@ -12,8 +12,10 @@ import { isValidCoordinates, calculateDistance } from '../utils'
 import Loading from './loading'
 import { AppNavbar } from '@/app/components/navbar'
 import { OverviewSection } from './components/OverviewSection'
-import type { ReportSection } from './components/ReportNavMenu'
+import type { ReportSection, ExtendedReportSection } from './components/ReportNavMenu'
 import { useAuth } from '@/components/shared/providers/auth-provider'
+import { OSMInsights } from '../components/OSMInsights'
+import type { OSMInsightsResponse } from '@/app/api/osm-insights/route'
 
 import type {
   SafetyReportProps,
@@ -118,7 +120,7 @@ async function findClosestSafetyMetricsBatch(locations: Location[]): Promise<Rec
 async function findSimilarAccommodations(
   location: Location,
   price: number | null,
-  currentScore: number, // Keep currentScore for potential future use, but don't filter here
+  currentScore: number, // Still useful for context, maybe future filtering
   excludeId: string
 ): Promise<SimilarAccommodation[]> {
   // Validate inputs
@@ -228,63 +230,56 @@ async function findSimilarAccommodations(
 }
 
 async function getReportData(id: string): Promise<AccommodationData | null> {
-  console.log('[getReportData] Fetching report data for accommodation ID:', id); // Log start
+  console.log('[getReportData] Fetching report data for accommodation ID:', id);
 
   const { data: accommodation, error } = await supabaseServer
     .from('accommodations')
-    .select('*')
+    .select('*, overall_safety_score')
     .eq('id', id)
     .single()
 
   if (error) {
-    // Log the specific error when fetching the main accommodation fails
     console.error(`[getReportData] Error fetching accommodation ${id}:`, error.message);
-    return null // Return null on direct fetch error
+    return null
   }
-
   if (!accommodation) {
-    // Log if accommodation is not found
     console.warn(`[getReportData] Accommodation not found for ID: ${id}`);
-    return null // Return null if not found
+    return null
   }
 
-  // console.log('Found accommodation:', accommodation.name, 'Price:', accommodation.price_per_night);
-
-  // Parse coordinates safely, trying different possible fields
+  // Parse coordinates safely
   const latString = accommodation.latitude || accommodation.location?.lat || '';
   const lngString = accommodation.longitude || accommodation.location?.lng || '';
   const latitude = typeof latString === 'string' ? parseFloat(latString) : latString;
   const longitude = typeof lngString === 'string' ? parseFloat(lngString) : lngString;
   const location = isValidCoordinates(latitude, longitude) ? { lat: latitude, lng: longitude } : null;
 
-
-  // console.log('Accommodation coordinates:', location);
-
   // Ensure image_url is valid
   const image_url = accommodation.image_url?.startsWith('http') ? accommodation.image_url : null
 
-  // Fetch safety metrics only if we have valid coordinates
-  const locationKey = location ? `${location.lat},${location.lng}` : null;
-  const safetyMetricsResult = location ? await findClosestSafetyMetricsBatch([location]) : null;
+  // Use the score from the table, default to 0 if null or undefined
+  const overall_score = accommodation.overall_safety_score ?? 0;
+  console.log('[getReportData] Using pre-calculated overall safety score:', overall_score);
 
-  // Extract the metrics array for the specific location
-  const metricsForLocation: SafetyMetric[] | null = (locationKey && safetyMetricsResult && safetyMetricsResult[locationKey])
-    ? safetyMetricsResult[locationKey]
-    : null;
+  // --- Fetch individual metrics ONLY IF needed for the detailed SafetyMetrics component ---
+  let metricsForLocation: SafetyMetric[] | null = null;
+  if (location) {
+      // Fetch metrics if the 'safety' section needs to display details
+      console.log('[getReportData] Fetching individual metrics for detailed display...');
+      const safetyMetricsResult = await findClosestSafetyMetricsBatch([location]);
+      const locationKey = `${location.lat},${location.lng}`;
+      metricsForLocation = (safetyMetricsResult && safetyMetricsResult[locationKey]) ? safetyMetricsResult[locationKey] : null;
+      console.log(`[getReportData] Found ${metricsForLocation?.length ?? 0} individual metrics.`);
+  }
+  // ---
 
-  // console.log('Found safety metrics for location:', metricsForLocation?.length ?? 0);
+  // --- Determine hasCompleteData ---
+  // Base it on whether the score is non-zero (implies calculation was successful)
+  // Or potentially refine in Python script to store a separate boolean if needed.
+  const hasCompleteData = overall_score > 0;
+  // ---
 
-  // Check if we have complete safety data (assuming 5 metrics means complete) based on the extracted array
-  const hasCompleteData = metricsForLocation ? metricsForLocation.length === 5 : false;
-
-  // Calculate overall score based on the extracted array
-  const overall_score = (metricsForLocation && metricsForLocation.length > 0)
-    ? Math.round(metricsForLocation.reduce((sum, metric) => sum + metric.score, 0) / metricsForLocation.length * 10)
-    : 0; // Default to 0 if no metrics found
-
-  // console.log('Calculated overall safety score:', overall_score);
-
-  // --- Fetch Accommodation Takeaways ---
+  // --- Fetch Accommodation Takeaways (as before) ---
   let accommodationTakeaways: string[] | null = null;
   const { data: takeawayData, error: takeawayError } = await supabaseServer
     .from('accommodation_takeaways')
@@ -301,24 +296,24 @@ async function getReportData(id: string): Promise<AccommodationData | null> {
   } else {
     // console.log(`No accommodation takeaways found for ${id}.`);
   }
-  // --- End Fetch Accommodation Takeaways ---
+  // ---
 
-  // Fetch similar accommodations if we have valid location and a score > 0
+  // --- Fetch similar accommodations (Pass the fetched score) ---
   let similar_accommodations: SimilarAccommodation[] = [];
-  if (location && overall_score > 0) {
-    // console.log('Calling findSimilarAccommodations with:', { location, price: accommodation.price_per_night, currentScore: overall_score, excludeId: id });
+  if (location) { // Check location validity
+    console.log('[getReportData] Calling findSimilarAccommodations...');
     similar_accommodations = await findSimilarAccommodations(
       location,
-      accommodation.price_per_night, // Pass the actual price (can be null)
-      overall_score,
+      accommodation.price_per_night,
+      overall_score, // Pass the fetched score
       id
     );
-    // console.log(`findSimilarAccommodations returned ${similar_accommodations.length} results`);
   } else {
-    // console.log('Skipping similar accommodations search due to missing location or zero score');
+    console.log('[getReportData] Skipping similar accommodations search due to missing location.');
   }
+  // ---
 
-  console.log('[getReportData] Successfully processed data for:', accommodation.name); // Log success
+  console.log('[getReportData] Successfully processed data for:', accommodation.name);
   return {
     id: accommodation.id,
     url: accommodation.url,
@@ -330,9 +325,9 @@ async function getReportData(id: string): Promise<AccommodationData | null> {
     property_type: accommodation.property_type || accommodation.type || null,
     neighborhood: accommodation.neighborhood || (accommodation.address?.full || null),
     source: accommodation.source,
-    location, // Will be null if coordinates were invalid/missing
-    safety_metrics: metricsForLocation, // Assign the extracted array
-    overall_score,
+    location,
+    safety_metrics: metricsForLocation, // Pass the fetched metrics if needed by SafetyMetrics component
+    overall_score, // Use the score from the DB
     similar_accommodations,
     hasCompleteData,
     accommodation_takeaways: accommodationTakeaways // Add to return object
@@ -345,7 +340,9 @@ export default function SafetyReportPage({ params }: SafetyReportProps) {
   const [errorOccurred, setErrorOccurred] = useState(false)
   const [isAuthenticated, setIsAuthenticated] = useState(false)
   const [authChecked, setAuthChecked] = useState(false)
-  const [activeSection, setActiveSection] = useState<ReportSection>('overview')
+  const [activeSection, setActiveSection] = useState<ExtendedReportSection>('overview')
+  const [osmInsights, setOsmInsights] = useState<OSMInsightsResponse | null>(null)
+  const [loadingOSM, setLoadingOSM] = useState<boolean>(false)
   const { supabase } = useAuth()
 
   // Validate ID early
@@ -373,6 +370,7 @@ export default function SafetyReportPage({ params }: SafetyReportProps) {
       setErrorOccurred(false)
       setAuthChecked(false)
       setReportData(null) // Clear previous data
+      setOsmInsights(null) // Reset OSM data on new load
 
       try {
         if (!supabase) {
@@ -401,6 +399,31 @@ export default function SafetyReportPage({ params }: SafetyReportProps) {
         } else {
           console.log("[SafetyReportPage Effect] Report data received:", data.name);
           setReportData(data)
+          // --- Trigger OSM data fetch AFTER report data is loaded ---
+          if (data.location) {
+            setLoadingOSM(true);
+            fetch(`/api/osm-insights?lat=${data.location.lat}&lng=${data.location.lng}`)
+              .then(res => {
+                if (!res.ok) throw new Error(`OSM API fetch failed: ${res.statusText}`);
+                return res.json();
+              })
+              .then(osmData => {
+                if (isMounted) {
+                  console.log("[SafetyReportPage Effect] OSM Insights received:", osmData);
+                  setOsmInsights(osmData);
+                }
+              })
+              .catch(err => {
+                console.error("[SafetyReportPage Effect] Error fetching OSM insights:", err);
+                // Optionally set an error state for OSM data
+              })
+              .finally(() => {
+                if (isMounted) setLoadingOSM(false);
+              });
+          } else {
+             console.log("[SafetyReportPage Effect] Skipping OSM fetch due to missing location.");
+          }
+          // --- End OSM fetch trigger ---
         }
       } catch (error) {
         console.error("[SafetyReportPage Effect] Error during loadData:", error)
@@ -425,7 +448,7 @@ export default function SafetyReportPage({ params }: SafetyReportProps) {
     }
   }, [params.id, supabase])
 
-  const handleSectionChange = (section: ReportSection) => {
+  const handleSectionChange = (section: ExtendedReportSection) => {
     setActiveSection(section)
   }
 
@@ -464,7 +487,7 @@ export default function SafetyReportPage({ params }: SafetyReportProps) {
             <div className="border-b border-gray-200 bg-white px-4 py-5 sm:px-6 rounded-t-xl shadow-sm">
               <div className="-ml-4 -mt-4 flex flex-wrap items-center justify-between sm:flex-nowrap">
                 <div className="ml-4 mt-4">
-                  <h3 className="text-base font-semibold text-gray-900">Map View</h3>
+                  <h3 className="text-base font-semibold text-gray-900">Map</h3>
                   <p className="mt-1 text-sm text-gray-500">
                     Property location and nearby safer alternatives.
                   </p>
@@ -472,10 +495,9 @@ export default function SafetyReportPage({ params }: SafetyReportProps) {
               </div>
             </div>
             <div className="h-[400px] bg-white rounded-b-xl shadow-sm overflow-hidden">
-              {/* Use Suspense to wrap the lazy-loaded map */}
               <Suspense fallback={<MapLoadingPlaceholder />}>
                 {reportData.location ? (
-                  <LazyMapView // Use the lazy component
+                  <LazyMapView
                     location={reportData.location}
                     currentAccommodation={{
                       id: reportData.id,
@@ -503,7 +525,7 @@ export default function SafetyReportPage({ params }: SafetyReportProps) {
             <div className="border-b border-gray-200 bg-white px-4 py-5 sm:px-6 rounded-t-xl shadow-sm">
               <div className="-ml-4 -mt-4 flex flex-wrap items-center justify-between sm:flex-nowrap">
                 <div className="ml-4 mt-4">
-                  <h3 className="text-base font-semibold text-gray-900">Safety Analysis</h3>
+                  <h3 className="text-base font-semibold text-gray-900">Safety</h3>
                   <p className="mt-1 text-sm text-gray-500">
                     Detailed safety metrics for this location based on local data.
                   </p>
@@ -515,13 +537,29 @@ export default function SafetyReportPage({ params }: SafetyReportProps) {
             </RestrictedContent>
           </div>
         );
+      case 'neighborhood':
+        return (
+          <div>
+            <div className="border-b border-gray-200 bg-white px-4 py-5 sm:px-6 rounded-t-xl shadow-sm">
+              <div className="-ml-4 -mt-4 flex flex-wrap items-center justify-between sm:flex-nowrap">
+                <div className="ml-4 mt-4">
+                  <h3 className="text-base font-semibold text-gray-900">Neighborhood Insights</h3>
+                  <p className="mt-1 text-sm text-gray-500">
+                    Insights about the immediate surroundings based on OpenStreetMap data.
+                  </p>
+                </div>
+              </div>
+            </div>
+            <OSMInsights data={osmInsights} isLoading={loadingOSM} />
+          </div>
+        );
       case 'community':
         return (
           <div>
             <div className="border-b border-gray-200 bg-white px-4 py-5 sm:px-6 rounded-t-xl shadow-sm">
               <div className="-ml-4 -mt-4 flex flex-wrap items-center justify-between sm:flex-nowrap">
                 <div className="ml-4 mt-4">
-                  <h3 className="text-base font-semibold text-gray-900">Community Feedback</h3>
+                  <h3 className="text-base font-semibold text-gray-900">Opinions</h3>
                   <p className="mt-1 text-sm text-gray-500">
                     AI takeaways and raw comments from local discussions.
                   </p>
@@ -535,6 +573,64 @@ export default function SafetyReportPage({ params }: SafetyReportProps) {
                 longitude={reportData.location?.lng ?? null}
               />
             </RestrictedContent>
+          </div>
+        );
+      case 'activities':
+        // --- Dynamic Location Logic ---
+        const { location, neighborhood } = reportData;
+        let gygLocationId = '179'; // Default to Los Angeles ID
+        let gygLocationName = 'Los Angeles'; // Default name
+        let gygLocationLink = 'https://www.getyourguide.com/los-angeles-l179/'; // Default link
+
+        // TODO: Implement actual GetYourGuide Location ID lookup
+        // Option 1: Use GetYourGuide API with location.lat, location.lng or neighborhood name.
+        // Option 2: Use a manual mapping from neighborhood name to GYG Location ID.
+        // Example (Manual Mapping - requires maintaining this map):
+        /*
+        const locationMap: { [key: string]: { id: string; name: string; link: string } } = {
+          'Downtown Los Angeles': { id: '179', name: 'Los Angeles', link: 'https://www.getyourguide.com/los-angeles-l179/' },
+          'Santa Monica': { id: '540', name: 'Santa Monica', link: 'https://www.getyourguide.com/santa-monica-l540/' },
+          // Add other relevant neighborhoods/cities and their GYG IDs
+        };
+        if (neighborhood && locationMap[neighborhood]) {
+           gygLocationId = locationMap[neighborhood].id;
+           gygLocationName = locationMap[neighborhood].name;
+           gygLocationLink = locationMap[neighborhood].link;
+        } else if (location) {
+           // Fallback: Attempt API lookup if neighborhood mapping fails or isn't present
+           // gygLocationId = await fetchGygIdFromApi(location.lat, location.lng);
+           // Update name/link based on API result
+        }
+        */
+        // For now, we stick with the default '179' (Los Angeles)
+
+        return (
+          <div>
+            <div className="border-b border-gray-200 bg-white px-4 py-5 sm:px-6 rounded-t-xl shadow-sm">
+              <div className="-ml-4 -mt-4 flex flex-wrap items-center justify-between sm:flex-nowrap">
+                <div className="ml-4 mt-4">
+                  <h3 className="text-base font-semibold text-gray-900">What to Do</h3>
+                  <p className="mt-1 text-sm text-gray-500">
+                    Explore tours and activities near {neighborhood || 'this location'}, powered by GetYourGuide.
+                  </p>
+                </div>
+              </div>
+            </div>
+            <div className="bg-white rounded-b-xl shadow-sm p-4 sm:p-6">
+              <div
+                data-gyg-href="https://widget.getyourguide.com/default/activities.frame"
+                data-gyg-location-id={gygLocationId}
+                data-gyg-locale-code="en-US"
+                data-gyg-widget="activities"
+                data-gyg-number-of-items="21"
+                data-gyg-cmp="safety-report-widget"
+                data-gyg-partner-id="PLGSROV"
+              >
+                <span className="text-xs text-gray-500">
+                  Powered by <a target="_blank" rel="sponsored" href={gygLocationLink} className="text-blue-600 hover:underline">GetYourGuide</a>
+                </span>
+              </div>
+            </div>
           </div>
         );
       default:
@@ -559,8 +655,11 @@ export default function SafetyReportPage({ params }: SafetyReportProps) {
                     total_reviews={reportData.total_reviews}
                     source={reportData.source}
                     image_url={reportData.image_url}
-                    url={reportData.url}
+                    url={reportData.url ?? null}
                     overall_score={reportData.overall_score}
+                    property_type={reportData.property_type}
+                    neighborhood={reportData.neighborhood}
+                    location={reportData.location}
                     activeSection={activeSection}
                     onSectionChange={handleSectionChange}
                   />

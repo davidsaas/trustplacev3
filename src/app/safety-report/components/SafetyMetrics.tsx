@@ -7,7 +7,9 @@ import {
   Baby, 
   Bus, 
   UserRound,
-  Plus
+  Plus,
+  Home,
+  Sun
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import type { SafetyMetric } from '@/types/safety-report'
@@ -23,7 +25,9 @@ const METRIC_QUESTIONS: Record<string, string> = {
   vehicle: 'Can I park here safely?',
   child: 'Are kids safe here?',
   transit: 'Is it safe to use public transport?',
-  women: 'Would I be harassed here?'
+  women: 'Would I be harassed here?',
+  property: 'How likely is a break-in or theft?',
+  daytime: 'Is it safe to walk around during the day?'
 }
 
 // Icons for each metric type
@@ -32,11 +36,21 @@ const METRIC_ICONS: Record<string, LucideIcon> = {
   vehicle: Car,
   child: Baby,
   transit: Bus,
-  women: UserRound
+  women: UserRound,
+  property: Home,
+  daytime: Sun
 }
 
 // All expected metric types
-const EXPECTED_METRIC_TYPES = ['night', 'vehicle', 'child', 'transit', 'women']
+const EXPECTED_METRIC_TYPES = [
+  'night', 
+  'vehicle', 
+  'child', 
+  'transit', 
+  'women',
+  'property',
+  'daytime'
+]
 
 function classNames(...classes: (string | boolean | undefined)[]) {
   return classes.filter(Boolean).join(' ')
@@ -86,9 +100,9 @@ export const SafetyMetrics = ({ data }: SafetyMetricsProps) => {
   // Create empty states for missing metrics
   EXPECTED_METRIC_TYPES.forEach(type => {
     if (!metricsByType[type]) {
-      const MetricIcon = METRIC_ICONS[type]
+      const MetricIcon = METRIC_ICONS[type] || Plus
       metricsByType[type] = {
-        title: METRIC_QUESTIONS[type],
+        title: METRIC_QUESTIONS[type] || "Unknown Metric",
         description: "Data not available for this location",
         icon: MetricIcon,
         iconForeground: "text-gray-400",

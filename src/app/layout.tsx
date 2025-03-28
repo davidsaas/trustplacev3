@@ -7,6 +7,7 @@ import { AuthProvider } from "@/components/shared/providers/auth-provider";
 import { ThemeProvider } from "@/components/shared/providers/theme-provider";
 import { Toaster } from 'sonner';
 import 'leaflet/dist/leaflet.css';
+import Script from 'next/script';
 
 const inter = Inter({ subsets: ["latin"] });
 
@@ -38,6 +39,15 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en" suppressHydrationWarning className="h-full">
+      <head>
+        <Script
+          async
+          defer
+          src="https://widget.getyourguide.com/dist/pa.umd.production.min.js"
+          data-gyg-partner-id="PLGSROV"
+          strategy="afterInteractive"
+        />
+      </head>
       <body className={cn(
         "h-full font-sans antialiased",
         inter.className
