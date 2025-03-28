@@ -627,35 +627,43 @@ def calculate_distance_km(lat1, lon1, lat2, lon2):
 
 def update_accommodation_safety_scores(supabase_client: Client):
     """
-    Calculates and updates the overall_safety_score for accommodations
-    based on the latest safety_metrics.
+    Calculates and updates the overall_safety_score, census_block_id, and city_id
+    for accommodations based on the latest safety_metrics.
     """
     logger.info("Starting accommodation overall safety score update...")
     MAX_METRIC_DISTANCE_KM = 1.0 # Only consider metrics within 1km (adjust as needed)
     REQUIRED_METRIC_TYPES = set(SAFETY_METRICS.keys())
-    logger.info(f"Calculating overall score based on {len(REQUIRED_METRIC_TYPES)} required metric types: {', '.join(sorted(list(REQUIRED_METRIC_TYPES)))}")
+    # Assume LA city_id is 1, if needed elsewhere. This script now associates city_id based on closest metric.
+    TARGET_CITY_ID_FOR_METRIC_FETCH = 1 # Fetch metrics associated with LA
+    logger.info(f"Calculating overall score based on available metric types within {MAX_METRIC_DISTANCE_KM}km.")
+    logger.info(f"Required metric types for full score: {len(REQUIRED_METRIC_TYPES)} ({', '.join(sorted(list(REQUIRED_METRIC_TYPES)))})")
+    logger.info(f"Fetching safety metrics associated with city_id: {TARGET_CITY_ID_FOR_METRIC_FETCH}")
+
 
     try:
-        # 1. Fetch all current safety metrics for the relevant city (e.g., LA City ID 1)
-        # Assuming LA city_id is 1, adjust if necessary OR remove if accommodations don't have city_id
+        # 1. Fetch all current safety metrics for the relevant city
+        # Ensure block_group_id and city_id are selected
         metrics_response = supabase_client.table('safety_metrics') \
-                                          .select('id, latitude, longitude, metric_type, score') \
-                                          .eq('city_id', 1) \
+                                          .select('id, latitude, longitude, metric_type, score, block_group_id, city_id') \
+                                          .eq('city_id', TARGET_CITY_ID_FOR_METRIC_FETCH) \
                                           .not_.is_('latitude', 'null') \
                                           .not_.is_('longitude', 'null') \
+                                          .not_.is_('block_group_id', 'null') \
                                           .execute()
 
         if not metrics_response.data:
-            logger.warning("No safety metrics found to calculate accommodation scores.")
+            logger.warning(f"No safety metrics found for city_id {TARGET_CITY_ID_FOR_METRIC_FETCH} to calculate accommodation scores.")
             return
 
         metrics_df = pd.DataFrame(metrics_response.data)
         metrics_df['latitude'] = pd.to_numeric(metrics_df['latitude'], errors='coerce')
         metrics_df['longitude'] = pd.to_numeric(metrics_df['longitude'], errors='coerce')
-        metrics_df.dropna(subset=['latitude', 'longitude'], inplace=True)
+        # Keep city_id as is, block_group_id as string
+        metrics_df.dropna(subset=['latitude', 'longitude', 'block_group_id', 'city_id'], inplace=True)
+
 
         if metrics_df.empty:
-            logger.warning("No valid safety metrics after cleaning.")
+            logger.warning("No valid safety metrics after cleaning (lat, lon, block_group_id, city_id).")
             return
 
         logger.info(f"Loaded {len(metrics_df)} valid safety metrics.")
@@ -670,12 +678,12 @@ def update_accommodation_safety_scores(supabase_client: Client):
              return
 
 
-        # 3. Fetch all accommodations with valid coordinates (FIXED: city_id filter removed/commented)
+        # 3. Fetch all accommodations with valid coordinates
         acc_response = supabase_client.table('accommodations') \
                                       .select('id, latitude, longitude') \
                                       .not_.is_('latitude', 'null') \
                                       .not_.is_('longitude', 'null') \
-                                      .execute() # Removed .eq('city_id', 1)
+                                      .execute() # Removed city_id filter previously
 
         if not acc_response.data:
             logger.info("No accommodations found with valid coordinates to update scores for.")
@@ -690,6 +698,7 @@ def update_accommodation_safety_scores(supabase_client: Client):
         scores_calculated_count = 0 # Count how many scores were non-null
         missing_types_logged_count = 0 # Counter for logging missing types
         MAX_MISSING_TYPE_LOGS = 20 # Limit how many detailed missing logs we show
+        no_metrics_found_count = 0 # Count accommodations with no metrics nearby
 
         for acc in tqdm(accommodations, desc="Calculating accommodation scores"):
             try:
@@ -699,32 +708,65 @@ def update_accommodation_safety_scores(supabase_client: Client):
 
                 # 5. Find nearest metrics using KDTree
                 k_neighbors = 50 # Check the nearest 50 metrics (adjust as needed)
-                # Handle potential errors if KDTree query fails
+                indices = []
+                distances = []
                 try:
-                    distances, indices = metric_tree.query([acc_lat, acc_lon], k=min(k_neighbors, len(metric_coords))) # Ensure k <= number of points
+                    # Ensure k is not larger than the number of points in the tree
+                    actual_k = min(k_neighbors, len(metric_coords))
+                    if actual_k > 0:
+                        distances, indices = metric_tree.query([acc_lat, acc_lon], k=actual_k)
+                        # If query returns single result, wrap it in a list
+                        if actual_k == 1 and not isinstance(indices, (list, np.ndarray)):
+                            distances = [distances]
+                            indices = [indices]
+                    else:
+                         logger.warning(f"KDTree is empty, cannot query neighbors for Acc {acc_id}.")
+                         # Skip to append None values later if needed
+
                 except Exception as query_err:
                     logger.warning(f"KDTree query failed for Acc {acc_id} at ({acc_lat}, {acc_lon}): {query_err}")
-                    continue # Skip this accommodation if query fails
+                    # Continue, will result in no metrics found
 
                 closest_metrics_by_type = {}
+                inferred_block_id = None
+                inferred_city_id = None
+                closest_overall_metric_dist = float('inf')
+
 
                 # Iterate through the nearest neighbors found
                 valid_indices = [idx for idx in indices if idx < len(metrics_df)] # Filter out potential out-of-bounds indices
-                # DEBUG: Log the number of valid neighbors found within k
-                # logger.debug(f"Acc {acc_id}: KDTree found {len(valid_indices)} potential metrics nearby.")
 
-                for index in valid_indices:
+
+                # --- Find closest overall metric first to infer block/city ---
+                if valid_indices:
+                    closest_idx = valid_indices[0] # The first index corresponds to the smallest distance
+                    closest_metric_info = metrics_df.iloc[closest_idx]
+                    closest_overall_metric_dist = calculate_distance_km(acc_lat, acc_lon, closest_metric_info['latitude'], closest_metric_info['longitude'])
+                    # Use this closest metric to infer block and city ID
+                    inferred_block_id = closest_metric_info['block_group_id'] # Use the block_group_id from safety_metrics
+                    inferred_city_id = int(closest_metric_info['city_id']) if pd.notna(closest_metric_info['city_id']) else None
+                    logger.debug(f"Acc {acc_id}: Closest metric at index {closest_idx} (dist: {closest_overall_metric_dist:.3f}km). Inferred block={inferred_block_id}, city={inferred_city_id}")
+                else:
+                     logger.warning(f"Acc {acc_id}: No valid indices found from KDTree query.")
+
+
+                # --- Now, find the closest metric for *each type* within the radius ---
+                for i, index in enumerate(valid_indices):
                     metric = metrics_df.iloc[index]
                     metric_lat = metric['latitude']
                     metric_lon = metric['longitude']
                     metric_type = metric['metric_type']
                     metric_score = metric['score']
 
-                    # Calculate actual distance
+                    # Calculate actual distance (or use distances[i] if metric is Euclidean)
+                    # Recalculating Haversine is safer
                     dist_km = calculate_distance_km(acc_lat, acc_lon, metric_lat, metric_lon)
 
-                    # Only consider metrics within the defined radius
+                    # Only consider metrics within the defined radius for scoring
                     if dist_km > MAX_METRIC_DISTANCE_KM:
+                        # Since indices are sorted by distance, we can potentially break early
+                        # if distances[i] > MAX_METRIC_DISTANCE_KM (if using Euclidean distance from KDTree)
+                        # With Haversine, we check all neighbors returned by KDTree query within the initial k
                         continue
 
                     # If we haven't found a metric of this type yet, or this one is closer
@@ -732,57 +774,63 @@ def update_accommodation_safety_scores(supabase_client: Client):
                         closest_metrics_by_type[metric_type] = {
                             'score': metric_score,
                             'distance': dist_km
-                            # DEBUG: Optionally log found metric
-                            # logger.debug(f"Acc {acc_id}: Found metric '{metric_type}' (Score: {metric_score}) at distance {dist_km:.3f}km.")
                         }
+                        logger.debug(f"Acc {acc_id}: Found/Updated metric '{metric_type}' (Score: {metric_score}) at distance {dist_km:.3f}km for scoring.")
 
-                # 6. Calculate overall score
+
+                # 6. Calculate overall score based on *found* metrics
                 found_metric_types = set(closest_metrics_by_type.keys())
                 overall_score = None # Default to None
 
-                # Check if ALL required types were found
-                if found_metric_types == REQUIRED_METRIC_TYPES:
+                if found_metric_types: # Calculate score if at least one metric type was found
                     total_score = sum(m['score'] for m in closest_metrics_by_type.values())
-                    # Replicate frontend calculation: average * 10, rounded.
-                    average_score = total_score / len(REQUIRED_METRIC_TYPES)
-                    overall_score = int(round(average_score * 10))
+                    num_found_types = len(found_metric_types)
+                    average_score = total_score / num_found_types
+                    overall_score = int(round(average_score * 10)) # Scale score 0-10 to 0-100
                     scores_calculated_count += 1 # Increment count of successful calculations
-                    logger.debug(f"Acc {acc_id}: Found all {len(REQUIRED_METRIC_TYPES)} types. Total={total_score}, Avg={average_score:.2f}, Overall={overall_score}")
-                else:
-                    # *** START ENHANCED LOGGING ***
-                    missing_types = REQUIRED_METRIC_TYPES - found_metric_types
-                    # Log detailed missing types only for a limited number of accommodations
-                    if missing_types and missing_types_logged_count < MAX_MISSING_TYPE_LOGS:
-                         logger.warning(f"Acc {acc_id}: Score is NULL. Found {len(found_metric_types)}/{len(REQUIRED_METRIC_TYPES)} types. "
-                                        f"Missing types within {MAX_METRIC_DISTANCE_KM}km: {', '.join(sorted(list(missing_types)))}")
-                         # Log the types that *were* found for context
-                         if found_metric_types:
-                             logger.warning(f"Acc {acc_id}: Found types: {', '.join(sorted(list(found_metric_types)))}")
-                         else:
-                             logger.warning(f"Acc {acc_id}: Found NO metric types within {MAX_METRIC_DISTANCE_KM}km.")
-                         missing_types_logged_count += 1
-                    elif missing_types and missing_types_logged_count == MAX_MISSING_TYPE_LOGS:
-                        logger.warning(f"Acc {acc_id}: Score is NULL due to missing types (Further detailed logs suppressed).")
-                        missing_types_logged_count += 1
-                    # *** END ENHANCED LOGGING ***
 
-                # 7. Append update, even if score is None (to clear old scores)
+                    logger.debug(f"Acc {acc_id}: Found {num_found_types}/{len(REQUIRED_METRIC_TYPES)} types. Total={total_score}, Avg={average_score:.2f}, Overall={overall_score}")
+
+                    # Log if not all required types were found (only for a limited number)
+                    if num_found_types < len(REQUIRED_METRIC_TYPES):
+                         missing_types = REQUIRED_METRIC_TYPES - found_metric_types
+                         if missing_types_logged_count < MAX_MISSING_TYPE_LOGS:
+                              logger.warning(f"Acc {acc_id}: Score based on {num_found_types}/{len(REQUIRED_METRIC_TYPES)} types. "
+                                             f"Missing types within {MAX_METRIC_DISTANCE_KM}km: {', '.join(sorted(list(missing_types)))}")
+                              missing_types_logged_count += 1
+                         elif missing_types_logged_count == MAX_MISSING_TYPE_LOGS:
+                              logger.warning(f"Acc {acc_id}: Score based on incomplete types (Further detailed logs suppressed).")
+                              missing_types_logged_count += 1
+                else:
+                    # No metrics found within the radius
+                    no_metrics_found_count += 1
+                    logger.warning(f"Acc {acc_id}: Score is NULL. No safety metrics found within {MAX_METRIC_DISTANCE_KM}km.")
+
+
+                # 7. Append update, including inferred block/city and potentially null score
                 updates_to_make.append({
                     'id': acc_id,
-                    'overall_safety_score': overall_score
+                    'overall_safety_score': overall_score,
+                    'census_block_id': inferred_block_id, # Add inferred block ID
+                    'city_id': inferred_city_id          # Add inferred city ID
                 })
                 processed_count += 1
 
             except (ValueError, TypeError) as coord_err:
-                 logger.warning(f"Skipping accommodation {acc.get('id', 'N/A')} due to invalid coordinates: {coord_err}")
+                 logger.warning(f"Skipping accommodation {acc.get('id', 'N/A')} due to invalid coordinates or data: {coord_err}")
             except Exception as calc_err:
                 logger.error(f"Error calculating score for accommodation {acc.get('id', 'N/A')}: {calc_err}", exc_info=False) # Keep log concise
 
-        logger.info(f"Processed {processed_count} accommodations. Calculated {scores_calculated_count} non-null overall scores.")
+        logger.info(f"Processed {processed_count} accommodations.")
+        logger.info(f"Calculated {scores_calculated_count} non-null overall scores.")
+        if no_metrics_found_count > 0:
+             logger.warning(f"{no_metrics_found_count} accommodations had NO safety metrics within {MAX_METRIC_DISTANCE_KM}km and received a NULL score.")
+
         if scores_calculated_count == 0 and processed_count > 0:
-            logger.critical(f"CRITICAL: No overall safety scores were calculated for any of the {processed_count} processed accommodations. Check 'Missing types' logs above.")
-        elif processed_count > 0 and scores_calculated_count < processed_count:
-             logger.warning(f"WARNING: Only {scores_calculated_count} out of {processed_count} processed accommodations received a non-null score. Check 'Missing types' logs.")
+            logger.critical(f"CRITICAL: No non-null overall safety scores were calculated for any of the {processed_count} processed accommodations. Check metric availability and distance settings.")
+        elif processed_count > 0 and scores_calculated_count < (processed_count - no_metrics_found_count):
+             # This condition means some scores were calculated, but fewer than expected given the ones with no metrics nearby
+             logger.warning(f"WARNING: Only {scores_calculated_count} non-null scores calculated out of {processed_count - no_metrics_found_count} accommodations that had *some* nearby metrics. Check 'Missing types' logs.")
 
 
         # 8. Batch update accommodations
@@ -794,47 +842,74 @@ def update_accommodation_safety_scores(supabase_client: Client):
         for i in range(0, len(updates_to_make), batch_size):
             batch = updates_to_make[i:i + batch_size]
             batch_number = (i // batch_size) + 1
-            logger.info(f"Updating accommodation scores batch {batch_number}/{math.ceil(len(updates_to_make) / batch_size)} ({len(batch)} records)")
+            logger.info(f"Updating accommodation batch {batch_number}/{math.ceil(len(updates_to_make) / batch_size)} ({len(batch)} records)")
             try:
-                # Use .update() instead of .upsert()
+                # Use .update() for each item - less efficient than bulk but handles errors individually
                 updated_in_batch = 0
                 failed_in_batch = 0
                 for update_item in batch:
                     try:
-                        # Update requires a filter (.eq) first
+                        # Prepare update payload, excluding None values if necessary depending on DB constraints
+                        # However, explicitly setting NULL is often desired.
+                        update_payload = {
+                            'overall_safety_score': update_item['overall_safety_score'],
+                            'census_block_id': update_item['census_block_id'],
+                            'city_id': update_item['city_id']
+                        }
+
+                        # Log the payload for one item per batch for debugging
+                        if updated_in_batch == 0 and failed_in_batch == 0: # Log first attempt in batch
+                             logger.debug(f"Attempting update for Acc {update_item['id']} with payload: {update_payload}")
+
+
                         result = supabase_client.table('accommodations') \
-                                               .update({'overall_safety_score': update_item['overall_safety_score']}) \
+                                               .update(update_payload) \
                                                .eq('id', update_item['id']) \
                                                .execute()
-                        # Check result.data or status code if needed, assuming success if no exception
-                        updated_in_batch += 1
-                    except APIError as update_err:
-                        logger.error(f"APIError updating accommodation {update_item['id']}: {update_err}", exc_info=False)
+
+                        # Basic check: Did the API call itself throw an error?
+                        # Note: Supabase update might return success even if 0 rows matched the 'eq' filter.
+                        # More robust checking could involve examining result.data if needed, but absence of error is usually sufficient.
+                        if hasattr(result, 'error') and result.error:
+                            logger.error(f"APIError on update for accommodation {update_item['id']}: {result.error}")
+                            failed_in_batch += 1
+                        else:
+                            # Log success only periodically or if debugging
+                            # logger.debug(f"Successfully updated accommodation {update_item['id']}")
+                            updated_in_batch += 1
+
+                    except APIError as update_err: # Catch specific PostgREST errors
+                        logger.error(f"APIError during individual update for accommodation {update_item['id']}: {update_err}", exc_info=False)
                         failed_in_batch += 1
-                    except Exception as generic_err:
-                         logger.error(f"Generic error updating accommodation {update_item['id']}: {generic_err}", exc_info=False)
+                    except Exception as generic_err: # Catch other unexpected errors
+                         logger.error(f"Generic error during individual update for accommodation {update_item['id']}: {generic_err}", exc_info=False)
                          failed_in_batch += 1
 
-                logger.info(f"Batch {batch_number} update attempt finished. Updated: {updated_in_batch}, Failed: {failed_in_batch}")
+                logger.info(f"Batch {batch_number} update attempt finished. Succeeded: {updated_in_batch}, Failed: {failed_in_batch}")
                 total_updated += updated_in_batch
                 total_failed += failed_in_batch
 
-            except APIError as e: # Keep outer catch for potential broader API issues
-                logger.error(f"APIError during accommodation scores batch {batch_number}: {e}", exc_info=False) # Log concise error
-                total_failed += len(batch) # Assume all failed if batch operation itself failed (though less likely now)
-            except Exception as e: # Catch potential unexpected errors during batch processing
-                logger.error(f"Unexpected error during accommodation scores batch {batch_number}: {e}", exc_info=True)
-                total_failed += len(batch)
-            # Add a small delay between batches if needed to avoid rate limiting
-            # time.sleep(0.1)
+            except Exception as e: # Catch potential unexpected errors during the batch loop itself
+                logger.error(f"Unexpected error processing accommodation scores batch {batch_number}: {e}", exc_info=True)
+                # Estimate failure for the rest of the batch if the loop breaks
+                remaining_in_batch = len(batch) - updated_in_batch - failed_in_batch
+                total_failed += remaining_in_batch
+                # Potentially break or continue depending on severity
+                break # Stop processing further batches if a fundamental error occurs here
 
-        logger.info(f"Finished accommodation score update. Updated: {total_updated}, Failed: {total_failed}")
+            # Add a small delay between batches if needed to avoid rate limiting
+            time.sleep(0.1)
+
+        logger.info(f"Finished accommodation score update. Total Attempted Updates: {len(updates_to_make)}, Succeeded: {total_updated}, Failed: {total_failed}")
+        if total_failed > 0:
+             logger.warning("Some accommodation updates failed. Check logs for details.")
+
 
     except Exception as e:
         logger.error(f"An error occurred during the accommodation score update process: {e}", exc_info=True)
     finally:
         logger.info("Accommodation score update process finished.")
-        logger.info("\n====== Safety Metrics Processing COMPLETED ======")
+        # Removed duplicate "COMPLETED" message from here
 
 # --- Main Execution ---
 def main(test_mode=False):
@@ -843,8 +918,8 @@ def main(test_mode=False):
     logger.info(f"Mode: {'TEST' if test_mode else 'PRODUCTION'}")
     logger.info(f"Using neighbor radius: {NEIGHBOR_RADIUS_METERS} meters")
 
-    days_back = 100
-    max_records = 5000
+    days_back = 900
+    max_records = 500000
     if test_mode:
         logger.info("TEST MODE: Using smaller dataset parameters.")
         days_back = 30
@@ -877,18 +952,18 @@ def main(test_mode=False):
         upload_metrics(metrics_by_type, test_mode=test_mode)
 
         # --- NEW STEP 5: Update Accommodation Scores ---
-        logger.info("\n=== STEP 5: Updating Overall Scores for Accommodations ===")
+        logger.info("\n=== STEP 5: Updating Scores, Block & City IDs for Accommodations ===") # Updated log message
         try:
             # Ensure supabase client is initialized and passed
             update_accommodation_safety_scores(supabase)
-            logger.info("Accommodation score update process finished.")
+            # logger.info("Accommodation score update process finished.") # This is logged within the function now
         except Exception as score_update_err:
             logger.error(f"Failed to update accommodation scores: {score_update_err}", exc_info=True)
             # Decide if this error should be critical or just logged
 
         end_time = datetime.now()
         duration = (end_time - start_time).total_seconds()
-        logger.info(f"\n====== Safety Metrics Processing COMPLETED ======")
+        logger.info(f"\n====== Safety Metrics Processing COMPLETED ======") # Keep one final completion message
         logger.info(f"Total execution time: {duration:.2f} seconds ({duration / 60.0:.2f} minutes)")
 
     except Exception as e:
