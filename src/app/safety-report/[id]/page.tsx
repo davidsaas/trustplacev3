@@ -527,7 +527,7 @@ export default function SafetyReportPage({ params }: SafetyReportProps) {
                 <div className="ml-4 mt-4">
                   <h3 className="text-base font-semibold text-gray-900">Safety</h3>
                   <p className="mt-1 text-sm text-gray-500">
-                    Detailed safety metrics for this location based on local data.
+                    Detailed safety metrics and community feedback for this location.
                   </p>
                 </div>
               </div>
@@ -535,6 +535,16 @@ export default function SafetyReportPage({ params }: SafetyReportProps) {
             <RestrictedContent>
               <SafetyMetrics data={reportData.safety_metrics} />
             </RestrictedContent>
+
+            <div className="mt-6">
+              <RestrictedContent>
+                <CommunityOpinions
+                  isAuthenticated={isAuthenticated}
+                  latitude={reportData.location?.lat ?? null}
+                  longitude={reportData.location?.lng ?? null}
+                />
+              </RestrictedContent>
+            </div>
           </div>
         );
       case 'neighborhood':
@@ -551,28 +561,6 @@ export default function SafetyReportPage({ params }: SafetyReportProps) {
               </div>
             </div>
             <OSMInsights data={osmInsights} isLoading={loadingOSM} />
-          </div>
-        );
-      case 'community':
-        return (
-          <div>
-            <div className="border-b border-gray-200 bg-white px-4 py-5 sm:px-6 rounded-t-xl shadow-sm">
-              <div className="-ml-4 -mt-4 flex flex-wrap items-center justify-between sm:flex-nowrap">
-                <div className="ml-4 mt-4">
-                  <h3 className="text-base font-semibold text-gray-900">Opinions</h3>
-                  <p className="mt-1 text-sm text-gray-500">
-                    AI takeaways and raw comments from local discussions.
-                  </p>
-                </div>
-              </div>
-            </div>
-            <RestrictedContent>
-              <CommunityOpinions
-                isAuthenticated={isAuthenticated}
-                latitude={reportData.location?.lat ?? null}
-                longitude={reportData.location?.lng ?? null}
-              />
-            </RestrictedContent>
           </div>
         );
       case 'activities':

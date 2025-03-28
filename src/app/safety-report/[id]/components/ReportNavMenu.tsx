@@ -13,7 +13,6 @@ const navItems: { id: ExtendedReportSection; label: string }[] = [
   { id: 'map', label: 'Map' },
   { id: 'safety', label: 'Safety' },
   { id: 'neighborhood', label: 'Neighborhood' },
-  { id: 'community', label: 'Opinions' },
   { id: 'activities', label: 'What to Do' },
 ]
 
