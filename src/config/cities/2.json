@@ -1,0 +1,21 @@
+{
+  "city_id": 2,
+  "city_name": "New York City",
+  "crime_data": {
+    "source_type": "socrata",
+    "api_domain": "data.cityofnewyork.us",
+    "dataset_id": "qgea-i56i",
+    "app_token_env_var": "NYC_APP_TOKEN"
+  },
+  "crime_code_mapping_file": "../../config/mappings/nyc_crime_codes.json",
+  "mapbox_config": {
+    "bbox": "-74.25909,40.477399,-73.700181,40.917577",
+    "proximity": "-73.935242,40.730610"
+  },
+  "geospatial": {
+    "neighbor_radius_meters": 400
+  },
+  "apify": {
+    "redditDatasetUrl": "https://api.apify.com/v2/datasets/?????/items?clean=true&format=json"
+  }
+} 

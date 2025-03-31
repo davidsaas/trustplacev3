@@ -1,0 +1,21 @@
+{
+  "city_id": 1,
+  "city_name": "Los Angeles",
+  "crime_data": {
+    "source_type": "socrata",
+    "api_domain": "data.lacity.org",
+    "dataset_id": "2nrs-mtv8",
+    "app_token_env_var": "LA_APP_TOKEN"
+  },
+  "crime_code_mapping_file": "../../config/safety_metrics_config.json",
+  "mapbox_config": {
+    "bbox": "-118.9500,33.7000,-117.6500,34.8200",
+    "proximity": "-118.2437,34.0522"
+  },
+  "geospatial": {
+    "neighbor_radius_meters": 400
+  },
+  "apify": {
+    "redditDatasetUrlEnvVar": "APIFY_REDDIT_DATASET_URL"
+  }
+} 

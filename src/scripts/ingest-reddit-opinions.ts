@@ -3,6 +3,8 @@ const { createClient } = require('@supabase/supabase-js');
 const nodeFetch = require('node-fetch');
 const dotenv = require('dotenv');
 const nlp = require('compromise');
+const fs = require('fs');
+const path = require('path');
 
 dotenv.config({ path: '.env' });
 
@@ -68,8 +70,29 @@ if (!supabaseUrl || !supabaseServiceKey || !apifyDatasetUrl || !mapboxAccessToke
 }
 const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
+// --- Config Loading Function ---
+function loadCityConfig(cityId: number): any | null {
+    const configFilePath = path.join(__dirname, `../../config/cities/${cityId}.json`);
+    console.log(`Attempting to load config from: ${configFilePath}`);
+    try {
+        if (fs.existsSync(configFilePath)) {
+            const rawData = fs.readFileSync(configFilePath, 'utf-8');
+            const configData = JSON.parse(rawData);
+            console.log(`Successfully loaded config for City ID: ${cityId} (${configData.city_name})`);
+            // TODO: Add schema validation for the config object
+            return configData;
+        } else {
+            console.error(`🛑 Error: Config file not found for City ID ${cityId} at ${configFilePath}`);
+            return null;
+        }
+    } catch (error: any) {
+        console.error(`🛑 Error loading or parsing config for City ID ${cityId}:`, error.message || error);
+        return null;
+    }
+}
+
 // --- Geocoding Function (using the refined filtering logic from your run) ---
-async function geocodeRedditItem(item: RedditItem): Promise<{ latitude: number; longitude: number; cityId: number | null } | null> {
+async function geocodeRedditItem(item: RedditItem, targetCityId: number): Promise<{ latitude: number; longitude: number; cityId: number | null } | null> {
     if (!mapboxAccessToken) return null;
     const textToAnalyze = `${item.title || ''}. ${item.body || ''}`;
     if (!textToAnalyze.trim()) return null;
@@ -141,18 +164,53 @@ async function geocodeRedditItem(item: RedditItem): Promise<{ latitude: number; 
             // --- End Context Filtering ---
 
             // console.log(`✅ Geocoded "${mapboxQuery}" -> [${latitude.toFixed(5)}, ${longitude.toFixed(5)}]`); // Less verbose
-            return { latitude, longitude, cityId: DEFAULT_LA_CITY_ID };
+            return { latitude, longitude, cityId: targetCityId };
         } else { return null; }
     } catch (error: any) { console.error(`💥 Error during Mapbox API call for "${mapboxQuery}":`, error.message || error); return null; }
 }
 
 // --- Main Ingestion Logic ---
-async function ingestData() {
-  console.log(`🚀 Starting Reddit opinion ingestion...`);
-  if (!apifyDatasetUrl) { throw new Error('APIFY_REDDIT_DATASET_URL is not defined'); }
-  console.log(`Fetching data from Apify: ${apifyDatasetUrl}`);
+async function ingestData(targetCityId: number) {
+  console.log(`🚀 Starting Reddit opinion ingestion for City ID: ${targetCityId}...`);
+
+  // Load city configuration based on targetCityId
+  const cityConfig = loadCityConfig(targetCityId);
+  if (!cityConfig) {
+    console.error(`🛑 Could not load configuration for City ID: ${targetCityId}. Exiting.`);
+    process.exit(1);
+  }
+  const cityName = cityConfig.city_name || `City ${targetCityId}`;
+
+  // Determine the Apify URL to use
+  let cityApifyUrl: string | undefined;
+  if (cityConfig.apify?.redditDatasetUrlEnvVar) {
+      cityApifyUrl = process.env[cityConfig.apify.redditDatasetUrlEnvVar];
+      if (!cityApifyUrl) {
+          console.error(`🛑 Environment variable ${cityConfig.apify.redditDatasetUrlEnvVar} specified in config but not found.`);
+          process.exit(1);
+      }
+  } else if (cityConfig.apify?.redditDatasetUrl) {
+      cityApifyUrl = cityConfig.apify.redditDatasetUrl;
+  } else {
+      console.error(`🛑 Missing 'apify.redditDatasetUrl' or 'apify.redditDatasetUrlEnvVar' in config for City ID ${targetCityId}.`);
+      process.exit(1);
+  }
+
+  // Explicit check to satisfy TypeScript after potentially exiting
+  if (!cityApifyUrl) {
+      console.error("🛑 Internal error: cityApifyUrl is unexpectedly undefined.");
+      process.exit(1);
+  }
+
+  // Check for placeholder URL (basic check)
+  if (cityApifyUrl.includes('?????')) {
+      console.warn(`🟡 Warning: Apify URL for ${cityName} seems to be a placeholder. Please update the config file.`);
+      // Optionally exit if placeholder is not allowed: process.exit(1);
+  }
+  
+  console.log(`Fetching data for ${cityName} from Apify: ${cityApifyUrl}`);
   try {
-    const response = await nodeFetch(apifyDatasetUrl);
+    const response = await nodeFetch(cityApifyUrl);
     if (!response.ok) throw new Error(`Apify fetch failed: ${response.status} ${response.statusText}`);
     const rawData = await response.json();
     const data = Array.isArray(rawData) ? rawData as RedditItem[] : [];
@@ -165,10 +223,10 @@ async function ingestData() {
 
     for (const item of data) {
         processedItemCount++;
-        if (processedItemCount % 50 === 0) console.log(`   Processed ${processedItemCount}/${totalItems}...`);
+        if (processedItemCount % 50 === 0) console.log(`   Processed ${processedItemCount}/${totalItems} for City ID: ${targetCityId}...`);
         if (!item.body || !(item.id || item.parsedId)) { geocodeFailCount++; continue; }
 
-        const geo = await geocodeRedditItem(item);
+        const geo = await geocodeRedditItem(item, targetCityId);
 
         if (geo) {
             geocodeSuccessCount++;
@@ -220,10 +278,38 @@ async function ingestData() {
         }
     }
     console.log('---');
-    console.log(`✅ Ingestion finished. DB Processed: ${totalDbProcessed}.`);
+    console.log(`✅ Ingestion finished for ${cityName} (ID: ${targetCityId}). DB Processed: ${totalDbProcessed}.`);
     if (failedBatchCount > 0) console.log(`   Warning: ${failedBatchCount} batches had DB errors.`);
 
-  } catch (error: any) { console.error('❌ Unhandled error during ingestion:', error.message || error); process.exit(1); }
+  } catch (error: any) { 
+      console.error(`❌ Unhandled error during ingestion for ${cityName} (ID: ${targetCityId}):`, error.message || error); 
+      process.exit(1); 
+  }
 }
 
-ingestData();
+// --- Argument Parsing and Execution ---
+function parseArgs() {
+  const args = process.argv.slice(2);
+  let cityId: number | null = null;
+
+  for (let i = 0; i < args.length; i++) {
+    if (args[i] === '--city-id' && i + 1 < args.length) {
+      const id = parseInt(args[i + 1], 10);
+      if (!isNaN(id)) {
+        cityId = id;
+        break;
+      }
+    }
+  }
+  return cityId;
+}
+
+const targetCityId = parseArgs();
+
+if (targetCityId === null) {
+  console.error('🛑 Error: Missing required argument --city-id');
+  console.log('Usage: node dist/scripts/ingest-reddit-opinions.js --city-id <number>'); // Adjust path if needed
+  process.exit(1);
+}
+
+ingestData(targetCityId);
