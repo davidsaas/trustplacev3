@@ -2,7 +2,6 @@ import { memo, useState, useEffect } from 'react'
 import { CircularProgressbar, buildStyles } from 'react-circular-progressbar';
 import 'react-circular-progressbar/dist/styles.css';
 import { ImageOff, ExternalLink, Shield } from 'lucide-react'
-import { SavedButton } from './SavedButton'
 import { PropertyMetrics } from './PropertyMetrics'
 import { getValidImageUrl, getRiskLevel } from '../utils'
 import type { PropertyHeaderProps, Location } from '@/types/safety-report'
@@ -135,21 +134,16 @@ export const PropertyHeader = memo(({
             </div>
             
             <div className="mt-6 flex flex-col justify-stretch space-y-3 sm:mt-0 sm:flex-row sm:space-y-0 sm:space-x-4">
-              <SavedButton
-                accommodationId={accommodationId}
-                accommodationName={name}
-                source={source ?? 'Unknown Source'}
-              />
-              
               {url && (
-                <a 
-                  href={url} 
-                  target="_blank" 
+                <a
+                  href={url}
+                  target="_blank"
                   rel="noopener noreferrer"
-                  className="inline-flex justify-center gap-x-1.5 rounded-md bg-white px-3 py-2 text-sm font-semibold text-gray-900 shadow-sm ring-1 ring-inset ring-gray-300 hover:bg-gray-50"
+                  className="inline-flex justify-center items-center rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 shadow-sm hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2"
+                  aria-label={`View ${name} on ${source || 'source website'} (opens in new tab)`}
                 >
-                  <ExternalLink className="-ml-0.5 mr-1.5 size-5 text-gray-400" aria-hidden="true" />
-                  <span>View Listing</span>
+                  <ExternalLink className="mr-2 h-5 w-5 text-gray-400" />
+                  View on {source || 'Source'}
                 </a>
               )}
             </div>

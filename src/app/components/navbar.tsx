@@ -2,17 +2,17 @@
 
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
-import { useState, useEffect } from 'react'
-import { Menu, MenuButton, MenuItem, MenuItems, Popover, PopoverButton, PopoverPanel } from '@headlessui/react'
+import { useState, useEffect, Fragment } from 'react'
+import { Menu, MenuButton, MenuItem, MenuItems, Popover, PopoverButton, PopoverPanel, Transition } from '@headlessui/react'
 import { MagnifyingGlassIcon as Search } from '@heroicons/react/20/solid'
 import { Bars3Icon, XMarkIcon } from '@heroicons/react/24/outline'
-import { User, BookmarkIcon, LogOut, Share2 } from 'lucide-react'
+import { User, BookmarkIcon, LogOut, Share2, ChevronDown } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { toast } from 'sonner'
 import { useAuth } from '@/components/shared/providers/auth-provider'
 import { ROUTES } from '@/lib/constants'
 import { parseAccommodationURL } from '@/lib/utils/url'
-import { SavedAccommodationsDrawer } from '@/components/ui/drawer'
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 
 function classNames(...classes: (string | boolean | undefined)[]) {
   return classes.filter(Boolean).join(' ')
@@ -22,10 +22,10 @@ export function AppNavbar() {
   const [searchQuery, setSearchQuery] = useState('')
   const [isLoading, setIsLoading] = useState(false)
   const [avatar, setAvatar] = useState<string | null>(null)
-  const [isSavedDrawerOpen, setIsSavedDrawerOpen] = useState(false)
   const pathname = usePathname()
   const router = useRouter()
   const { user, signOut, supabase, loading } = useAuth()
+  const [userInitials, setUserInitials] = useState<string | null>(null);
 
   const isReportPage = pathname.startsWith('/safety-report/')
 
@@ -51,6 +51,15 @@ export function AppNavbar() {
 
     fetchUserProfile()
   }, [user, supabase])
+
+  useEffect(() => {
+    if (user) {
+      const initials = user.user_metadata?.full_name
+        ? user.user_metadata.full_name.split(' ').map((name: string) => name.charAt(0)).join('')
+        : null;
+      setUserInitials(initials);
+    }
+  }, [user]);
 
   const handleSearch = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -99,14 +108,14 @@ export function AppNavbar() {
 
   const handleSignOut = async () => {
     await signOut(ROUTES.HOME)
+    router.push('/')
   }
 
-  const handleOpenSavedDrawer = () => {
-    setIsSavedDrawerOpen(true)
-  }
-
-  const handleCloseSavedDrawer = () => {
-    setIsSavedDrawerOpen(false)
+  const handleSearchSubmit = (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault()
+    if (searchQuery.trim()) {
+      router.push(`/search?query=${encodeURIComponent(searchQuery.trim())}`)
+    }
   }
 
   const handleShare = () => {
@@ -195,56 +204,45 @@ export function AppNavbar() {
                     {loading ? (
                       <div className="h-8 w-8 rounded-full bg-gray-200 animate-pulse"></div>
                     ) : user ? (
-                      <Menu as="div" className="relative">
-                        <div>
-                          <MenuButton className="relative flex rounded-full bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2">
-                            <span className="absolute -inset-1.5" />
-                            <span className="sr-only">Open user menu</span>
-                            <div className="flex h-8 w-8 items-center justify-center rounded-full bg-gray-100 hover:bg-gray-200 overflow-hidden">
-                              {avatar ? (
-                                <img src={avatar} alt="Profile" className="h-full w-full object-cover" />
-                              ) : (
-                                <User className="h-4 w-4 text-gray-500" />
-                              )}
-                            </div>
-                          </MenuButton>
-                        </div>
-                        <MenuItems
-                          transition
-                          className="absolute right-0 z-10 mt-2 w-48 origin-top-right rounded-md bg-white py-1 shadow-lg ring-1 ring-black ring-opacity-5 transition focus:outline-none data-closed:scale-95 data-closed:transform data-closed:opacity-0 data-enter:duration-100 data-enter:ease-out data-leave:duration-75 data-leave:ease-in"
-                        >
-                          <div className="px-4 py-2 text-sm text-gray-500 border-b border-gray-100 truncate">
-                            {user.email}
-                          </div>
-                          <MenuItem>
-                            <Link
-                              href="/profile"
-                              className="flex items-center gap-2 px-4 py-2 text-sm text-gray-700 data-focus:bg-gray-100"
+                      <Popover className="relative">
+                        {({ open }) => (
+                          <>
+                            <PopoverButton className="flex items-center rounded-full bg-white text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2">
+                              <span className="sr-only">Open user menu</span>
+                              <Avatar className="h-8 w-8">
+                                <AvatarImage src={avatar ?? undefined} />
+                                <AvatarFallback>{userInitials || 'U'}</AvatarFallback>
+                              </Avatar>
+                              <ChevronDown className={`ml-1 h-4 w-4 text-gray-500 transition-transform duration-200 ${open ? 'rotate-180' : ''}`} />
+                            </PopoverButton>
+
+                            <Transition
+                              as={Fragment}
+                              enter="transition ease-out duration-100"
+                              enterFrom="transform opacity-0 scale-95"
+                              enterTo="transform opacity-100 scale-100"
+                              leave="transition ease-in duration-75"
+                              leaveFrom="transform opacity-100 scale-100"
+                              leaveTo="transform opacity-0 scale-95"
                             >
-                              <User className="h-4 w-4" />
-                              Profile
-                            </Link>
-                          </MenuItem>
-                          <MenuItem>
-                            <button
-                              onClick={handleOpenSavedDrawer}
-                              className="w-full flex items-center gap-2 px-4 py-2 text-sm text-gray-700 data-focus:bg-gray-100 text-left"
-                            >
-                              <BookmarkIcon className="h-4 w-4" />
-                              Saved
-                            </button>
-                          </MenuItem>
-                          <MenuItem>
-                            <button
-                              className="w-full flex items-center gap-2 px-4 py-2 text-sm text-gray-700 data-focus:bg-gray-100 text-left"
-                              onClick={handleSignOut}
-                            >
-                              <LogOut className="h-4 w-4" />
-                              Sign Out
-                            </button>
-                          </MenuItem>
-                        </MenuItems>
-                      </Menu>
+                              <PopoverPanel className="absolute right-0 z-10 mt-2 w-48 origin-top-right rounded-md bg-white py-1 shadow-lg ring-1 ring-black ring-opacity-5 focus:outline-none">
+                                <Link
+                                  href="/profile"
+                                  className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
+                                >
+                                  Your Profile
+                                </Link>
+                                <button
+                                  onClick={handleSignOut}
+                                  className="block w-full px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-100"
+                                >
+                                  Sign out
+                                </button>
+                              </PopoverPanel>
+                            </Transition>
+                          </>
+                        )}
+                      </Popover>
                     ) : (
                       <Link href={`${ROUTES.SIGN_IN}?next=${encodeURIComponent(pathname)}`}>
                         <Button>
@@ -301,15 +299,13 @@ export function AppNavbar() {
                   <>
                     <div className="flex items-center px-4 mb-3">
                       <div className="shrink-0">
-                        <div className="flex h-10 w-10 items-center justify-center rounded-full bg-gray-100 overflow-hidden">
-                          {avatar ? (
-                            <img src={avatar} alt="Profile" className="h-full w-full object-cover" />
-                          ) : (
-                            <User className="h-5 w-5 text-gray-500" />
-                          )}
-                        </div>
+                        <Avatar className="h-10 w-10">
+                          <AvatarImage src={avatar ?? undefined} />
+                          <AvatarFallback>{userInitials || 'U'}</AvatarFallback>
+                        </Avatar>
                       </div>
                       <div className="ml-3 min-w-0">
+                        <div className="truncate text-base font-medium text-gray-800">{user.user_metadata?.full_name ?? 'User'}</div>
                         <div className="truncate text-sm font-medium text-gray-500">{user.email}</div>
                       </div>
                     </div>
@@ -321,12 +317,6 @@ export function AppNavbar() {
                       >
                         <User className="h-5 w-5" /> Profile
                       </Link>
-                      <button
-                        onClick={() => { handleOpenSavedDrawer(); close(); }}
-                        className="w-full flex items-center gap-3 rounded-md px-3 py-2 text-base font-medium text-gray-700 hover:bg-gray-50 hover:text-gray-900 text-left"
-                      >
-                        <BookmarkIcon className="h-5 w-5" /> Saved
-                      </button>
                       <button
                         onClick={() => { handleSignOut(); close(); }}
                         className="w-full flex items-center gap-3 rounded-md px-3 py-2 text-base font-medium text-gray-700 hover:bg-gray-50 hover:text-gray-900 text-left"
@@ -358,11 +348,6 @@ export function AppNavbar() {
           </>
         )}
       </Popover>
-
-      <SavedAccommodationsDrawer
-        open={isSavedDrawerOpen}
-        onClose={handleCloseSavedDrawer}
-      />
     </>
   )
 } 
