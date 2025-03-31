@@ -1,12 +1,64 @@
 import { createClient } from '@supabase/supabase-js'
 import { Database } from '../lib/supabase'
 import dotenv from 'dotenv'
+import fs from 'fs'
+import path from 'path'
+import { parseArgs } from 'node:util'
 
 // Load environment variables
 dotenv.config()
 
-const AIRBNB_DATASET_URL = 'https://api.apify.com/v2/datasets/ahO69GU8VMAQiO3cu/items?clean=true&format=json'
-const BOOKING_DATASET_URL = 'https://api.apify.com/v2/datasets/f0zLgeObIt04pjSn4/items?clean=true&format=json'
+// --- REMOVE OLD HARDCODED URLS ---
+// const AIRBNB_DATASET_URL = 'https://api.apify.com/v2/datasets/ahO69GU8VMAQiO3cu/items?clean=true&format=json'
+// const BOOKING_DATASET_URL = 'https://api.apify.com/v2/datasets/f0zLgeObIt04pjSn4/items?clean=true&format=json'
+
+// --- Argument Parsing ---
+let cityId: number | null = null;
+let cityConfig: any; // Declare cityConfig here to be accessible later
+
+try {
+  const args = parseArgs({
+    options: {
+      'city-id': { type: 'string' },
+    },
+    allowPositionals: true, // Allow if needed, but prefer named args
+  });
+  if (args.values['city-id']) {
+    cityId = parseInt(args.values['city-id'], 10);
+    if (isNaN(cityId)) {
+        throw new Error("Invalid --city-id provided. Must be a number.");
+    }
+  } else {
+     throw new Error("--city-id argument is required.");
+  }
+  console.log(`Processing for City ID: ${cityId}`);
+
+  // --- Load City Configuration ---
+  const configPath = path.resolve(__dirname, `../../../config/cities/${cityId}.json`); // Adjust path as needed
+  console.log(`Loading city config from: ${configPath}`);
+  const configFile = fs.readFileSync(configPath, 'utf-8');
+  cityConfig = JSON.parse(configFile);
+  // Updated Check: Expects apify_urls object with potential keys
+  if (!cityConfig.apify_urls || typeof cityConfig.apify_urls !== 'object') {
+      throw new Error("City config is missing or has invalid 'apify_urls' object.");
+  }
+  // Check for at least one accommodation URL
+  if (!cityConfig.apify_urls.accommodations_airbnb && !cityConfig.apify_urls.accommodations_booking) {
+      console.warn(`Warning: City config for ID ${cityId} is missing both 'accommodations_airbnb' and 'accommodations_booking' URLs in 'apify_urls'.`);
+      // Decide if this is fatal or if the script should proceed with potentially empty data
+      // For now, let's allow it to proceed but log a strong warning.
+  }
+
+  console.log(`Loaded config for ${cityConfig.city_name}`);
+
+} catch (err: any) { // Catch specific error types if needed
+  console.error("Initialization error:", err.message);
+  process.exit(1);
+}
+
+// Use URLs from config - provide empty string if missing to avoid runtime errors in fetch
+const AIRBNB_DATASET_URL = cityConfig?.apify_urls?.accommodations_airbnb || '';
+const BOOKING_DATASET_URL = cityConfig?.apify_urls?.accommodations_booking || '';
 
 // Initialize Supabase client
 const supabase = createClient<Database>(
@@ -127,7 +179,7 @@ function extractPrice(priceStr: string | undefined): number | null {
   return match ? parseInt(match[1], 10) : null;
 }
 
-function transformAirbnbData(item: ApifyAirbnbItem) {
+function transformAirbnbData(item: ApifyAirbnbItem, cityIdToAssign: number) {
   // Skip items without required fields
   if (!item.thumbnail || !item.price?.price) {
     console.warn(`Missing required fields for Airbnb listing ${item.id}`)
@@ -144,6 +196,7 @@ function transformAirbnbData(item: ApifyAirbnbItem) {
   const title = item.seoTitle?.split(' - ')[0] || item.sharingConfigTitle?.split(' · ')[0] || 'Untitled Listing'
 
   return {
+    city_id: cityIdToAssign,
     source: 'airbnb' as const,
     external_id: item.id,
     url: item.url,
@@ -167,7 +220,7 @@ function transformAirbnbData(item: ApifyAirbnbItem) {
   }
 }
 
-function transformBookingData(item: ApifyBookingItem) {
+function transformBookingData(item: ApifyBookingItem, cityIdToAssign: number) {
   // Get the first image from images array if main image is null
   const imageUrl = item.image || (item.images && item.images.length > 0 ? item.images[0] : null)
   
@@ -198,6 +251,7 @@ function transformBookingData(item: ApifyBookingItem) {
   ).filter(Boolean) || []
 
   return {
+    city_id: cityIdToAssign,
     source: 'booking' as const,
     external_id,
     url: item.url,
@@ -224,21 +278,31 @@ function transformBookingData(item: ApifyBookingItem) {
   }
 }
 
-async function importAccommodations() {
-  console.log('🚀 Starting accommodation import...')
+async function importAccommodations(cityIdToImport: number) {
+  console.log(`🚀 Starting accommodation import for City ID: ${cityIdToImport}...`);
+  console.log(`Using config for ${cityConfig.city_name}`);
 
-  // Fetch data from both sources
-  console.log('Fetching Airbnb data...')
-  const airbnbData: ApifyAirbnbItem[] = await fetchData(AIRBNB_DATASET_URL)
-  console.log(`Found ${airbnbData.length} Airbnb listings`)
+  let airbnbData: ApifyAirbnbItem[] = [];
+  if (AIRBNB_DATASET_URL) {
+      console.log(`Fetching Airbnb data from: ${AIRBNB_DATASET_URL}`);
+      airbnbData = await fetchData(AIRBNB_DATASET_URL);
+      console.log(`Found ${airbnbData.length} Airbnb listings for ${cityConfig.city_name}`);
+  } else {
+      console.log(`Skipping Airbnb fetch: No URL found in config for ${cityConfig.city_name}.`);
+  }
 
-  console.log('Fetching Booking.com data...')
-  const bookingData: ApifyBookingItem[] = await fetchData(BOOKING_DATASET_URL)
-  console.log(`Found ${bookingData.length} Booking.com listings`)
+  let bookingData: ApifyBookingItem[] = [];
+  if (BOOKING_DATASET_URL) {
+      console.log(`Fetching Booking.com data from: ${BOOKING_DATASET_URL}`);
+      bookingData = await fetchData(BOOKING_DATASET_URL);
+      console.log(`Found ${bookingData.length} Booking.com listings for ${cityConfig.city_name}`);
+  } else {
+      console.log(`Skipping Booking.com fetch: No URL found in config for ${cityConfig.city_name}.`);
+  }
 
-  // Transform the data and filter out items without images
-  const transformedAirbnb = airbnbData.map(transformAirbnbData).filter((item): item is NonNullable<typeof item> => item !== null)
-  const transformedBooking = bookingData.map(transformBookingData).filter((item): item is NonNullable<typeof item> => item !== null)
+  // Transform the data, passing cityId
+  const transformedAirbnb = airbnbData.map(item => transformAirbnbData(item, cityIdToImport)).filter((item): item is NonNullable<ReturnType<typeof transformAirbnbData>> => item !== null);
+  const transformedBooking = bookingData.map(item => transformBookingData(item, cityIdToImport)).filter((item): item is NonNullable<ReturnType<typeof transformBookingData>> => item !== null);
   
   // Check for duplicates before merging
   const duplicateCheck = new Set()
@@ -263,7 +327,12 @@ async function importAccommodations() {
 
   const allAccommodations = [...transformedAirbnb, ...transformedBooking]
 
-  console.log(`Processing ${transformedAirbnb.length} Airbnb and ${transformedBooking.length} Booking.com listings with valid images`)
+  console.log(`Processing ${transformedAirbnb.length} Airbnb and ${transformedBooking.length} Booking.com listings for ${cityConfig.city_name}`)
+
+  if (allAccommodations.length === 0) {
+    console.log(`No valid accommodations to insert for ${cityConfig.city_name}. Import finished early.`);
+    return; // Exit if no data
+  }
 
   // Insert data in batches
   const BATCH_SIZE = 100
@@ -287,12 +356,23 @@ async function importAccommodations() {
         url: item.url
       })))
     } else {
-      console.log(`Successfully upserted ${data?.length} records in batch ${i / BATCH_SIZE + 1} of ${Math.ceil(allAccommodations.length / BATCH_SIZE)}`)
+      console.log(`Successfully upserted ${data?.length} records in batch ${i / BATCH_SIZE + 1} of ${Math.ceil(allAccommodations.length / BATCH_SIZE)} for ${cityConfig.city_name}`)
     }
   }
 
-  console.log('✅ Import completed!')
+  console.log(`✅ Import completed for ${cityConfig.city_name}!`);
 }
 
-// Run the import
-importAccommodations().catch(console.error)
+// Run the import, passing the parsed cityId
+// Make sure cityId is not null before calling
+if (cityId !== null) {
+    importAccommodations(cityId).catch(err => {
+        console.error(`Error during import for city ${cityId}:`, err);
+        process.exit(1);
+    });
+} else {
+    // This case should ideally be prevented by the initial argument check,
+    // but adding it for safety.
+    console.error("City ID is null, cannot start import.");
+    process.exit(1);
+}

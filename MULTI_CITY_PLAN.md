@@ -17,14 +17,14 @@ This checklist tracks the progress of adapting the Trustplace application to sup
 - [✅] Update execution commands/scripts for multi-city runs.
 
 ## III. Backend Data Ingestion (Node.js)
-- [✅] Parameterize script to accept city input.
-- [✅] Use/extend city configuration mechanism (align with Python script).
-- [ ] Identify and add NYC/MIA Apify/data source URLs to config.
-- [ ] Refactor geocoding (`geocodeRedditItem`) to remove hardcoded LA values and use city config.
-- [ ] Update data fetching to use city-specific URLs.
-- [ ] Ensure correct `city_id` is included during DB insertion.
-- [ ] Enhance logging for city context.
-- [ ] Update execution commands for multi-city runs.
+- [✅] Parameterize script to accept city input (`import-accommodations.ts`).
+- [✅] Use/extend city configuration mechanism (align with Python script) (`import-accommodations.ts`).
+- [✅] Identify and add NYC/MIA Apify/data source URLs to config (`import-accommodations.ts`).
+- [ ] Refactor geocoding (`geocodeRedditItem`) to remove hardcoded LA values and use city config (`ingest-reddit-opinions.ts`).
+- [✅] Update data fetching to use city-specific URLs (`import-accommodations.ts`).
+- [✅] Ensure correct `city_id` is included during DB insertion (`import-accommodations.ts`).
+- [✅] Enhance logging for city context (`import-accommodations.ts`).
+- [✅] Update execution commands for multi-city runs (User responsibility).
 
 ## IV. Backend API (Next.js)
 - [ ] Refactor `/api/process-url` to look up accommodations without city pre-filtering and select `city_id`.

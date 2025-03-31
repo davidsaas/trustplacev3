@@ -15,7 +15,9 @@
   "geospatial": {
     "neighbor_radius_meters": 400
   },
-  "apify": {
-    "redditDatasetUrlEnvVar": "APIFY_REDDIT_DATASET_URL"
+  "apify_urls": {
+    "redditDatasetUrlEnvVar": "APIFY_REDDIT_DATASET_URL",
+    "accommodations_airbnb": "https://api.apify.com/v2/datasets/ahO69GU8VMAQiO3cu/items?clean=true&format=json",
+    "accommodations_booking": "https://api.apify.com/v2/datasets/f0zLgeObIt04pjSn4/items?clean=true&format=json"
   }
 } 
