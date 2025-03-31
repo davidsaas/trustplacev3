@@ -631,7 +631,7 @@ def update_accommodation_safety_scores(supabase_client: Client):
     for accommodations based on the latest safety_metrics.
     """
     logger.info("Starting accommodation overall safety score update...")
-    MAX_METRIC_DISTANCE_KM = 1.0 # Only consider metrics within 1km (adjust as needed)
+    MAX_METRIC_DISTANCE_KM = 2.0 # Only consider metrics within 2km (adjust as needed)
     REQUIRED_METRIC_TYPES = set(SAFETY_METRICS.keys())
     # Assume LA city_id is 1, if needed elsewhere. This script now associates city_id based on closest metric.
     TARGET_CITY_ID_FOR_METRIC_FETCH = 1 # Fetch metrics associated with LA
@@ -918,7 +918,7 @@ def main(test_mode=False):
     logger.info(f"Mode: {'TEST' if test_mode else 'PRODUCTION'}")
     logger.info(f"Using neighbor radius: {NEIGHBOR_RADIUS_METERS} meters")
 
-    days_back = 900
+    days_back = 120
     max_records = 500000
     if test_mode:
         logger.info("TEST MODE: Using smaller dataset parameters.")

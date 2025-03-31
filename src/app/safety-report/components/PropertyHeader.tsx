@@ -5,20 +5,8 @@ import { ImageOff, ExternalLink, Shield } from 'lucide-react'
 import { SavedButton } from './SavedButton'
 import { PropertyMetrics } from './PropertyMetrics'
 import { getValidImageUrl, getRiskLevel } from '../utils'
-import type { PropertyHeaderProps as PropertyHeaderDataProps } from '@/types/safety-report'
+import type { PropertyHeaderProps, Location } from '@/types/safety-report'
 import { ReportNavMenu, type ExtendedReportSection } from '../[id]/components/ReportNavMenu'
-
-// Combine base props with navigation props
-// Ensure PropertyHeaderDataProps actually contains image_url, url, overall_score etc.
-// If not, they need to be added here or in the base type definition.
-interface PropertyHeaderProps extends PropertyHeaderDataProps {
-  activeSection: ExtendedReportSection;
-  onSectionChange: (section: ExtendedReportSection) => void;
-  // Explicitly add properties if they aren't guaranteed by PropertyHeaderDataProps
-  image_url: string | null;
-  url: string | null;
-  overall_score: number;
-}
 
 export const PropertyHeader = memo(({
   name,
@@ -26,9 +14,12 @@ export const PropertyHeader = memo(({
   rating,
   total_reviews,
   source,
-  image_url, // Now explicitly part of the interface
-  url,       // Now explicitly part of the interface
-  overall_score = 0, // Now explicitly part of the interface
+  image_url,
+  url,
+  overall_score = 0,
+  property_type,
+  neighborhood,
+  location,
   activeSection,
   onSectionChange,
 }: PropertyHeaderProps) => {

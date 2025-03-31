@@ -1,3 +1,5 @@
+import type { ExtendedReportSection } from '@/app/safety-report/[id]/components/ReportNavMenu';
+
 export interface SafetyReportProps {
   params: { id: string }
 }
@@ -47,6 +49,14 @@ export interface PropertyHeaderProps {
   rating: number | null
   total_reviews: number | null
   source: string
+  image_url: string | null
+  url: string | null
+  overall_score: number
+  property_type?: string | null
+  neighborhood?: string | null
+  location: Location | null
+  activeSection: ExtendedReportSection
+  onSectionChange: (section: ExtendedReportSection) => void
 }
 
 export interface PropertyMetricsProps {

@@ -20,6 +20,16 @@ const nextConfig = {
     config.resolve.fallback = { fs: false, net: false, tls: false };
     return config;
   },
+  async redirects() {
+    return [
+      {
+        source: '/safety-report', // The path in your Next.js app
+        destination: 'https://trustplace.app', // The external WordPress URL
+        permanent: true, // Use true for permanent redirect (SEO friendly)
+      },
+      // Add other redirects here if needed
+    ]
+  },
 };
 
 module.exports = nextConfig; 

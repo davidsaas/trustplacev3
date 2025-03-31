@@ -133,7 +133,7 @@ export function AppNavbar() {
             <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
               <div className="relative flex justify-between h-16">
                 <div className="flex items-center">
-                  <Link href="/" className="flex shrink-0 items-center">
+                  <Link href="https://trustplace.app" className="flex shrink-0 items-center">
                     <img
                       alt="TrustPlace"
                       src="/logo.svg"

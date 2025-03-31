@@ -1,23 +1,17 @@
-import { Header } from '@/components/landing/Header'
-import { Hero } from '@/components/landing/Hero'
-import { PrimaryFeatures } from '@/components/landing/PrimaryFeatures'
-import { SecondaryFeatures } from '@/components/landing/SecondaryFeatures'
-import { Reviews } from '@/components/landing/Reviews'
-import { Faqs } from '@/components/landing/Faqs'
-import { Footer } from '@/components/landing/Footer'
+import { Suspense } from 'react'
+import { URLProcessor } from '@/app/safety-report/components/URLProcessor'
+import { Container } from '@/components/landing/Container'
 
 export default function Home() {
   return (
     <>
-      <Header />
-      <main>
-        <Hero />
-        <PrimaryFeatures />
-        <SecondaryFeatures />
-        <Reviews />
-        <Faqs />
+      <main className="flex min-h-[calc(100vh-10rem)] items-center justify-center py-20 sm:py-32">
+        <Container>
+          <Suspense fallback={null}>
+            <URLProcessor />
+          </Suspense>
+        </Container>
       </main>
-      <Footer />
     </>
   )
 }
