@@ -6,7 +6,10 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "script:import-accommodations": "tsx src/scripts/import-accommodations.ts",
+    "script:ingest-opinions": "tsx src/scripts/ingest-reddit-opinions.ts",
+    "script:process-safety": "python src/lib/safety-metrics/city_safety_processor.py"
   },
   "dependencies": {
     "@google/generative-ai": "^0.24.0",
@@ -75,6 +78,7 @@
     "sharp": "0.33.1",
     "supabase": "^2.19.7",
     "ts-node": "^10.9.2",
+    "tsx": "^4.19.3",
     "typescript": "^5.8.2"
   }
 }

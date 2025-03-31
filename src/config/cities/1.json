@@ -16,8 +16,16 @@
     "neighbor_radius_meters": 400
   },
   "apify_urls": {
-    "redditDatasetUrlEnvVar": "APIFY_REDDIT_DATASET_URL",
+    "reddit_opinions_url": "https://api.apify.com/v2/datasets/AGSbyFCJDEwnNj3Iq/items?clean=true&format=json",
     "accommodations_airbnb": "https://api.apify.com/v2/datasets/ahO69GU8VMAQiO3cu/items?clean=true&format=json",
     "accommodations_booking": "https://api.apify.com/v2/datasets/f0zLgeObIt04pjSn4/items?clean=true&format=json"
-  }
+  },
+  "context_places": [
+    "los angeles", "santa monica", "west hollywood", "beverly hills",
+    "culver city", "venice", "long beach", "redondo beach", "manhattan beach",
+    "pasadena", "burbank", "glendale", "inglewood", "compton", "torrance",
+    "hollywood", "downtown", "chinatown", "koreatown", "echo park", "silver lake",
+    "highland park", "arts district", "little tokyo", "hancock park", "larchmont village",
+    "century city", "westwood", "brentwood", "mar vista", "playa del rey", "westchester"
+  ]
 } 

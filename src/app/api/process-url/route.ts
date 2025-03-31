@@ -24,7 +24,7 @@ export async function POST(request: Request) {
     // Check if the accommodation exists in our database
     const { data, error } = await supabase
       .from('accommodations')
-      .select('id')
+      .select('id, city_id')
       .eq('source', source)
       .eq('external_id', externalId)
       .single()
@@ -41,11 +41,12 @@ export async function POST(request: Request) {
       )
     }
 
-    console.log('Accommodation found:', data.id)
+    console.log('Accommodation found:', data.id, 'City ID:', data.city_id)
     return NextResponse.json({
       success: true,
       exists: true,
-      reportId: data.id
+      reportId: data.id,
+      cityId: data.city_id
     })
   } catch (error) {
     console.error('Error processing URL:', error)

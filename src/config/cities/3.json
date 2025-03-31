@@ -16,8 +16,12 @@
     "neighbor_radius_meters": 400
   },
   "apify_urls": {
-    "redditDatasetUrl": "https://api.apify.com/v2/datasets/?????/items?clean=true&format=json",
+    "reddit_opinions_url": "",
     "accommodations_airbnb": "",
     "accommodations_booking": ""
-  }
+  },
+  "context_places": [
+    "miami", "miami beach", "south beach", "brickell", "downtown miami", "wynwood",
+    "little havana", "coconut grove", "coral gables", "key biscayne", "aventura"
+  ]
 } 

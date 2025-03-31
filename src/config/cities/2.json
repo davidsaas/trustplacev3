@@ -16,8 +16,13 @@
     "neighbor_radius_meters": 400
   },
   "apify_urls": {
-    "redditDatasetUrl": "https://api.apify.com/v2/datasets/?????/items?clean=true&format=json",
+    "reddit_opinions_url": "https://api.apify.com/v2/datasets/?????/items?clean=true&format=json",
     "accommodations_airbnb": "",
     "accommodations_booking": "https://api.apify.com/v2/datasets/lihqeW4NClKwdkddp/items?clean=true&format=json"
-  }
+  },
+  "context_places": [
+    "new york city", "manhattan", "brooklyn", "queens", "bronx", "staten island",
+    "midtown", "downtown", "upper east side", "upper west side", "harlem",
+    "williamsburg", "bushwick", "greenpoint", "park slope", "soho", "tribeca", "financial district"
+  ]
 } 
