@@ -16,6 +16,7 @@ import type { ReportSection, ExtendedReportSection } from './components/ReportNa
 import { useAuth } from '@/components/shared/providers/auth-provider'
 import { OSMInsights } from '../components/OSMInsights'
 import type { OSMInsightsResponse } from '@/app/api/osm-insights/route'
+import { ImageOff } from 'lucide-react'
 
 import type {
   SafetyReportProps,
@@ -116,125 +117,140 @@ async function findClosestSafetyMetricsBatch(locations: Location[]): Promise<Rec
   return results;
 }
 
-// Function to fetch similar accommodations (OPTIMIZED)
+// Constants for filtering similar accommodations
+const SIMILARITY_PRICE_RANGE = { MIN: 0.7, MAX: 1.3 }; // e.g., 70% to 130% of current price
+const SAFER_SCORE_THRESHOLD = 5; // Alternative must be at least 5 points higher
+const MIN_METRIC_TYPES_FOR_RELIABLE_SCORE = 4; // Require at least 4 metric types for reliable comparison
+const MAX_SIMILAR_RESULTS = 5; // Show top 5 results
+
+// Function to fetch similar accommodations (REVISED)
 async function findSimilarAccommodations(
-  location: Location,
-  price: number | null,
-  currentScore: number, // Still useful for context, maybe future filtering
-  excludeId: string
+  currentAccommodation: Pick<
+    AccommodationData,
+    'id' | 'location' | 'price_per_night' | 'overall_score' | 'property_type' | 'room_type' | 'bedrooms'
+  >
 ): Promise<SimilarAccommodation[]> {
+  const { id: excludeId, location, price_per_night, overall_score: currentScore, property_type, room_type, bedrooms } = currentAccommodation;
+
   // Validate inputs
   if (!location || !isValidCoordinates(location.lat, location.lng)) {
-    console.error('Invalid location in findSimilarAccommodations:', location);
+    console.error('[findSimilarAccommodations] Invalid current location:', location);
     return [];
   }
+  if (currentScore <= 0) {
+    console.warn('[findSimilarAccommodations] Current accommodation has no score, cannot find \'safer\' alternatives.');
+    return []; // Cannot find safer if current score is unknown
+  }
 
-  // console.log('Finding similar accommodations:', { hasPrice: price !== null, currentScore, searchRadius: LOCATION_RADIUS });
-  // console.log('Location bounds:', { latMin: location.lat - LOCATION_RADIUS, latMax: location.lat + LOCATION_RADIUS, lngMin: location.lng - LOCATION_RADIUS, lngMax: location.lng + LOCATION_RADIUS });
+  console.log(`[findSimilarAccommodations] Finding alternatives near (${location.lat.toFixed(4)}, ${location.lng.toFixed(4)}) with score > ${currentScore + SAFER_SCORE_THRESHOLD}`);
 
   try {
-    // 1. Fetch candidate accommodations based on location/price
+    // 1. Fetch candidate accommodations based on location, score, and basic similarity
     let query = supabaseServer
       .from('accommodations')
-      .select('id, name, price_per_night, latitude, longitude, source')
+      // Select necessary fields + the pre-calculated score and metric count
+      .select('id, name, price_per_night, latitude, longitude, source, overall_safety_score, safety_metric_types_found, property_type, room_type, bedrooms, image_url')
       .neq('id', excludeId)
+      // --- Geographic Filter --- (Use PostGIS for accurate radius)
+      // Note: You'll need to create a PostGIS index on 'location' column if you don't have one
+      // Example using ST_DWithin (replace 'location' with your geometry column name if different)
+      // .rpc('find_accommodations_within_radius', {
+      //   target_lat: location.lat,
+      //   target_lon: location.lng,
+      //   radius_meters: LOCATION_RADIUS * 111320 // Approx meters per degree latitude
+      // })
+      // --- Fallback to BBox (less accurate but easier) ---
       .gte('latitude', location.lat - LOCATION_RADIUS)
       .lte('latitude', location.lat + LOCATION_RADIUS)
       .gte('longitude', location.lng - LOCATION_RADIUS)
-      .lte('longitude', location.lng + LOCATION_RADIUS);
+      .lte('longitude', location.lng + LOCATION_RADIUS)
+      // --- Safety Filter --- (Using pre-calculated scores)
+      .gt('overall_safety_score', currentScore + SAFER_SCORE_THRESHOLD)
+      // --- Reliability Filter --- (Using pre-calculated metric count)
+      .gte('safety_metric_types_found', MIN_METRIC_TYPES_FOR_RELIABLE_SCORE)
+      // --- Basic Similarity Filters (Add more as needed) ---
+      .eq('property_type', property_type) // Match property type
+      .eq('room_type', room_type); // Match room type
 
-    if (price !== null && price > 0) {
-      // ... (price constraints) ...
-      query = query
-        .gte('price_per_night', price * PRICE_RANGE.MIN)
-        .lte('price_per_night', price * PRICE_RANGE.MAX);
+    // Optional: Filter by bedrooms (e.g., same number or +/- 1)
+    if (bedrooms != null && typeof bedrooms === 'number') {
+      query = query.gte('bedrooms', Math.max(0, bedrooms - 1))
+                   .lte('bedrooms', bedrooms + 1);
     }
 
-    const { data: accommodations, error } = await query;
+    // Optional: Price Filter
+    if (price_per_night !== null && price_per_night > 0) {
+      query = query
+        .gte('price_per_night', price_per_night * SIMILARITY_PRICE_RANGE.MIN)
+        .lte('price_per_night', price_per_night * SIMILARITY_PRICE_RANGE.MAX);
+    }
+
+    const { data: candidates, error } = await query;
 
     if (error) {
-      console.error('Error fetching similar accommodations:', error);
+      console.error('[findSimilarAccommodations] Error fetching candidates:', error);
       return [];
     }
-    if (!accommodations || accommodations.length === 0) return [];
+    if (!candidates || candidates.length === 0) {
+        console.log('[findSimilarAccommodations] No candidates found matching criteria.');
+        return [];
+    }
 
-    console.log(`[findSimilarAccommodations] Found ${accommodations.length} candidates.`);
+    console.log(`[findSimilarAccommodations] Found ${candidates.length} candidates matching initial criteria.`);
 
-    // 2. Prepare locations for batch metric fetching
-    const validLocationsMap = new Map<string, Location>();
-    const validAccommodations = accommodations.filter(acc => {
+    // 2. Calculate distance for valid candidates and format results
+    const resultsWithDistance = candidates
+      .map(acc => {
         const accLat = typeof acc.latitude === 'string' ? parseFloat(acc.latitude) : acc.latitude;
         const accLng = typeof acc.longitude === 'string' ? parseFloat(acc.longitude) : acc.longitude;
-        if (isValidCoordinates(accLat, accLng)) {
-            const locKey = `${accLat},${accLng}`;
-            if (!validLocationsMap.has(locKey)) {
-                validLocationsMap.set(locKey, { lat: accLat, lng: accLng });
-            }
-            return true;
+
+        if (!isValidCoordinates(accLat, accLng) || !acc.overall_safety_score) {
+            console.warn(`[findSimilarAccommodations] Skipping candidate ${acc.id} due to invalid coords or missing score.`);
+            return null; // Skip if invalid coords or missing score (should be caught by query, but double-check)
         }
-        console.warn(`Invalid coordinates for accommodation ${acc.name} (${acc.id})`);
-        return false;
-    });
 
-    const locationsToFetch = Array.from(validLocationsMap.values());
+        const distance = calculateDistance(location, { lat: accLat, lng: accLng });
 
-    if (locationsToFetch.length === 0) return [];
+        return {
+          id: acc.id,
+          name: acc.name,
+          price_per_night: acc.price_per_night,
+          source: acc.source,
+          latitude: accLat,
+          longitude: accLng,
+          overall_score: acc.overall_safety_score, // Use pre-calculated score
+          // Use metric count for hasCompleteData - true if >= threshold
+          hasCompleteData: (acc.safety_metric_types_found ?? 0) >= MIN_METRIC_TYPES_FOR_RELIABLE_SCORE,
+          metricTypesFound: acc.safety_metric_types_found ?? 0, // Pass the count
+          distance: distance, // Add distance
+          image_url: acc.image_url // Add image_url
+        };
+      })
+      .filter((acc): acc is NonNullable<typeof acc> => acc !== null);
 
-    // 3. Fetch metrics for all valid locations in batch
-    console.log(`[findSimilarAccommodations] Fetching metrics for ${locationsToFetch.length} unique locations.`);
-    const metricsByLocation = await findClosestSafetyMetricsBatch(locationsToFetch);
-    console.log(`[findSimilarAccommodations] Received metrics for ${Object.keys(metricsByLocation).length} locations.`);
+    // 3. Sort by distance (closest first)
+    resultsWithDistance.sort((a, b) => a.distance - b.distance);
 
-    // 4. Process accommodations with fetched metrics
-    const similarAccommodationsProcessed = validAccommodations.map(acc => {
-      const accLat = typeof acc.latitude === 'string' ? parseFloat(acc.latitude) : acc.latitude;
-      const accLng = typeof acc.longitude === 'string' ? parseFloat(acc.longitude) : acc.longitude;
-      const locKey = `${accLat},${accLng}`;
-      const metrics = metricsByLocation[locKey];
+    // 4. Limit results
+    const finalResults = resultsWithDistance.slice(0, MAX_SIMILAR_RESULTS);
 
-      if (!metrics || metrics.length === 0) {
-        return null; // Skip if no metrics found
-      }
-
-      const overall_score = Math.round(
-        metrics.reduce((sum, metric) => sum + metric.score, 0) / metrics.length * 10
-      );
-      const hasCompleteData = metrics.length === 5;
-
-      // RETURN ALL accommodations with scores, remove the score filter here
-      return {
-        id: acc.id,
-        name: acc.name,
-        price_per_night: acc.price_per_night,
-        source: acc.source,
-        latitude: accLat,
-        longitude: accLng,
-        overall_score,
-        hasCompleteData
-      };
-      // REMOVED: overall_score > currentScore ? { ... } : null;
-    });
-
-    // 5. Filter out nulls (due to missing metrics) and sort
-    const filteredAccommodations = similarAccommodationsProcessed
-      .filter((acc): acc is NonNullable<typeof acc> => acc !== null)
-      .sort((a, b) => b.overall_score - a.overall_score); // Keep sorting
-
-    console.log(`[findSimilarAccommodations] Returning ${filteredAccommodations.length} nearby accommodations.`);
-    return filteredAccommodations;
+    console.log(`[findSimilarAccommodations] Returning ${finalResults.length} similar, safer, nearby accommodations.`);
+    return finalResults;
 
   } catch (err) {
-    console.error('Error in findSimilarAccommodations:', err);
+    console.error('[findSimilarAccommodations] Unexpected error:', err);
     return [];
   }
 }
 
+// --- REVISED getReportData --- (Only change is how findSimilarAccommodations is called)
 async function getReportData(id: string): Promise<AccommodationData | null> {
   console.log('[getReportData] Fetching report data for accommodation ID:', id);
 
   const { data: accommodation, error } = await supabaseServer
     .from('accommodations')
-    .select('*, overall_safety_score')
+    // Select the new metric count column
+    .select('*, overall_safety_score, safety_metric_types_found')
     .eq('id', id)
     .single()
 
@@ -247,24 +263,23 @@ async function getReportData(id: string): Promise<AccommodationData | null> {
     return null
   }
 
-  // Parse coordinates safely
+  // Parse coordinates safely (unchanged)
   const latString = accommodation.latitude || accommodation.location?.lat || '';
   const lngString = accommodation.longitude || accommodation.location?.lng || '';
   const latitude = typeof latString === 'string' ? parseFloat(latString) : latString;
   const longitude = typeof lngString === 'string' ? parseFloat(lngString) : lngString;
   const location = isValidCoordinates(latitude, longitude) ? { lat: latitude, lng: longitude } : null;
 
-  // Ensure image_url is valid
+  // Ensure image_url is valid (unchanged)
   const image_url = accommodation.image_url?.startsWith('http') ? accommodation.image_url : null
 
-  // Use the score from the table, default to 0 if null or undefined
+  // Use the score from the table (unchanged)
   const overall_score = accommodation.overall_safety_score ?? 0;
   console.log('[getReportData] Using pre-calculated overall safety score:', overall_score);
 
-  // --- Fetch individual metrics ONLY IF needed for the detailed SafetyMetrics component ---
+  // --- Fetch individual metrics for detailed display (unchanged) ---
   let metricsForLocation: SafetyMetric[] | null = null;
   if (location) {
-      // Fetch metrics if the 'safety' section needs to display details
       console.log('[getReportData] Fetching individual metrics for detailed display...');
       const safetyMetricsResult = await findClosestSafetyMetricsBatch([location]);
       const locationKey = `${location.lat},${location.lng}`;
@@ -273,43 +288,42 @@ async function getReportData(id: string): Promise<AccommodationData | null> {
   }
   // ---
 
-  // --- Determine hasCompleteData ---
-  // Base it on whether the score is non-zero (implies calculation was successful)
-  // Or potentially refine in Python script to store a separate boolean if needed.
-  const hasCompleteData = overall_score > 0;
+  // --- Determine hasCompleteData using the metric count ---
+  const metricTypesFound = accommodation.safety_metric_types_found ?? 0;
+  const hasCompleteData = metricTypesFound >= MIN_METRIC_TYPES_FOR_RELIABLE_SCORE;
+  console.log(`[getReportData] Score reliability: Found ${metricTypesFound} metric types (Threshold: ${MIN_METRIC_TYPES_FOR_RELIABLE_SCORE}), hasCompleteData: ${hasCompleteData}`);
   // ---
 
-  // --- Fetch Accommodation Takeaways (as before) ---
+  // --- Fetch Accommodation Takeaways (unchanged) ---
   let accommodationTakeaways: string[] | null = null;
   const { data: takeawayData, error: takeawayError } = await supabaseServer
     .from('accommodation_takeaways')
-    .select('takeaways') // Select only the takeaways array
+    .select('takeaways')
     .eq('accommodation_id', id)
-    .maybeSingle(); // Fetch one record or null
+    .maybeSingle();
 
   if (takeawayError) {
     console.error(`Error fetching accommodation takeaways for ${id}:`, takeawayError.message);
-    // Don't fail the whole page load, just log the error
   } else if (takeawayData && takeawayData.takeaways) {
     accommodationTakeaways = takeawayData.takeaways;
-    // console.log(`Found ${accommodationTakeaways.length} accommodation takeaways.`);
-  } else {
-    // console.log(`No accommodation takeaways found for ${id}.`);
   }
   // ---
 
-  // --- Fetch similar accommodations (Pass the fetched score) ---
+  // --- Fetch similar accommodations (Pass relevant parts of current accommodation) ---
   let similar_accommodations: SimilarAccommodation[] = [];
-  if (location) { // Check location validity
+  if (location && overall_score > 0) { // Only search if current location is valid and has a score
     console.log('[getReportData] Calling findSimilarAccommodations...');
-    similar_accommodations = await findSimilarAccommodations(
-      location,
-      accommodation.price_per_night,
-      overall_score, // Pass the fetched score
-      id
-    );
+    similar_accommodations = await findSimilarAccommodations({
+      id: accommodation.id,
+      location: location, // Pass the validated location object
+      price_per_night: accommodation.price_per_night,
+      overall_score: overall_score,
+      property_type: accommodation.property_type, // Pass for filtering
+      room_type: accommodation.room_type, // Pass for filtering
+      bedrooms: accommodation.bedrooms // Pass for filtering
+    });
   } else {
-    console.log('[getReportData] Skipping similar accommodations search due to missing location.');
+    console.log('[getReportData] Skipping similar accommodations search due to missing location or zero score.');
   }
   // ---
 
@@ -326,11 +340,13 @@ async function getReportData(id: string): Promise<AccommodationData | null> {
     neighborhood: accommodation.neighborhood || (accommodation.address?.full || null),
     source: accommodation.source,
     location,
-    safety_metrics: metricsForLocation, // Pass the fetched metrics if needed by SafetyMetrics component
-    overall_score, // Use the score from the DB
+    safety_metrics: metricsForLocation,
+    overall_score,
     similar_accommodations,
-    hasCompleteData,
-    accommodation_takeaways: accommodationTakeaways // Add to return object
+    hasCompleteData, // Use the reliability-based flag
+    metricTypesFound: metricTypesFound, // Pass the count
+    accommodation_takeaways: accommodationTakeaways,
+    room_type: accommodation.room_type
   }
 }
 
@@ -473,6 +489,61 @@ export default function SafetyReportPage({ params }: SafetyReportProps) {
       // return null; // Or return null / a specific error component
   }
 
+  // --- NEW: Safer Alternatives Section Component --- (Placeholder structure)
+  const SaferAlternativesSection = () => {
+    if (!reportData || !reportData.similar_accommodations || reportData.similar_accommodations.length === 0) {
+      return (
+        <div className="bg-white rounded-xl p-6 shadow-sm text-center">
+          <p className="text-gray-500">No significantly safer alternatives found nearby matching the criteria.</p>
+          {/* Optionally add a button/link to adjust filters or view all on map */}
+        </div>
+      );
+    }
+
+    return (
+      <div className="space-y-4">
+        {reportData.similar_accommodations.map((alt) => (
+          <div key={alt.id} className="bg-white p-4 shadow-sm rounded-lg flex items-start space-x-4">
+            {/* Thumbnail (optional) */}
+            {alt.image_url && (
+              <img src={alt.image_url} alt={alt.name} className="w-20 h-20 object-cover rounded-md flex-shrink-0 bg-gray-100" />
+            )}
+            {!alt.image_url && (
+              <div className="w-20 h-20 rounded-md flex-shrink-0 bg-gray-100 flex items-center justify-center">
+                {/* Placeholder icon */}
+                <ImageOff className="size-8 text-gray-300" />
+              </div>
+            )}
+            <div className="flex-grow min-w-0">
+              <h4 className="font-semibold text-gray-800 truncate">{alt.name}</h4>
+              <div className="text-sm text-gray-500 mt-1 flex items-center flex-wrap gap-x-3">
+                 {/* Score Difference */}
+                 <span className="font-medium text-green-600">
+                    +{alt.overall_score - (reportData.overall_score || 0)} pts safer
+                 </span>
+                 {/* Distance */}
+                 <span>{(alt.distance ?? 0).toFixed(1)} km away</span>
+                 {/* Price */}
+                 {alt.price_per_night && <span>${alt.price_per_night}/night</span>}
+                 {/* Reliability */}
+                 {!alt.hasCompleteData && <span className="text-orange-600 text-xs">(Partial Data)</span>}
+              </div>
+            </div>
+            <a
+              href={`/safety-report/${alt.id}`}
+              target="_blank" // Open in new tab
+              rel="noopener noreferrer"
+              className="ml-auto flex-shrink-0 inline-flex items-center justify-center px-3 py-1.5 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+            >
+              View
+            </a>
+          </div>
+        ))}
+      </div>
+    );
+  }
+  // --- End Safer Alternatives Section ---
+
   console.log("[SafetyReportPage Render] Rendering main content for:", reportData.name);
   // Helper to render section content
   const renderSectionContent = () => {
@@ -480,10 +551,32 @@ export default function SafetyReportPage({ params }: SafetyReportProps) {
 
     switch (activeSection) {
       case 'overview':
-        return <OverviewSection takeaways={reportData.accommodation_takeaways} />;
+        return (
+          <div key="overview" className="space-y-6">
+            <OverviewSection takeaways={reportData.accommodation_takeaways} />
+          </div>
+        );
+      case 'alternatives':
+        return (
+          <div key="alternatives">
+            <div className="border-b border-gray-200 bg-white px-4 py-5 sm:px-6 rounded-t-xl shadow-sm">
+                <div className="-ml-4 -mt-4 flex flex-wrap items-center justify-between sm:flex-nowrap">
+                  <div className="ml-4 mt-4">
+                    <h3 className="text-base font-semibold text-gray-900">Safer Nearby Alternatives</h3>
+                    <p className="mt-1 text-sm text-gray-500">
+                      Similar properties nearby with significantly better safety scores.
+                    </p>
+                  </div>
+                </div>
+              </div>
+              <div className="bg-gray-50 p-4 sm:p-6 rounded-b-xl shadow-sm">
+                  <SaferAlternativesSection />
+              </div>
+          </div>
+        );
       case 'map':
         return (
-          <div>
+          <div key="map">
             <div className="border-b border-gray-200 bg-white px-4 py-5 sm:px-6 rounded-t-xl shadow-sm">
               <div className="-ml-4 -mt-4 flex flex-wrap items-center justify-between sm:flex-nowrap">
                 <div className="ml-4 mt-4">
@@ -503,10 +596,13 @@ export default function SafetyReportPage({ params }: SafetyReportProps) {
                       id: reportData.id,
                       name: reportData.name,
                       overall_score: reportData.overall_score,
+                      // Pass the reliability-based flag
                       hasCompleteData: reportData.hasCompleteData
                     }}
+                    // Pass the filtered & sorted list directly from reportData
                     similarAccommodations={reportData.similar_accommodations.map(acc => ({
                       ...acc,
+                      // Ensure hasCompleteData is boolean
                       hasCompleteData: !!acc.hasCompleteData
                     }))}
                   />
@@ -521,7 +617,7 @@ export default function SafetyReportPage({ params }: SafetyReportProps) {
         );
       case 'safety':
         return (
-          <div>
+          <div key="safety">
             <div className="border-b border-gray-200 bg-white px-4 py-5 sm:px-6 rounded-t-xl shadow-sm">
               <div className="-ml-4 -mt-4 flex flex-wrap items-center justify-between sm:flex-nowrap">
                 <div className="ml-4 mt-4">
@@ -549,7 +645,7 @@ export default function SafetyReportPage({ params }: SafetyReportProps) {
         );
       case 'neighborhood':
         return (
-          <div>
+          <div key="neighborhood">
             <div className="border-b border-gray-200 bg-white px-4 py-5 sm:px-6 rounded-t-xl shadow-sm">
               <div className="-ml-4 -mt-4 flex flex-wrap items-center justify-between sm:flex-nowrap">
                 <div className="ml-4 mt-4">
@@ -593,7 +689,7 @@ export default function SafetyReportPage({ params }: SafetyReportProps) {
         // For now, we stick with the default '179' (Los Angeles)
 
         return (
-          <div>
+          <div key="activities">
             <div className="border-b border-gray-200 bg-white px-4 py-5 sm:px-6 rounded-t-xl shadow-sm">
               <div className="-ml-4 -mt-4 flex flex-wrap items-center justify-between sm:flex-nowrap">
                 <div className="ml-4 mt-4">
@@ -650,6 +746,7 @@ export default function SafetyReportPage({ params }: SafetyReportProps) {
                     location={reportData.location}
                     activeSection={activeSection}
                     onSectionChange={handleSectionChange}
+                    hasCompleteData={reportData.hasCompleteData}
                   />
                 </div>
               </div>

@@ -102,11 +102,9 @@ export const MapView = ({ location, currentAccommodation, similarAccommodations 
     const mapContainer = useRef<HTMLDivElement>(null);
     const map = useRef<mapboxgl.Map | null>(null);
     const markersRef = useRef<mapboxgl.Marker[]>([]);
-    // Store popups associated with markers to manage their lifecycle
     const popupsRef = useRef<Map<string, mapboxgl.Popup>>(new Map());
     const router = useRouter();
     const isInitialized = useRef(false);
-    const [showOnlyBetter, setShowOnlyBetter] = useState(true);
     const isValidLocation = isValidCoordinate(location.lat) && isValidCoordinate(location.lng);
 
     // --- Callbacks ---
@@ -128,7 +126,7 @@ export const MapView = ({ location, currentAccommodation, similarAccommodations 
     const createPopupContent = useCallback((accommodation: Accommodation | SimilarAccommodation) => {
         const isCurrent = accommodation.id === currentAccommodation.id;
         const name = accommodation.name;
-        const hasCompleteData = 'hasCompleteData' in accommodation ? accommodation.hasCompleteData : true;
+        const hasCompleteData = accommodation.hasCompleteData ?? true;
         const price = 'price_per_night' in accommodation ? (accommodation as SimilarAccommodation).price_per_night : null;
 
         const content = document.createElement('div');
@@ -155,52 +153,45 @@ export const MapView = ({ location, currentAccommodation, similarAccommodations 
         return content;
     }, [currentAccommodation.id]);
 
-    // --- Marker Update Logic ---
+    // --- REVISED Marker Update Logic --- (Simpler: no internal filtering)
     const updateMarkers = useCallback(() => {
         if (!map.current || !map.current.isStyleLoaded() || !map.current.getContainer()) { return; }
-        console.log(`UpdateMarkers: Starting (Show Only Better: ${showOnlyBetter}). Received ${similarAccommodations.length} total similar props.`);
+        console.log(`UpdateMarkers: Starting. Received ${similarAccommodations.length} filtered alternatives.`);
 
-        // 1. Cleanup previous state
-        closeAllPopups(); // Close any lingering popups
+        // 1. Cleanup previous state (unchanged)
+        closeAllPopups();
         markersRef.current.forEach(marker => marker.remove());
         markersRef.current = [];
-        popupsRef.current.clear(); // Clear popup references
+        popupsRef.current.clear();
         console.log("UpdateMarkers: Cleared old markers and popups.");
 
-        // 2. Filter similar accommodations based on toggle state *HERE*
-        const similarToConsider = showOnlyBetter
-            ? similarAccommodations.filter(acc => acc.overall_score >= currentAccommodation.overall_score)
-            : similarAccommodations; // Use all if unchecked
-        console.log(`UpdateMarkers: Filtered to ${similarToConsider.length} similar accommodations to display.`);
-
-        // 3. Combine accommodations to display
+        // 2. Combine current prop + PRE-FILTERED similar props
+        // The similarAccommodations prop now contains ONLY the ones to display
         const accommodationsToDisplay = [
             { ...currentAccommodation, isCurrent: true, lat: location.lat, lng: location.lng },
-            // Use the client-side filtered list
-            ...similarToConsider.map(acc => ({ ...acc, isCurrent: false, lat: acc.latitude, lng: acc.longitude }))
+            ...similarAccommodations.map(acc => ({ ...acc, isCurrent: false, lat: acc.latitude, lng: acc.longitude }))
         ];
+        console.log(`UpdateMarkers: Preparing to display ${accommodationsToDisplay.length} total markers.`);
 
-        // 4. Create and add markers/popups for accommodationsToDisplay
+        // 3. Create and add markers/popups (Loop is the same, uses correct hasCompleteData)
         let addedMarkersCount = 0;
         accommodationsToDisplay.forEach(acc => {
             if (!isValidCoordinate(acc.lat) || !isValidCoordinate(acc.lng)) { return; }
+            // Use the hasCompleteData passed in props (which is now reliability-based)
             const hasCompleteData = acc.hasCompleteData !== undefined ? acc.hasCompleteData : true;
 
             try {
+                // createCustomMarker correctly uses the reliability-based hasCompleteData flag
                 const markerElement = createCustomMarker(acc.overall_score, acc.isCurrent, hasCompleteData);
                 const marker = new mapboxgl.Marker({ element: markerElement }).setLngLat([acc.lng, acc.lat]);
 
-                // Create Popup but DON'T add it yet
                 const popup = new mapboxgl.Popup({
                     offset: 25, closeButton: false, className: 'custom-popup', maxWidth: '280px'
                 }).setDOMContent(createPopupContent(acc));
 
-                // Store popup reference
-                popupsRef.current.set(acc.id, popup); // Associate popup with accommodation ID
+                popupsRef.current.set(acc.id, popup);
 
-                // --- Event Listeners ---
                 let closePopupTimeout: NodeJS.Timeout | null = null;
-
                 markerElement.addEventListener('mouseenter', () => {
                     if (closePopupTimeout) clearTimeout(closePopupTimeout); // Cancel scheduled close
                     closeAllPopups(); // Close others before opening new one
@@ -243,12 +234,13 @@ export const MapView = ({ location, currentAccommodation, similarAccommodations 
         });
         console.log(`UpdateMarkers: Added ${addedMarkersCount} markers.`);
 
-    }, [location, currentAccommodation, similarAccommodations, createPopupContent, handleMarkerClick, showOnlyBetter, closeAllPopups]);
+    // Dependencies updated: remove showOnlyBetter
+    }, [location, currentAccommodation, similarAccommodations, createPopupContent, handleMarkerClick, closeAllPopups]);
 
 
     // --- Effects ---
 
-    // Effect for Map Initialization (Runs ONCE)
+    // Effect for Map Initialization (Unchanged)
     useEffect(() => {
         // ... (Initialization logic is unchanged) ...
         console.log("Map Init Effect: Checking conditions...");
@@ -275,39 +267,33 @@ export const MapView = ({ location, currentAccommodation, similarAccommodations 
         return () => { if (mapInstance) { mapInstance.remove(); } isInitialized.current = false; };
     }, []); // Correct empty dependency array
 
-    // Effect for Updating Markers and Fitting Bounds
+    // REVISED Effect for Updating Markers and Fitting Bounds
     useEffect(() => {
-        console.log(`Marker/Bounds Effect: Running. ShowOnlyBetter: ${showOnlyBetter}`);
+        console.log(`Marker/Bounds Effect: Running.`);
         if (!map.current || !isInitialized.current) {
             console.log("Marker/Bounds Effect: Skipping (Map not ready).");
             return;
         }
 
-        // --- Define the update function ---
         const runUpdatesAndFitBounds = () => {
             if (!map.current || !map.current.getContainer()) { return; }
             console.log("Marker/Bounds Effect: Running updates and fitting bounds...");
 
-            // 1. Update markers FIRST (this now includes the filtering logic)
+            // 1. Update markers FIRST (uses pre-filtered similarAccommodations)
             updateMarkers();
 
-            // 2. Determine accommodations for bounds based on the CURRENT toggle state
-            //    (This list should match what updateMarkers decided to display)
-            const accommodationsForBounds = showOnlyBetter
-                ? similarAccommodations.filter(acc => acc.overall_score >= currentAccommodation.overall_score)
-                : similarAccommodations;
+            // 2. Determine accommodations for bounds (uses pre-filtered list)
+            const accommodationsForBounds = similarAccommodations; // Use the already filtered list
             console.log(`Marker/Bounds Effect: Using ${accommodationsForBounds.length} similar accommodations for bounds calculation.`);
 
-            // 3. Fit bounds logic using the filtered list
+            // 3. Fit bounds logic (unchanged, uses accommodationsForBounds)
             const allCoords: mapboxgl.LngLatLike[] = [];
             if (isValidLocation) { allCoords.push([location.lng, location.lat]); }
-
             accommodationsForBounds.forEach(acc => {
                 if (isValidCoordinate(acc.latitude) && isValidCoordinate(acc.longitude)) {
                     allCoords.push([acc.longitude, acc.latitude]);
                 }
             });
-
             if (allCoords.length > 0) {
                 try {
                     const bounds = allCoords.reduce((b, coord) => b.extend(coord), new mapboxgl.LngLatBounds(allCoords[0], allCoords[0]));
@@ -326,23 +312,18 @@ export const MapView = ({ location, currentAccommodation, similarAccommodations 
             }
         }
 
-        // --- Trigger the update ---
+        // --- Trigger update (unchanged) ---
         if (map.current.isStyleLoaded()) {
-            console.log("Marker/Bounds Effect: Map style loaded, running updates.");
             runUpdatesAndFitBounds();
         } else {
-            console.log("Marker/Bounds Effect: Map style not loaded, attaching 'load' listener.");
             map.current.once('load', () => {
-                if(map.current) {
-                    console.log("Marker/Bounds Effect: 'load' event fired, running updates.");
-                    runUpdatesAndFitBounds();
-                }
+                if(map.current) runUpdatesAndFitBounds();
             });
         }
 
-        // --- Cleanup ---
+        // --- Cleanup (unchanged) ---
         return () => {
-            console.log(`Marker/Bounds Effect: Cleanup starting (ShowOnlyBetter was ${showOnlyBetter}).`);
+            console.log(`Marker/Bounds Effect: Cleanup starting.`);
             // No need to call closeAllPopups/remove markers here,
             // as the *next* run of updateMarkers will handle cleanup.
             // If you see duplicate markers, uncomment the cleanup below.
@@ -355,8 +336,8 @@ export const MapView = ({ location, currentAccommodation, similarAccommodations 
             // popupsRef.current.clear();
         };
 
-    // Keep dependencies the same
-    }, [location, currentAccommodation, similarAccommodations, updateMarkers, isValidLocation, showOnlyBetter, closeAllPopups]);
+    // Dependencies updated: remove showOnlyBetter, closeAllPopups
+    }, [location, currentAccommodation, similarAccommodations, updateMarkers, isValidLocation]);
 
 
     // --- Render Logic ---
@@ -378,21 +359,6 @@ export const MapView = ({ location, currentAccommodation, similarAccommodations 
                 style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }}
                 aria-label={`Map showing safety scores...`}
             />
-
-             {/* Toggle Control Overlay */}
-             <div className="map-toggle-control absolute top-3 left-3 z-10 bg-white bg-opacity-90 backdrop-blur-sm rounded-lg shadow-md p-2 text-xs">
-                <label className="flex items-center cursor-pointer">
-                    <input
-                        type="checkbox"
-                        checked={showOnlyBetter}
-                        onChange={(e) => setShowOnlyBetter(e.target.checked)}
-                        className="mr-2 h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                    />
-                    <span className="text-gray-700 font-medium select-none">
-                        Show same or better score only
-                    </span>
-                </label>
-            </div>
 
             {/* Styles */}
             <style jsx global>{`

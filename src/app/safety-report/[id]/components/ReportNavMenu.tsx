@@ -1,7 +1,7 @@
 import React from 'react'
 
 export type ReportSection = 'overview' | 'map' | 'safety' | 'community' | 'activities'
-export type ExtendedReportSection = ReportSection | 'neighborhood'
+export type ExtendedReportSection = ReportSection | 'neighborhood' | 'alternatives'
 
 interface ReportNavMenuProps {
   activeSection: ExtendedReportSection
@@ -10,6 +10,7 @@ interface ReportNavMenuProps {
 
 const navItems: { id: ExtendedReportSection; label: string }[] = [
   { id: 'overview', label: 'Overview' },
+  { id: 'alternatives', label: 'Safer Alternatives' },
   { id: 'map', label: 'Map' },
   { id: 'safety', label: 'Safety' },
   { id: 'neighborhood', label: 'Neighborhood' },

@@ -58,133 +58,204 @@ except Exception as e:
 socrata_client = Socrata(LAPD_DOMAIN, LA_APP_TOKEN, timeout=SOCRATA_TIMEOUT) if LA_APP_TOKEN else Socrata(LAPD_DOMAIN, None, timeout=SOCRATA_TIMEOUT)
 logger.info(f"Socrata client initialized with timeout: {SOCRATA_TIMEOUT} seconds.")
 
+# Get the absolute path to the directory of the current script
+script_dir = os.path.dirname(os.path.abspath(__file__))
+# Construct the path to the config file relative to the script directory
+# Adjust the relative path (`../../config/`) if needed based on your project structure
+config_path = os.path.join(script_dir, '../../config/safety_metrics_config.json')
 
-# Define safety metric types and their MO codes (V6 mapping)
-SAFETY_METRICS = {
-    'night': {
-        'question': 'Can I go outside after dark?',
-        'description': 'Safety for pedestrians during evening/night hours',
-        'crime_codes': [
-            '110', '113', '121', '122', '815', '820', '821', '210', '220', # Violent crimes
-            '230', '231', '235', '236', '250', '251', # Assaults, Domestic Violence
-            '624', '761', '762', '763', '860', '930', # Battery, Public Intox/Conduct, Indecent Exposure
-            # Added based on UCR list review
-            '353', # Drunkroll
-            '453', # Drunkroll - attempted
-            '623', # Battery on Police Officer
-        ],
-        'time_filter': lambda hour: hour >= 18 or hour < 6 # 6 PM to 5:59 AM
-    },
-    'vehicle': {
-        'question': 'Can I park here safely?',
-        'description': 'Risk of vehicle theft and break-ins',
-        'crime_codes': [
-            '330', '331', # Burglary FROM Vehicle
-            '410', '420', '421', # Theft FROM Vehicle (Grand/Petty)
-            '510', '520', # Vehicle Stolen / Attempt
-            '433', # Theft, Vehicle Parts
-            '647' # Vandalism to Vehicle
-            # No additions identified from UCR list review
-        ]
-    },
-    'child': {
-        'question': 'Are kids safe here?',
-        'description': 'Overall safety concerning crimes that could affect children',
-        'crime_codes': [
-            '235', '627', '237', # Child Abuse/Neglect/Endangerment
-            '812', '813', '814', # Sex Offenses involving Children
-            '815', '121', '122', # Sex Offenses (General - risk indicator)
-            '820', '821', # Aggravated Assault (General - risk indicator)
-            '760', '762', # Lewd Conduct / Annoying Children
-            '921', '922', # Missing Persons (Juvenile) / Found Juvenile (Indicators)
-            '236' # Domestic Violence (Environmental risk)
-            # No additions identified from UCR list review
-        ]
-    },
-    'transit': {
-        'question': 'Is it safe to use public transport?',
-        'description': 'Safety at and around transit locations',
-        'crime_codes': [
-            '210', '220', # Robbery
-            '230', '231', # Assault w/ Deadly Weapon
-            '350', '351', # Theft, Person / Pickpocket (Note: 351 is Pursesnatch)
-            # '450', '451', '452', # Pickpocket (if distinct codes exist) - Replaced by specific codes below
-            '624', # Battery / Simple Assault
-            '761', '762', '763', # Public Intox/Conduct
-            '930', # Disorderly Conduct
-            '946', # Drunk Driving / DUI (Indicator of risky behavior near transit)
-            '860', # Indecent Exposure
-            # Added based on UCR list review
-            '352', # Pickpocket
-            '450', # Theft from person - attempted
-            '451', # Pursesnatch - attempted
-            '452', # Pickpocket - attempted
-            '480', # Bicycle - stolen
-            '485', # Bicycle - attempted stolen
-        ]
-        # Note: May need refinement based on how LAPD codes transit-specific offenses
-    },
-    'women': {
-        'question': 'Would I be harassed here?',
-        'description': 'Assessment of crimes that disproportionately affect women',
-        'crime_codes': [
-            '121', '122', # Rape / Attempt
-            '815', '820', '821', # Sex Offenses / Aggravated Assault
-            '236', # Domestic Violence
-            '626', # Battery with Sexual Contact
-            '624', # Battery / Simple Assault (often involves harassment)
-            '763', # Annoying/Molesting
-            '860', # Indecent Exposure
-            '922', # Stalking (if code exists, else covered by others) - Note: 922 is Found Juvenile in child metric, check LAPD codes if Stalking has a specific code. Keeping 763 for now.
-            '930' # Disorderly Conduct (can include harassment)
-            # No additions identified from UCR list review
-        ]
-    },
-    # --- NEW METRICS ---
-    'property': {
-        'question': 'How likely is a break-in or theft at my rental/home?',
-        'description': 'Risk of residential burglary, non-vehicle theft, and vandalism',
-        'crime_codes': [
-            '310', # BURGLARY
-            '320', # BURGLARY, ATTEMPTED
-            '341', # THEFT-GRAND ($950.01 & OVER)
-            '343', # THEFT, GRAND ($950.01 & OVER) - ATTEMPT (Note: UCR list has 343 as Shoplifting, but keeping script's likely intent)
-            '350', # THEFT, PERSON (e.g. from yard/porch if not burglary)
-            '351', # THEFT, PERSON - ATTEMPT (Note: UCR list has 351 as Pursesnatch)
-            '440', # THEFT-PLAIN - PETTY ($950 & UNDER)
-            '441', # THEFT-PLAIN - PETTY ($950 & UNDER) - ATTEMPT
-            '740', # VANDALISM - FELONY ($400 & OVER)
-            '745', # VANDALISM - MISDEMEANOR ($399 OR UNDER)
-            # Added based on UCR list review
-            '450', # Theft from person - attempted
-            '451', # Pursesnatch - attempted
-            '480', # Bicycle - stolen
-            '485', # Bicycle - attempted stolen
-        ]
-        # Excludes vehicle-specific theft/burglary covered in 'vehicle' metric
-    },
-    'daytime': {
-        'question': 'How safe is it to walk around during the day?',
-        'description': 'Safety for pedestrians and general activity during daytime hours (9 AM - 5 PM)',
-        'crime_codes': [
-            '210', '220', # Robbery
-            '230', '231', # Assault w/ Deadly Weapon
-            '624', # Battery / Simple Assault
-            '626', # Battery with Sexual Contact
-            '860', # Indecent Exposure
-            '930', # Disorderly Conduct/Drunk/Drugs
-            '236', # Intimate Partner Assault (if public)
-            '350', '351', # Theft, Person (Pickpocket/Snatching)
-            # Consider adding others if data suggests daytime prevalence
-            # Added based on UCR list review
-            '450', # Theft from person - attempted
-            '451', # Pursesnatch - attempted
-            '623', # Battery on Police Officer
-        ],
-        'time_filter': lambda hour: 9 <= hour < 17 # 9:00 AM to 4:59 PM
-    }
+# Load metric definitions from JSON
+try:
+    with open(config_path, 'r') as f:
+        metric_definitions_list = json.load(f)
+    METRIC_DEFINITIONS = {item['id']: item for item in metric_definitions_list}
+    logger.info(f"Successfully loaded {len(METRIC_DEFINITIONS)} metric definitions from {config_path}")
+except FileNotFoundError:
+    logger.error(f"Error: safety_metrics_config.json not found at {config_path}")
+    sys.exit(1)
+except json.JSONDecodeError:
+    logger.error(f"Error: Could not decode JSON from {config_path}")
+    sys.exit(1)
+except Exception as e:
+    logger.error(f"An unexpected error occurred loading metric definitions: {e}")
+    sys.exit(1)
+
+# --- Define CRIME CODES and TIME FILTERS separately ---
+# These remain backend-specific logic
+METRIC_CRIME_CODES = {
+    'night': [
+        '110', '113', '121', '122', '815', '820', '821', '210', '220',
+        '230', '231', '235', '236', '250', '251',
+        '624', '761', '762', '763', '860', '930',
+        '353', '453', '623'
+    ],
+    'vehicle': [
+        '330', '331', '410', '420', '421', '510', '520', '433', '647'
+    ],
+    'child': [
+        '235', '627', '237', '812', '813', '814', '815', '121', '122',
+        '820', '821', '760', '762', '921', '922', '236'
+    ],
+    'transit': [
+        '210', '220', '230', '231', '350', '351', '624', '761', '762',
+        '763', '930', '946', '860', '352', '450', '451', '452', '480', '485'
+    ],
+    'women': [
+        '121', '122', '815', '820', '821', '236', '626', '624', '763',
+        '860', '930'
+    ],
+    'property': [
+        '310', '320', '341', '343', '350', '351', '440', '441', '740',
+        '745', '450', '451', '480', '485'
+    ],
+    'daytime': [
+        '210', '220', '230', '231', '624', '626', '860', '930', '236',
+        '350', '351', '450', '451', '623'
+    ]
 }
 
+METRIC_TIME_FILTERS = {
+    'night': lambda hour: hour >= 18 or hour < 6,
+    'daytime': lambda hour: 9 <= hour < 17
+}
+
+# --- Combine Definitions for Processing --- (If needed by existing functions)
+# Or modify functions like calculate_metrics to use METRIC_DEFINITIONS, METRIC_CRIME_CODES, METRIC_TIME_FILTERS directly
+
+# Example: Modifying calculate_metrics to use new structure
+
+def calculate_metrics(processed_df):
+    # ... (setup like fetching city_id, pre-calculating neighbors) ...
+    la_city_id = 1 # Replace with actual fetch if needed
+    now = datetime.now(timezone.utc)
+    expires_at = now + timedelta(days=90)
+
+    # Pre-calculate neighbors (ensure this logic is still needed and correct)
+    logger.info("Pre-calculating neighbors for all unique blocks...")
+    neighbor_cache = {} # ... (neighbor pre-calculation logic) ...
+    logger.info(f"Pre-calculation complete. Found neighbor sets for {len(neighbor_cache)} blocks.")
+
+    results = {}
+    # Iterate through metric IDs defined in the JSON config
+    for metric_id, metric_def in METRIC_DEFINITIONS.items():
+        logger.info(f"--- Processing Metric: {metric_id} ---")
+
+        # Get crime codes and time filter for this metric
+        relevant_crime_codes = METRIC_CRIME_CODES.get(metric_id, [])
+        time_filter = METRIC_TIME_FILTERS.get(metric_id)
+
+        if not relevant_crime_codes:
+             logger.warning(f"No crime codes defined for metric '{metric_id}'. Skipping.")
+             results[metric_id] = []
+             continue
+
+        metric_crimes_df = processed_df[processed_df['crm_cd'].isin(relevant_crime_codes)].copy()
+        if time_filter:
+            metric_crimes_df = metric_crimes_df[metric_crimes_df['hour'].apply(time_filter)]
+
+        if metric_crimes_df.empty:
+            logger.info(f"No relevant incidents found for metric '{metric_id}'.")
+            results[metric_id] = []
+            continue
+
+        logger.info(f"Found {len(metric_crimes_df)} incidents for metric '{metric_id}'.")
+
+        # ... (Rest of the aggregation logic: block_group_stats, metric_incident_map) ...
+        block_group_stats = metric_crimes_df.groupby('census_block_id').agg(
+            direct_incidents=('crm_cd', 'size'),
+            latitude=('lat', 'mean'),
+            longitude=('lon', 'mean'),
+            population=('population', 'first'),
+            housing_units=('housing_units', 'first'),
+            population_density_proxy=('population_density_proxy', 'first')
+        ).reset_index()
+
+        logger.info(f"Aggregated stats for {len(block_group_stats)} census blocks for metric '{metric_id}'.")
+        metric_incident_map = block_group_stats.set_index('census_block_id')['direct_incidents'].to_dict()
+
+        metric_records = []
+        for _, block_row in tqdm(block_group_stats.iterrows(), total=len(block_group_stats), desc=f"Calculating {metric_id} metrics"):
+            current_block_id = block_row['census_block_id']
+            direct_incidents = block_row['direct_incidents']
+            pop_density_proxy = block_row['population_density_proxy']
+            population = block_row['population']
+
+            neighbor_ids = neighbor_cache.get(current_block_id, [])
+            neighbor_incident_map = {
+                nid: metric_incident_map.get(nid, 0) for nid in neighbor_ids if nid in metric_incident_map
+            }
+            neighbor_count = len(neighbor_ids)
+
+            weighted_incidents = calculate_weighted_incidents(direct_incidents, neighbor_incident_map, pop_density_proxy)
+            score = calculate_safety_score(weighted_incidents)
+            incidents_per_1000 = (direct_incidents / population) * 1000 if population > 0 else 0.0
+
+            # Use description from JSON config
+            description = get_risk_description(
+                metric_id, score, direct_incidents, weighted_incidents, pop_density_proxy, incidents_per_1000, neighbor_count
+            )
+
+            id_string = f"{la_city_id}:{current_block_id}:{metric_id}"
+            stable_metric_id = str(uuid.uuid5(uuid.NAMESPACE_DNS, id_string))
+            geom_string = f"SRID=4326;POINT({block_row['longitude']} {block_row['latitude']})"
+
+            metric_record = {
+                'id': stable_metric_id,
+                'city_id': la_city_id,
+                'block_group_id': current_block_id,
+                'latitude': float(block_row['latitude']),
+                'longitude': float(block_row['longitude']),
+                'geom': geom_string,
+                'metric_type': metric_id,
+                'score': score,
+                'question': metric_def['question'], # Use question from JSON
+                'description': description, # Keep generated description for now
+                # 'description': metric_def['description'], # Option: Use static description from JSON?
+                'direct_incidents': int(direct_incidents),
+                'weighted_incidents': float(weighted_incidents),
+                'population_density': float(pop_density_proxy),
+                'incidents_per_1000': float(incidents_per_1000),
+                'created_at': now.isoformat(),
+                'expires_at': expires_at.isoformat()
+            }
+            metric_records.append(metric_record)
+
+        results[metric_id] = metric_records
+        logger.info(f"Generated {len(metric_records)} metrics for type '{metric_id}'.")
+
+    return results
+
+# Modify get_risk_description to potentially use the base description from JSON
+def get_risk_description(metric_type, score, direct_incidents, weighted_incidents, density_proxy_value, incidents_per_1000, neighbor_count):
+    try:
+        if score >= 8: risk_level = "Very Low Risk"
+        elif score >= 7: risk_level = "Low Risk"
+        elif score >= 6: risk_level = "Moderate Risk"
+        elif score >= 4: risk_level = "High Risk"
+        else: risk_level = "Very High Risk"
+
+        # Get base description from loaded definitions
+        base_description = METRIC_DEFINITIONS.get(metric_type, {}).get('description', 'Overall safety risk')
+
+        if density_proxy_value > 3: density_category = "high housing density"
+        elif density_proxy_value > 1.5: density_category = "medium housing density"
+        elif density_proxy_value > 0: density_category = "low housing density"
+        else: density_category = "unknown housing density"
+
+        description = f"{risk_level} ({base_description.lower()})."
+        description += f" Based on {direct_incidents} relevant incident(s) reported recently in this block."
+        # ... (rest of description generation) ...
+        return description
+    except Exception as e:
+        logger.error(f"Error generating risk description: {str(e)}")
+        return "Risk level could not be determined due to an error."
+
+# Ensure update_accommodation_safety_scores uses the JSON keys
+def update_accommodation_safety_scores(supabase_client: Client):
+    # ...
+    REQUIRED_METRIC_TYPES = set(METRIC_DEFINITIONS.keys()) # Use keys from loaded JSON
+    # ... (rest of the function uses metric IDs which should align)
+    # ...
 
 # --- Data Fetching (Unchanged) ---
 def fetch_crime_data(days_back=90, max_records=300000):
@@ -390,7 +461,7 @@ def get_risk_description(metric_type, score, direct_incidents, weighted_incident
         elif score >= 6: risk_level = "Moderate Risk"
         elif score >= 4: risk_level = "High Risk"
         else: risk_level = "Very High Risk"
-        base_description = SAFETY_METRICS[metric_type]['description']
+        base_description = METRIC_DEFINITIONS.get(metric_type, {}).get('description', 'Overall safety risk')
         if density_proxy_value > 3: density_category = "high housing density"
         elif density_proxy_value > 1.5: density_category = "medium housing density"
         elif density_proxy_value > 0: density_category = "low housing density"
@@ -464,10 +535,10 @@ def calculate_metrics(processed_df):
 
 
     # --- Main Metric Calculation Loop ---
-    for metric_type, metric_info in SAFETY_METRICS.items():
+    for metric_type, metric_info in METRIC_DEFINITIONS.items():
         logger.info(f"--- Processing Metric: {metric_type} ---")
 
-        metric_crimes_df = processed_df[processed_df['crm_cd'].isin(metric_info['crime_codes'])].copy()
+        metric_crimes_df = processed_df[processed_df['crm_cd'].isin(METRIC_CRIME_CODES[metric_type])].copy()
         if 'time_filter' in metric_info:
             metric_crimes_df = metric_crimes_df[metric_crimes_df['hour'].apply(metric_info['time_filter'])]
 
@@ -632,7 +703,7 @@ def update_accommodation_safety_scores(supabase_client: Client):
     """
     logger.info("Starting accommodation overall safety score update...")
     MAX_METRIC_DISTANCE_KM = 2.0 # Only consider metrics within 2km (adjust as needed)
-    REQUIRED_METRIC_TYPES = set(SAFETY_METRICS.keys())
+    REQUIRED_METRIC_TYPES = set(METRIC_DEFINITIONS.keys())
     # Assume LA city_id is 1, if needed elsewhere. This script now associates city_id based on closest metric.
     TARGET_CITY_ID_FOR_METRIC_FETCH = 1 # Fetch metrics associated with LA
     logger.info(f"Calculating overall score based on available metric types within {MAX_METRIC_DISTANCE_KM}km.")
@@ -781,10 +852,11 @@ def update_accommodation_safety_scores(supabase_client: Client):
                 # 6. Calculate overall score based on *found* metrics
                 found_metric_types = set(closest_metrics_by_type.keys())
                 overall_score = None # Default to None
+                num_found_types = 0 # Initialize count
 
                 if found_metric_types: # Calculate score if at least one metric type was found
                     total_score = sum(m['score'] for m in closest_metrics_by_type.values())
-                    num_found_types = len(found_metric_types)
+                    num_found_types = len(found_metric_types) # Calculate actual count here
                     average_score = total_score / num_found_types
                     overall_score = int(round(average_score * 10)) # Scale score 0-10 to 0-100
                     scores_calculated_count += 1 # Increment count of successful calculations
@@ -803,16 +875,18 @@ def update_accommodation_safety_scores(supabase_client: Client):
                               missing_types_logged_count += 1
                 else:
                     # No metrics found within the radius
+                    # num_found_types remains 0
                     no_metrics_found_count += 1
                     logger.warning(f"Acc {acc_id}: Score is NULL. No safety metrics found within {MAX_METRIC_DISTANCE_KM}km.")
 
 
-                # 7. Append update, including inferred block/city and potentially null score
+                # 7. Append update, including inferred block/city, score, and metric count
                 updates_to_make.append({
                     'id': acc_id,
                     'overall_safety_score': overall_score,
                     'census_block_id': inferred_block_id, # Add inferred block ID
-                    'city_id': inferred_city_id          # Add inferred city ID
+                    'city_id': inferred_city_id,          # Add inferred city ID
+                    'safety_metric_types_found': num_found_types if found_metric_types else None # Add count, or None if no types found
                 })
                 processed_count += 1
 
@@ -854,7 +928,8 @@ def update_accommodation_safety_scores(supabase_client: Client):
                         update_payload = {
                             'overall_safety_score': update_item['overall_safety_score'],
                             'census_block_id': update_item['census_block_id'],
-                            'city_id': update_item['city_id']
+                            'city_id': update_item['city_id'],
+                            'safety_metric_types_found': update_item['safety_metric_types_found'] # Include the count
                         }
 
                         # Log the payload for one item per batch for debugging
@@ -918,7 +993,7 @@ def main(test_mode=False):
     logger.info(f"Mode: {'TEST' if test_mode else 'PRODUCTION'}")
     logger.info(f"Using neighbor radius: {NEIGHBOR_RADIUS_METERS} meters")
 
-    days_back = 120
+    days_back = 360
     max_records = 500000
     if test_mode:
         logger.info("TEST MODE: Using smaller dataset parameters.")

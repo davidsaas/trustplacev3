@@ -1,0 +1,44 @@
+[
+    {
+      "id": "night",
+      "question": "Can I go outside after dark?",
+      "description": "Safety for pedestrians during evening/night hours",
+      "iconName": "Clock"
+    },
+    {
+      "id": "vehicle",
+      "question": "Can I park here safely?",
+      "description": "Risk of vehicle theft and break-ins",
+      "iconName": "Car"
+    },
+    {
+      "id": "child",
+      "question": "Are kids safe here?",
+      "description": "Overall safety concerning crimes that could affect children",
+      "iconName": "Baby"
+    },
+    {
+      "id": "transit",
+      "question": "Is it safe to use public transport?",
+      "description": "Safety at and around transit locations",
+      "iconName": "Bus"
+    },
+    {
+      "id": "women",
+      "question": "Would I be harassed here?",
+      "description": "Assessment of crimes that disproportionately affect women",
+      "iconName": "UserRound"
+    },
+    {
+      "id": "property",
+      "question": "How likely is a break-in or theft at my rental/home?",
+      "description": "Risk of residential burglary, non-vehicle theft, and vandalism",
+      "iconName": "Home"
+    },
+    {
+      "id": "daytime",
+      "question": "How safe is it to walk around during the day?",
+      "description": "Safety for pedestrians and general activity during daytime hours (9 AM - 5 PM)",
+      "iconName": "Sun"
+    }
+  ]

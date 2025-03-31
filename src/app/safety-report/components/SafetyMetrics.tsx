@@ -9,48 +9,43 @@ import {
   UserRound,
   Plus,
   Home,
-  Sun
+  Sun,
+  HelpCircle // Default icon
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import type { SafetyMetric } from '@/types/safety-report'
 import { getRiskLevel } from '../utils'
+// Import the JSON config
+import metricDefinitions from '@/config/safety_metrics_config.json' assert { type: 'json' };
 
 type SafetyMetricsProps = {
   data: SafetyMetric[] | null
 }
 
-// Updated labels with questions
-const METRIC_QUESTIONS: Record<string, string> = {
-  night: 'Can I go outside after dark?',
-  vehicle: 'Can I park here safely?',
-  child: 'Are kids safe here?',
-  transit: 'Is it safe to use public transport?',
-  women: 'Would I be harassed here?',
-  property: 'How likely is a break-in or theft?',
-  daytime: 'Is it safe to walk around during the day?'
+// --- Define Type for Config Items ---
+interface MetricDefinition {
+  id: string;
+  question: string;
+  description: string;
+  iconName: keyof typeof LucideIcons; // Ensure iconName matches a valid key
 }
 
-// Icons for each metric type
-const METRIC_ICONS: Record<string, LucideIcon> = {
-  night: Clock,
-  vehicle: Car,
-  child: Baby,
-  transit: Bus,
-  women: UserRound,
-  property: Home,
-  daytime: Sun
-}
+// --- Map Icon Names from JSON to Actual Components ---
+const LucideIcons = {
+  Clock,
+  Car,
+  Baby,
+  Bus,
+  UserRound,
+  Home,
+  Sun,
+  HelpCircle // Default/fallback icon
+};
 
-// All expected metric types
-const EXPECTED_METRIC_TYPES = [
-  'night', 
-  'vehicle', 
-  'child', 
-  'transit', 
-  'women',
-  'property',
-  'daytime'
-]
+// --- Remove old constants ---
+// const METRIC_QUESTIONS: Record<string, string> = { ... }
+// const METRIC_ICONS: Record<string, LucideIcon> = { ... }
+// const EXPECTED_METRIC_TYPES = [ ... ]
 
 function classNames(...classes: (string | boolean | undefined)[]) {
   return classes.filter(Boolean).join(' ')
@@ -68,53 +63,49 @@ interface MetricData {
 }
 
 export const SafetyMetrics = ({ data }: SafetyMetricsProps) => {
-  if (!data) {
-    return (
-      <div className="bg-white rounded-xl p-6 shadow-sm">
-        <div className="p-8 rounded-lg bg-gray-50 flex items-center justify-center">
-          <p className="text-gray-500">No safety data available for this location</p>
-        </div>
-      </div>
-    )
+  // --- Build metricsByType using JSON config --- 
+  const metricsByType: Record<string, MetricData> = {};
+
+  // 1. Initialize all metrics from config as 'No Data'
+  (metricDefinitions as MetricDefinition[]).forEach(def => {
+    const MetricIcon = LucideIcons[def.iconName] || LucideIcons.HelpCircle;
+    metricsByType[def.id] = {
+      title: def.question,
+      description: "Data not available for this location", // Default description
+      icon: MetricIcon,
+      iconForeground: "text-gray-400",
+      iconBackground: "bg-gray-100",
+      score: 0,
+      label: "No Data",
+      isEmpty: true
+    }
+  });
+
+  // 2. Populate with actual data if available
+  if (data) {
+    data.forEach(metric => {
+      const definition = (metricDefinitions as MetricDefinition[]).find(def => def.id === metric.metric_type);
+      if (!definition) return; // Skip if metric type not in config
+
+      const riskLevel = getRiskLevel(metric.score);
+      const MetricIcon = LucideIcons[definition.iconName] || LucideIcons.HelpCircle;
+      
+      metricsByType[metric.metric_type] = {
+        title: definition.question, // Use question from config
+        description: metric.description, // Use description from fetched data
+        icon: MetricIcon,
+        iconForeground: riskLevel.textColor,
+        iconBackground: riskLevel.bgColor,
+        score: metric.score,
+        label: riskLevel.label,
+        isEmpty: false // Mark as not empty
+      }
+    });
   }
 
-  const metricsByType: Record<string, MetricData> = {}
-  
-  // Process available metrics
-  data.forEach(metric => {
-    const riskLevel = getRiskLevel(metric.score)
-    const MetricIcon = METRIC_ICONS[metric.metric_type] || riskLevel.icon
-    
-    metricsByType[metric.metric_type] = {
-      title: METRIC_QUESTIONS[metric.metric_type] || metric.question,
-      description: metric.description,
-      icon: MetricIcon,
-      iconForeground: riskLevel.textColor,
-      iconBackground: riskLevel.bgColor,
-      score: metric.score,
-      label: riskLevel.label,
-      isEmpty: false
-    }
-  })
-  
-  // Create empty states for missing metrics
-  EXPECTED_METRIC_TYPES.forEach(type => {
-    if (!metricsByType[type]) {
-      const MetricIcon = METRIC_ICONS[type] || Plus
-      metricsByType[type] = {
-        title: METRIC_QUESTIONS[type] || "Unknown Metric",
-        description: "Data not available for this location",
-        icon: MetricIcon,
-        iconForeground: "text-gray-400",
-        iconBackground: "bg-gray-100",
-        score: 0,
-        label: "No Data",
-        isEmpty: true
-      }
-    }
-  })
+  // --- Removed old processing logic for available/missing metrics --- 
 
-  // Add "coming soon" metric
+  // Add "coming soon" metric (optional, can be removed if not needed)
   const comingSoonMetric = {
     title: "More metrics coming soon",
     description: "We're constantly adding new safety indicators",
@@ -122,12 +113,18 @@ export const SafetyMetrics = ({ data }: SafetyMetricsProps) => {
     iconForeground: "text-blue-600",
     iconBackground: "bg-blue-100",
     label: "Coming Soon",
-    isEmpty: false
+    isEmpty: false // Treat as not empty for display purposes
   }
   
-  // Convert to array for rendering
-  const metricActions = [...Object.values(metricsByType), comingSoonMetric]
+  // Convert to array for rendering (ensure order matches JSON config if desired, or sort)
+  const metricActions = [
+    // Get metrics in the order defined in the JSON file
+    ...(metricDefinitions as MetricDefinition[]).map(def => metricsByType[def.id]),
+    // Add coming soon at the end
+    comingSoonMetric
+  ];
 
+  // --- Render logic remains the same --- 
   return (
     <div className="bg-white p-6 shadow-sm rounded-b-xl">
       <div className="divide-y divide-gray-200 overflow-hidden bg-gray-200 sm:grid sm:grid-cols-2 sm:gap-px sm:divide-y-0">
