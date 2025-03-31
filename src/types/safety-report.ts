@@ -36,6 +36,8 @@ export interface SimilarAccommodation {
   overall_score: number
   source: string
   hasCompleteData?: boolean
+  image_url?: string | null
+  distance?: number
 }
 
 export interface Location {
@@ -57,6 +59,7 @@ export interface PropertyHeaderProps {
   location: Location | null
   activeSection: ExtendedReportSection
   onSectionChange: (section: ExtendedReportSection) => void
+  hasCompleteData: boolean
 }
 
 export interface PropertyMetricsProps {
@@ -82,6 +85,8 @@ export interface AccommodationData {
   rating: number | null
   total_reviews: number | null
   property_type: string | null
+  room_type?: string
+  bedrooms?: number | null
   neighborhood: string | null
   source: string
   location: Location | null
@@ -89,5 +94,6 @@ export interface AccommodationData {
   overall_score: number
   similar_accommodations: SimilarAccommodation[]
   hasCompleteData: boolean
+  metricTypesFound?: number
   accommodation_takeaways: string[] | null
 } 
