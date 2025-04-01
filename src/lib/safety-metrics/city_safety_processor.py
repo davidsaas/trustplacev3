@@ -118,34 +118,56 @@ def calculate_metrics(processed_df, target_city_id, city_config):
     # city_name is fetched from city_config passed as argument
     logger.info(f"Using city-specific crime code mappings for {city_config.get('city_name', f'ID {target_city_id}')}")
 
-    # --- Pre-calculate Neighbors (remains mostly the same) --- 
+    # --- Pre-calculate Neighbors (BATCHED in Python) --- 
     neighbor_radius = city_config.get('geospatial', {}).get('neighbor_radius_meters', NEIGHBOR_RADIUS_METERS)
-    logger.info(f"Pre-calculating neighbors within {neighbor_radius}m for all unique blocks...")
+    logger.info(f"Pre-calculating neighbors within {neighbor_radius}m for all unique blocks (using batch RPC in chunks)...")
     neighbor_cache = {}
-    # Use the primary key column 'census_block_pk' to get unique identifiers
-    unique_block_ids_in_data = processed_df['census_block_pk'].unique()
-    logger.info(f"Found {len(unique_block_ids_in_data)} unique blocks (by PK) with incidents to check for neighbors.")
-    # Loop through unique blocks ONCE to fetch neighbors
-    for block_id in tqdm(unique_block_ids_in_data, desc=f"Fetching neighbors for city {target_city_id}"):
-        try:
-            # *** IMPORTANT ASSUMPTION CHECK ***
-            # Does find_block_neighbors_within_radius expect the primary key ('id') or the block_group_id?
-            # Let's assume it expects the primary key (`id` from census_blocks) for now, matching the FK reference.
-            neighbor_response = supabase.rpc('find_block_neighbors_within_radius', {
-                'target_block_id': block_id, # Assuming this expects the PK
-                'radius_meters': neighbor_radius # Use potentially city-specific radius
-            }).execute()
-            if neighbor_response.data:
-                neighbor_ids = [item['neighbor_block_id'] for item in neighbor_response.data]
-                neighbor_cache[block_id] = neighbor_ids
-            else:
-                neighbor_cache[block_id] = [] 
-                if hasattr(neighbor_response, 'error') and neighbor_response.error:
-                     logger.warning(f"RPC error finding neighbors for {block_id}: {neighbor_response.error}")
-        except Exception as rpc_err:
-            logger.error(f"Exception calling RPC find_block_neighbors_within_radius for {block_id}: {rpc_err}")
-            neighbor_cache[block_id] = []
-    logger.info(f"Pre-calculation complete. Found neighbor sets for {len(neighbor_cache)} blocks.")
+    unique_block_pks = processed_df['census_block_pk'].unique().tolist() # Get unique PKs as a list
+    total_unique_blocks = len(unique_block_pks)
+    logger.info(f"Found {total_unique_blocks} unique blocks (by PK) with incidents to fetch neighbors for.")
+
+    # Process neighbors in smaller chunks to avoid RPC timeout
+    neighbor_batch_size = 50 # Adjust chunk size as needed (Reduced further)
+    processed_neighbor_batches = 0
+    total_neighbor_batches = math.ceil(total_unique_blocks / neighbor_batch_size)
+
+    if unique_block_pks:
+        for i in range(0, total_unique_blocks, neighbor_batch_size):
+            pk_chunk = unique_block_pks[i:i + neighbor_batch_size]
+            batch_num = (i // neighbor_batch_size) + 1
+            logger.info(f"Fetching neighbors: Batch {batch_num}/{total_neighbor_batches} ({len(pk_chunk)} blocks)")
+            
+            try:
+                # Call the batch RPC function for the current chunk
+                batch_neighbor_response = supabase.rpc('find_block_neighbors_batch', {
+                    'target_block_ids': [str(pk) for pk in pk_chunk] 
+                }).execute()
+
+                if batch_neighbor_response.data and isinstance(batch_neighbor_response.data, dict):
+                    # Merge results into the main cache
+                    neighbor_cache.update(batch_neighbor_response.data)
+                    logger.debug(f"Neighbor batch {batch_num} successful, cache size now {len(neighbor_cache)}.")
+                    processed_neighbor_batches += 1
+                elif hasattr(batch_neighbor_response, 'error') and batch_neighbor_response.error:
+                    logger.error(f"Error calling batch neighbor RPC for chunk {batch_num}: {batch_neighbor_response.error}")
+                    # Optionally break or continue if one batch fails?
+                else:
+                    logger.warning(f"Batch neighbor RPC for chunk {batch_num} returned no data or unexpected format.")
+
+            except APIError as api_err:
+                 logger.error(f"APIError calling batch neighbor RPC for chunk {batch_num}: {api_err}", exc_info=False)
+            except Exception as rpc_err:
+                logger.error(f"Exception calling batch neighbor RPC for chunk {batch_num}: {rpc_err}", exc_info=True)
+                # Optionally break or continue
+            
+            time.sleep(0.1) # Small delay between batches
+            
+    else:
+        logger.info("No unique blocks found to fetch neighbors for.")
+
+    logger.info(f"Neighbor pre-calculation complete. Successfully processed {processed_neighbor_batches}/{total_neighbor_batches} batches. Found neighbor sets for {len(neighbor_cache)} blocks.")
+    if processed_neighbor_batches < total_neighbor_batches and total_neighbor_batches > 0:
+        logger.warning("Some neighbor batches failed to process. Neighbor data may be incomplete.")
     # --- End Neighbor Pre-calculation --- 
 
     # --- Main Metric Calculation Loop ---
@@ -348,7 +370,7 @@ def update_accommodation_safety_scores(supabase_client: Client, target_city_id):
 
     try:
         # 1. Fetch all current safety metrics for the relevant city
-        # Ensure block_group_id and city_id are selected
+        # Ensure block_group_id (which now holds the census_block PK) and city_id are selected
         metrics_response = supabase_client.table('safety_metrics') \
                                           .select('id, latitude, longitude, metric_type, score, block_group_id, city_id') \
                                           .eq('city_id', TARGET_CITY_ID_FOR_METRIC_FETCH) \
@@ -364,12 +386,15 @@ def update_accommodation_safety_scores(supabase_client: Client, target_city_id):
         metrics_df = pd.DataFrame(metrics_response.data)
         metrics_df['latitude'] = pd.to_numeric(metrics_df['latitude'], errors='coerce')
         metrics_df['longitude'] = pd.to_numeric(metrics_df['longitude'], errors='coerce')
-        # Keep city_id as is, block_group_id as string
-        metrics_df.dropna(subset=['latitude', 'longitude', 'block_group_id', 'city_id'], inplace=True)
+        # Rename 'block_group_id' from safety_metrics (which is the PK from census_blocks) to avoid confusion
+        metrics_df.rename(columns={'block_group_id': 'census_block_pk'}, inplace=True)
+
+        # Keep city_id as is, census_block_pk as string
+        metrics_df.dropna(subset=['latitude', 'longitude', 'census_block_pk', 'city_id'], inplace=True)
 
 
         if metrics_df.empty:
-            logger.warning("No valid safety metrics after cleaning (lat, lon, block_group_id, city_id).")
+            logger.warning("No valid safety metrics after cleaning (lat, lon, census_block_pk, city_id).")
             return
 
         logger.info(f"Loaded {len(metrics_df)} valid safety metrics.")
@@ -449,10 +474,10 @@ def update_accommodation_safety_scores(supabase_client: Client, target_city_id):
                     closest_idx = valid_indices[0] # The first index corresponds to the smallest distance
                     closest_metric_info = metrics_df.iloc[closest_idx]
                     closest_overall_metric_dist = calculate_distance_km(acc_lat, acc_lon, closest_metric_info['latitude'], closest_metric_info['longitude'])
-                    # Use this closest metric to infer block ID only
-                    inferred_block_id = closest_metric_info['block_group_id'] # Use the block_group_id from safety_metrics
+                    # Use this closest metric to infer block ID only - using the correct PK column
+                    inferred_block_id = closest_metric_info['census_block_pk'] # <<< Use the PK column here
                     # inferred_city_id = int(closest_metric_info['city_id']) if pd.notna(closest_metric_info['city_id']) else None # No longer need to infer city_id
-                    logger.debug(f"Acc {acc_id}: Closest metric at index {closest_idx} (dist: {closest_overall_metric_dist:.3f}km). Inferred block={inferred_block_id}")
+                    logger.debug(f"Acc {acc_id}: Closest metric at index {closest_idx} (dist: {closest_overall_metric_dist:.3f}km). Inferred block PK={inferred_block_id}")
                 else:
                      logger.warning(f"Acc {acc_id}: No valid indices found from KDTree query.")
 
@@ -520,7 +545,7 @@ def update_accommodation_safety_scores(supabase_client: Client, target_city_id):
                 updates_to_make.append({
                     'id': acc_id,
                     'overall_safety_score': overall_score,
-                    'census_block_id': inferred_block_id, # Add inferred block ID
+                    'census_block_id': inferred_block_id, # Add inferred block ID (this is now the PK)
                     'city_id': target_city_id,           # Use the known target_city_id
                     'safety_metric_types_found': num_found_types if found_metric_types else None # Add count, or None if no types found
                 })
@@ -543,77 +568,58 @@ def update_accommodation_safety_scores(supabase_client: Client, target_city_id):
              logger.warning(f"WARNING: Only {scores_calculated_count} non-null scores calculated out of {processed_count - no_metrics_found_count} accommodations that had *some* nearby metrics. Check 'Missing types' logs.")
 
 
-        # 8. Batch update accommodations (payload is now correct)
-        batch_size = 100 # Adjust batch size as needed
+        # 8. Batch update accommodations via RPC
+        batch_size = 500 # Adjust RPC batch size as needed (consider payload size limits)
         total_updated = 0
-        total_failed = 0
-        logger.info(f"Starting batch updates for {len(updates_to_make)} accommodations in {city_name}...")
+        total_failed_batches = 0
+        logger.info(f"Starting batch RPC updates for {len(updates_to_make)} accommodations in {city_name}...")
 
         for i in range(0, len(updates_to_make), batch_size):
-            batch = updates_to_make[i:i + batch_size]
+            batch_data = updates_to_make[i:i + batch_size]
             batch_number = (i // batch_size) + 1
-            logger.info(f"Updating accommodation batch {batch_number}/{math.ceil(len(updates_to_make) / batch_size)} ({len(batch)} records) for {city_name}")
+            logger.info(f"Calling RPC 'update_accommodations_batch' for batch {batch_number}/{math.ceil(len(updates_to_make) / batch_size)} ({len(batch_data)} records) for {city_name}")
+            
             try:
-                # Use .update() for each item - less efficient but handles errors individually
-                updated_in_batch = 0
-                failed_in_batch = 0
-                for update_item in batch:
-                    try:
-                        # Prepare update payload
-                        update_payload = {
-                            'overall_safety_score': update_item['overall_safety_score'],
-                            'census_block_id': update_item['census_block_id'],
-                            'city_id': update_item['city_id'], # Pass the correct city_id
-                            'safety_metric_types_found': update_item['safety_metric_types_found'] # Include the count
-                        }
+                # Ensure None values are handled correctly for JSON conversion if necessary
+                # The RPC function expects specific types, ensure payload matches
+                # Pass the list/dict directly, the client library handles JSON conversion
+                rpc_payload = {'updates_json': batch_data}
+                
+                # Log a sample of the payload for debugging (first item of first batch)
+                if i == 0 and batch_data:
+                    logger.debug(f"Sample RPC Payload Item: {batch_data[0]}")
 
-                        # Log the payload for one item per batch for debugging
-                        if updated_in_batch == 0 and failed_in_batch == 0: # Log first attempt in batch
-                             logger.debug(f"Attempting update for Acc {update_item['id']} with payload: {update_payload}")
+                update_result = supabase_client.rpc('update_accommodations_batch', rpc_payload).execute()
 
+                if hasattr(update_result, 'error') and update_result.error:
+                    logger.error(f"APIError on update batch {batch_number} for {city_name}: {update_result.error}")
+                    total_failed_batches += 1
+                elif update_result.data is not None:
+                    # RPC returns the count of updated rows
+                    updated_in_batch = update_result.data
+                    total_updated += updated_in_batch
+                    logger.info(f"Batch {batch_number} processed. RPC reported {updated_in_batch} rows updated.")
+                    if updated_in_batch != len(batch_data):
+                         logger.warning(f"Batch {batch_number} update count mismatch: expected {len(batch_data)}, RPC updated {updated_in_batch}. Some IDs might not have matched.")
+                else:
+                     logger.warning(f"Batch {batch_number} RPC for {city_name} returned unexpected data: {update_result.data}")
+                     total_failed_batches += 1
 
-                        result = supabase_client.table('accommodations') \
-                                               .update(update_payload) \
-                                               .eq('id', update_item['id']) \
-                                               .execute()
+            except APIError as api_err:
+                 logger.error(f"APIError during update batch {batch_number} RPC call for {city_name}: {api_err}", exc_info=False)
+                 total_failed_batches += 1
+            except Exception as generic_err:
+                 logger.error(f"Generic error during update batch {batch_number} RPC call for {city_name}: {generic_err}", exc_info=True)
+                 total_failed_batches += 1
+                 # Potentially break if a fundamental error occurs
+                 # break 
 
-                        # Basic check: Did the API call itself throw an error?
-                        # Note: Supabase update might return success even if 0 rows matched the 'eq' filter.
-                        # More robust checking could involve examining result.data if needed, but absence of error is usually sufficient.
-                        if hasattr(result, 'error') and result.error:
-                            logger.error(f"APIError on update for accommodation {update_item['id']} in {city_name}: {result.error}")
-                            failed_in_batch += 1
-                        else:
-                            # Log success only periodically or if debugging
-                            # logger.debug(f"Successfully updated accommodation {update_item['id']}")
-                            updated_in_batch += 1
-
-                    except APIError as update_err: # Catch specific PostgREST errors
-                        logger.error(f"APIError during individual update for accommodation {update_item['id']} in {city_name}: {update_err}", exc_info=False)
-                        failed_in_batch += 1
-                    except Exception as generic_err: # Catch other unexpected errors
-                         logger.error(f"Generic error during individual update for accommodation {update_item['id']} in {city_name}: {generic_err}", exc_info=False)
-                         failed_in_batch += 1
-
-                logger.info(f"Batch {batch_number} update attempt finished for {city_name}. Succeeded: {updated_in_batch}, Failed: {failed_in_batch}")
-                total_updated += updated_in_batch
-                total_failed += failed_in_batch
-
-            except Exception as e: # Catch potential unexpected errors during the batch loop itself
-                logger.error(f"Unexpected error processing accommodation scores batch {batch_number} for {city_name}: {e}", exc_info=True)
-                # Estimate failure for the rest of the batch if the loop breaks
-                remaining_in_batch = len(batch) - updated_in_batch - failed_in_batch
-                total_failed += remaining_in_batch
-                # Potentially break or continue depending on severity
-                break # Stop processing further batches if a fundamental error occurs here
-
-            # Add a small delay between batches if needed to avoid rate limiting
+            # Add a small delay between batches if needed
             time.sleep(0.1)
 
-        logger.info(f"Finished accommodation score update for {city_name}. Total Attempted Updates: {len(updates_to_make)}, Succeeded: {total_updated}, Failed: {total_failed}")
-        if total_failed > 0:
-             logger.warning("Some accommodation updates failed. Check logs for details.")
-
+        logger.info(f"Finished accommodation score update RPC calls for {city_name}. Total Attempted Records: {len(updates_to_make)}, Successfully processed by RPC: {total_updated} (across {math.ceil(len(updates_to_make) / batch_size) - total_failed_batches} batches), Failed Batches: {total_failed_batches}")
+        if total_failed_batches > 0:
+             logger.warning("Some accommodation update batches failed entirely. Check logs for details.")
 
     except Exception as e:
         logger.error(f"An error occurred during the accommodation score update process for {city_name}: {e}", exc_info=True)
@@ -1153,19 +1159,23 @@ def calculate_weighted_incidents(direct_incidents: int, neighbor_incident_map: d
 # --- Real calculate_safety_score Implementation ---
 def calculate_safety_score(weighted_incidents: float) -> float:
     """
-    Calculates a safety score (0-10) based on weighted incidents.
+    Calculates a safety score (0-10) based on weighted incidents using exponential decay.
     Higher score indicates lower risk (fewer weighted incidents).
-    Maps 0 incidents to score 10, increasing incidents decrease score.
+    Maps 0 incidents to score 10, increasing incidents decrease score towards 0.
     """
-    # Inverse relationship: Score decreases as incidents increase.
-    # The multiplier controls sensitivity. 0.5 means 20 weighted incidents -> score 0.
-    # Adjust this based on desired score distribution.
-    SCORE_SENSITIVITY_MULTIPLIER = 0.5 
-    
-    score = 10.0 - (weighted_incidents * SCORE_SENSITIVITY_MULTIPLIER)
-    
-    # Clamp score between 0 and 10
-    final_score = max(0.0, min(10.0, score))
+    # Exponential decay: score = 10 * exp(-k * weighted_incidents)
+    # A smaller k makes the score decrease slower. k=0.05 is chosen as a starting point.
+    DECAY_CONSTANT_K = 0.05
+
+    # Ensure weighted_incidents is non-negative, although it should be from the calculation
+    safe_weighted_incidents = max(0.0, weighted_incidents)
+
+    score = 10.0 * math.exp(-DECAY_CONSTANT_K * safe_weighted_incidents)
+
+    # The score naturally stays between 0 (exclusive for finite incidents) and 10 (inclusive)
+    # No explicit clamping needed like before, but we can ensure it's strictly non-negative
+    final_score = max(0.0, score)
+
     # logger.debug(f"Calculated safety score: {final_score:.2f} from {weighted_incidents:.2f} weighted incidents.")
     return final_score
 

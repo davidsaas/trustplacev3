@@ -17,6 +17,7 @@ import { useAuth } from '@/components/shared/providers/auth-provider'
 import { OSMInsights } from '../components/OSMInsights'
 import type { OSMInsightsResponse } from '@/app/api/osm-insights/route'
 import { ImageOff } from 'lucide-react'
+import { SaferAlternativesSection } from './components/SaferAlternativesSection'
 
 import type {
   SafetyReportProps,
@@ -489,61 +490,6 @@ export default function SafetyReportPage({ params }: SafetyReportProps) {
       // return null; // Or return null / a specific error component
   }
 
-  // --- NEW: Safer Alternatives Section Component --- (Placeholder structure)
-  const SaferAlternativesSection = () => {
-    if (!reportData || !reportData.similar_accommodations || reportData.similar_accommodations.length === 0) {
-      return (
-        <div className="bg-white rounded-xl p-6 shadow-sm text-center">
-          <p className="text-gray-500">No significantly safer alternatives found nearby matching the criteria.</p>
-          {/* Optionally add a button/link to adjust filters or view all on map */}
-        </div>
-      );
-    }
-
-    return (
-      <div className="space-y-4">
-        {reportData.similar_accommodations.map((alt) => (
-          <div key={alt.id} className="bg-white p-4 shadow-sm rounded-lg flex items-start space-x-4">
-            {/* Thumbnail (optional) */}
-            {alt.image_url && (
-              <img src={alt.image_url} alt={alt.name} className="w-20 h-20 object-cover rounded-md flex-shrink-0 bg-gray-100" />
-            )}
-            {!alt.image_url && (
-              <div className="w-20 h-20 rounded-md flex-shrink-0 bg-gray-100 flex items-center justify-center">
-                {/* Placeholder icon */}
-                <ImageOff className="size-8 text-gray-300" />
-              </div>
-            )}
-            <div className="flex-grow min-w-0">
-              <h4 className="font-semibold text-gray-800 truncate">{alt.name}</h4>
-              <div className="text-sm text-gray-500 mt-1 flex items-center flex-wrap gap-x-3">
-                 {/* Score Difference */}
-                 <span className="font-medium text-green-600">
-                    +{alt.overall_score - (reportData.overall_score || 0)} pts safer
-                 </span>
-                 {/* Distance */}
-                 <span>{(alt.distance ?? 0).toFixed(1)} km away</span>
-                 {/* Price */}
-                 {alt.price_per_night && <span>${alt.price_per_night}/night</span>}
-                 {/* Reliability */}
-                 {!alt.hasCompleteData && <span className="text-orange-600 text-xs">(Partial Data)</span>}
-              </div>
-            </div>
-            <a
-              href={`/safety-report/${alt.id}`}
-              target="_blank" // Open in new tab
-              rel="noopener noreferrer"
-              className="ml-auto flex-shrink-0 inline-flex items-center justify-center px-3 py-1.5 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
-            >
-              View
-            </a>
-          </div>
-        ))}
-      </div>
-    );
-  }
-  // --- End Safer Alternatives Section ---
-
   console.log("[SafetyReportPage Render] Rendering main content for:", reportData.name);
   // Helper to render section content
   const renderSectionContent = () => {
@@ -570,7 +516,10 @@ export default function SafetyReportPage({ params }: SafetyReportProps) {
                 </div>
               </div>
               <div className="bg-gray-50 p-4 sm:p-6 rounded-b-xl shadow-sm">
-                  <SaferAlternativesSection />
+                  <SaferAlternativesSection
+                    alternatives={reportData.similar_accommodations}
+                    currentScore={reportData.overall_score}
+                  />
               </div>
           </div>
         );
@@ -628,18 +577,14 @@ export default function SafetyReportPage({ params }: SafetyReportProps) {
                 </div>
               </div>
             </div>
-            <RestrictedContent>
-              <SafetyMetrics data={reportData.safety_metrics} />
-            </RestrictedContent>
+            <SafetyMetrics data={reportData.safety_metrics} />
 
             <div className="mt-6">
-              <RestrictedContent>
-                <CommunityOpinions
-                  isAuthenticated={isAuthenticated}
-                  latitude={reportData.location?.lat ?? null}
-                  longitude={reportData.location?.lng ?? null}
-                />
-              </RestrictedContent>
+              <CommunityOpinions
+                isAuthenticated={isAuthenticated}
+                latitude={reportData.location?.lat ?? null}
+                longitude={reportData.location?.lng ?? null}
+              />
             </div>
           </div>
         );
