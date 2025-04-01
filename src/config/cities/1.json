@@ -7,7 +7,6 @@
     "dataset_id": "2nrs-mtv8",
     "app_token_env_var": "LA_APP_TOKEN"
   },
-  "crime_code_mapping_file": "../../config/safety_metrics_config.json",
   "mapbox_config": {
     "bbox": "-118.9500,33.7000,-117.6500,34.8200",
     "proximity": "-118.2437,34.0522"

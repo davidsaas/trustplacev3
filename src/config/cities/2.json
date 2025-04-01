@@ -4,10 +4,10 @@
   "crime_data": {
     "source_type": "socrata",
     "api_domain": "data.cityofnewyork.us",
-    "dataset_id": "qgea-i56i",
+    "dataset_id": "uip8-fykc",
     "app_token_env_var": "NYC_APP_TOKEN"
+    
   },
-  "crime_code_mapping_file": "../../config/mappings/nyc_crime_codes.json",
   "mapbox_config": {
     "bbox": "-74.25909,40.477399,-73.700181,40.917577",
     "proximity": "-73.935242,40.730610"
@@ -16,9 +16,9 @@
     "neighbor_radius_meters": 400
   },
   "apify_urls": {
-    "reddit_opinions_url": "https://api.apify.com/v2/datasets/?????/items?clean=true&format=json",
-    "accommodations_airbnb": "",
-    "accommodations_booking": "https://api.apify.com/v2/datasets/lihqeW4NClKwdkddp/items?clean=true&format=json"
+    "reddit_opinions_url": "",
+    "accommodations_airbnb": "https://api.apify.com/v2/datasets/lihqeW4NClKwdkddp/items?clean=true&format=json",
+    "accommodations_booking": "https://api.apify.com/v2/datasets/QMlpMrvHPuRzfQ3Lf/items?clean=true&format=json"
   },
   "context_places": [
     "new york city", "manhattan", "brooklyn", "queens", "bronx", "staten island",

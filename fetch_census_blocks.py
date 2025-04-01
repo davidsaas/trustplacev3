@@ -241,67 +241,103 @@ class CensusFetcher:
             logger.error(f"Error fetching tracts: {str(e)}")
             return []
 
-    def fetch_city_tract_data(self, state_fips="06", county_fips="037"):
+    def fetch_city_tract_data(self, state_fips="06", county_fips="037", city_id=1, city_name="Unknown City"):
         """
-        Fetch tract data for Los Angeles city by filtering county tracts that intersect with city boundaries
-        
+        Fetch tract data for a specific city by filtering county tracts that intersect with city boundaries
+
         Args:
-            state_fips: State FIPS code (default: 06 for California)
-            county_fips: County FIPS code (default: 037 for Los Angeles County)
-            
+            state_fips: State FIPS code
+            county_fips: County FIPS code
+            city_id: ID of the city in the 'cities' table
+            city_name: Name of the city for logging
+
         Returns:
-            List of tract IDs in Los Angeles city
+            List of tract IDs in the specified city
         """
-        logger.info(f"Fetching tract data for Los Angeles city (state {state_fips}, county {county_fips})")
-        
+        logger.info(f"Fetching tract data for {city_name} (ID: {city_id}, State: {state_fips}, County: {county_fips})")
+
         try:
-            # Get LA city boundaries from cities table
-            city_result = self.supabase.table('cities').select('bounds').eq('id', 1).execute()
-            if not city_result.data:
-                logger.error("Could not find Los Angeles city boundaries")
+            # Get city boundaries from cities table using the provided city_id
+            city_result = self.supabase.table('cities').select('bounds').eq('id', city_id).single().execute() # Use city_id here
+            if not city_result.data or not city_result.data.get('bounds'):
+                logger.error(f"Could not find boundaries for city_id {city_id}")
                 return []
-                
-            bounds = city_result.data[0]['bounds']
-            sw = bounds['sw']
-            ne = bounds['ne']
-            
-            # Create a bounding box polygon for LA city
-            la_bbox = f"POLYGON(({sw['lng']} {sw['lat']}, {sw['lng']} {ne['lat']}, {ne['lng']} {ne['lat']}, {ne['lng']} {sw['lat']}, {sw['lng']} {sw['lat']}))"
-            
+
+            # Extract bounds using dict access, handling potential key errors
+            bounds_data = city_result.data['bounds']
+            min_lat = bounds_data.get('minLat')
+            min_lng = bounds_data.get('minLng')
+            max_lat = bounds_data.get('maxLat')
+            max_lng = bounds_data.get('maxLng')
+
+            if None in [min_lat, min_lng, max_lat, max_lng]:
+                 logger.error(f"Incomplete bounds data found for city_id {city_id}: {bounds_data}")
+                 return []
+
+            # Create a bounding box polygon for the city
+            city_bbox_wkt = f"POLYGON(({min_lng} {min_lat}, {min_lng} {max_lat}, {max_lng} {max_lat}, {max_lng} {min_lat}, {min_lng} {min_lat}))"
+            logger.debug(f"Using bounding box for {city_name}: {city_bbox_wkt}")
+
             # First, get all tracts in the county
             tract_ids = self.fetch_tracts_for_county(state_fips, county_fips)
             if not tract_ids:
-                logger.error("No tracts found for county")
+                logger.error(f"No tracts found for county {county_fips}")
                 return []
-            
+
             # Load TIGER geometries to filter by city boundary
-            tiger_shapefile = self.download_tiger_shapefile(state_fips)
-            if not tiger_shapefile:
-                logger.error("Failed to download TIGER/Line shapefile")
-                return []
-                
-            # Read shapefile with geopandas
-            gdf = gpd.read_file(tiger_shapefile)
-            
-            # Ensure geometry is in WGS84 (EPSG:4326)
-            if gdf.crs != "EPSG:4326":
-                gdf = gdf.to_crs("EPSG:4326")
-            
-            # Filter for county
-            gdf = gdf[gdf['COUNTYFP'] == county_fips]
-            
-            # Create LA city boundary polygon
-            city_polygon = loads(la_bbox)
-            
-            # Filter tracts that intersect with LA city boundary
-            gdf['intersects_city'] = gdf.geometry.intersects(city_polygon)
-            city_tracts = gdf[gdf['intersects_city']]['TRACTCE'].tolist()
-            
-            logger.info(f"Found {len(city_tracts)} tracts that intersect with Los Angeles city")
-            return city_tracts
-            
+            # Assuming TIGER geometries have been loaded by the caller (run_for_city)
+            if not self.block_group_geometries:
+                logger.error("TIGER/Line geometries not loaded. Cannot filter tracts by city boundary.")
+                # Attempt to load them now (might be inefficient)
+                logger.warning("Attempting to load TIGER geometries now...")
+                tiger_shapefile = self.download_tiger_shapefile(state_fips)
+                if not tiger_shapefile:
+                    logger.error("Failed to download TIGER/Line shapefile")
+                    return []
+                self.load_tiger_geometries(tiger_shapefile, state_fips, county_fips)
+                if not self.block_group_geometries:
+                     logger.error("Failed to load TIGER geometries after download attempt.")
+                     return []
+
+
+            # Create GeoDataFrame from loaded TIGER geometries
+            gdf_data = []
+            for tract_bg, wkt_geom in self.block_group_geometries.items():
+                try:
+                    # Extract TRACTCE (first 6 digits of tract_bg)
+                    tractce = tract_bg[:6]
+                    # Load geometry from WKT
+                    # Remove SRID prefix if present
+                    if wkt_geom.startswith("SRID=4326;"):
+                        wkt_geom = wkt_geom[10:]
+                    geom = loads(wkt_geom)
+                    gdf_data.append({'TRACTCE': tractce, 'geometry': geom})
+                except Exception as parse_err:
+                     logger.warning(f"Could not parse geometry for {tract_bg}: {parse_err}")
+
+            if not gdf_data:
+                 logger.error("Could not create GeoDataFrame from loaded TIGER geometries.")
+                 return []
+
+            # Use crs="EPSG:4326" since we stored WKT in that format
+            gdf = gpd.GeoDataFrame(gdf_data, crs="EPSG:4326")
+            gdf = gdf.dissolve(by='TRACTCE', aggfunc='first').reset_index() # Group block groups by tract
+            logger.info(f"Created temporary GeoDataFrame with {len(gdf)} unique tracts from TIGER data for county {county_fips}")
+
+
+            # Create city boundary polygon
+            city_polygon = loads(city_bbox_wkt)
+
+            # Filter tracts that intersect with city boundary
+            # Use spatial index for efficiency if gdf is large
+            gdf_filtered = gdf[gdf.geometry.intersects(city_polygon)]
+            city_tract_ids = gdf_filtered['TRACTCE'].unique().tolist()
+
+            logger.info(f"Found {len(city_tract_ids)} tracts that intersect with {city_name} (ID: {city_id})")
+            return city_tract_ids
+
         except Exception as e:
-            logger.error(f"Error filtering tracts for LA city: {str(e)}")
+            logger.error(f"Error filtering tracts for {city_name} (ID: {city_id}): {e}", exc_info=True)
             return []
 
     def fetch_block_groups_for_tract(self, tract_id, state_fips="06", county_fips="037"):
@@ -506,74 +542,98 @@ class CensusFetcher:
 
     def run_for_city(self, state_fips="06", county_fips="037", city_id=1, clear_existing=True, test_limit=0):
         """
-        Run the full fetch process for Los Angeles city
-        
+        Run the full fetch process for a specific city
+
         Args:
-            state_fips: State FIPS code (default: 06 for California)
-            county_fips: County FIPS code (default: 037 for Los Angeles County)
-            city_id: City ID (default: 1 for Los Angeles)
-            clear_existing: Whether to clear existing data first (default: True)
-            test_limit: Limit the number of tracts to process for testing (default: 0, no limit)
+            state_fips: State FIPS code
+            county_fips: County FIPS code
+            city_id: City ID (e.g., 1 for Los Angeles, 2 for New York City)
+            clear_existing: Whether to clear existing data for this city first
+            test_limit: Limit the number of tracts to process for testing
         """
         start_time = time.time()
-        logger.info(f"Starting census block fetch for Los Angeles city (state {state_fips}, county {county_fips})")
-        
-        # Load TIGER/Line geometries
+
+        # --- Fetch City Name ---
+        city_name = f"City ID {city_id}" # Default
+        try:
+            city_info = self.supabase.table('cities').select('name').eq('id', city_id).single().execute()
+            if city_info.data and city_info.data.get('name'):
+                city_name = city_info.data['name']
+        except Exception as city_err:
+            logger.warning(f"Could not fetch city name for ID {city_id}: {city_err}")
+        # --- End Fetch City Name ---
+
+        logger.info(f"Starting census block fetch for {city_name} (ID: {city_id}, State: {state_fips}, County: {county_fips})")
+
+        # Load TIGER/Line geometries for the state
         tiger_shapefile = self.download_tiger_shapefile(state_fips)
         if tiger_shapefile:
+            # Load only for the specific county needed
             self.load_tiger_geometries(tiger_shapefile, state_fips, county_fips)
         else:
             logger.warning("Failed to download TIGER/Line shapefile. Will use placeholder geometries.")
-        
+
         # Clear existing data for this city if requested
         if clear_existing:
             if not self.clear_city_data(city_id=city_id):
-                logger.error("Failed to clear existing city data. Continuing anyway.")
-        
-        # 1. Fetch all tracts in Los Angeles County
-        tract_ids = self.fetch_city_tract_data(state_fips, county_fips)
+                logger.error(f"Failed to clear existing data for {city_name}. Continuing anyway.")
+
+        # 1. Fetch tracts within the specified county that intersect the city's bounds
+        tract_ids = self.fetch_city_tract_data(state_fips, county_fips, city_id, city_name) # Pass city_id and city_name
         if not tract_ids:
-            logger.error("No tract data found. Exiting.")
+            logger.error(f"No tract data found for {city_name}. Exiting.")
             return
-        
+
         # Limit the number of tracts for testing if specified
         if test_limit > 0 and test_limit < len(tract_ids):
             logger.info(f"Limiting to first {test_limit} tracts for testing")
             tract_ids = tract_ids[:test_limit]
-            
-        # 2. Process each tract to get its block groups
-        total_block_groups = []
-        
-        with tqdm(total=len(tract_ids), desc="Fetching block groups") as pbar:
+
+        # 2. Process each relevant tract to get its block groups
+        total_block_groups_inserted_count = 0
+
+        with tqdm(total=len(tract_ids), desc=f"Fetching block groups for {city_name}") as pbar:
             for tract_id in tract_ids:
                 # Fetch block groups for this tract
                 block_groups = self.fetch_block_groups_for_tract(tract_id, state_fips, county_fips)
-                
+
                 # Process the block groups
                 if block_groups:
-                    # Set city_id to indicate these are for Los Angeles city
+                    # Set city_id for these block groups
                     for bg in block_groups:
-                        bg['city_id'] = city_id
-                        bg['demographic_data']['source'] = 'Census ACS 2022 - Los Angeles City'
-                        
+                        bg['city_id'] = city_id # Use the correct city_id
+                        bg['demographic_data']['source'] = f'Census ACS 2022 - {city_name}'
+
                     # Insert block groups into database
                     inserted = self.insert_block_groups(block_groups)
-                    logger.info(f"Inserted {inserted} block groups for tract {tract_id}")
-                    total_block_groups.extend(block_groups)
-                    
+                    if inserted > 0:
+                         logger.debug(f"Inserted {inserted} block groups for tract {tract_id}")
+                         total_block_groups_inserted_count += inserted
+                    else:
+                         logger.warning(f"No block groups inserted for tract {tract_id}")
+
                 pbar.update(1)
-                # Show stats
-                elapsed = time.time() - start_time
-                remaining = (len(tract_ids) - pbar.n) * (elapsed / max(pbar.n, 1))
-                logger.info(f"Progress: {pbar.n}/{len(tract_ids)} tracts processed. "
-                           f"Estimated time remaining: {remaining/60:.1f} minutes")
-        
+                # Show stats periodically
+                if pbar.n % 10 == 0 or pbar.n == len(tract_ids): # Log every 10 tracts or at the end
+                    elapsed = time.time() - start_time
+                    rate = pbar.n / max(elapsed, 1) # Tracts per second
+                    remaining_tracts = len(tract_ids) - pbar.n
+                    if rate > 0:
+                         remaining_time_est = remaining_tracts / rate
+                         logger.info(f"Progress: {pbar.n}/{len(tract_ids)} tracts ({rate:.1f}/s). "
+                                     f"Est. time remaining: {remaining_time_est/60:.1f} min. "
+                                     f"Total inserted so far: {total_block_groups_inserted_count}")
+                    else:
+                         logger.info(f"Progress: {pbar.n}/{len(tract_ids)} tracts processed.")
+
+
         # Log completion
         elapsed = time.time() - start_time
-        logger.info(f"Census block fetch complete.")
+        logger.info(f"Census block fetch COMPLETE for {city_name}.")
         logger.info(f"Processed {len(tract_ids)} tracts in {elapsed/60:.1f} minutes.")
-        logger.info(f"Total block groups inserted: {len(total_block_groups)}")
-        logger.info(f"Total records added to database: {len(total_block_groups)}")
+        logger.info(f"Successfully fetched block groups for {self.successful_fetches} API calls.")
+        logger.info(f"Failed to fetch block groups for {self.failed_fetches} API calls.")
+        logger.info(f"Total block groups inserted into database: {total_block_groups_inserted_count}")
 
     def clear_city_data(self, city_id=1):
         """

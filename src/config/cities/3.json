@@ -7,7 +7,7 @@
     "dataset_id": null,
     "app_token_env_var": null
   },
-  "crime_code_mapping_file": "../../config/mappings/mia_crime_codes.json",
+  "crime_code_mapping_file": "src/config/safety_metrics_config.json",
   "mapbox_config": {
     "bbox": "-80.31976,25.70569,-80.12995,25.90742",
     "proximity": "-80.191790,25.761681"

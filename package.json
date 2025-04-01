@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "script:import-accommodations": "tsx src/scripts/import-accommodations.ts",
+    "script:import-accommodations": "npx tsx src/scripts/import-accommodations.ts",
     "script:ingest-opinions": "tsx src/scripts/ingest-reddit-opinions.ts",
     "script:process-safety": "python src/lib/safety-metrics/city_safety_processor.py"
   },
