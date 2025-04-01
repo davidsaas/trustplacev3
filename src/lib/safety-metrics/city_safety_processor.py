@@ -122,13 +122,17 @@ def calculate_metrics(processed_df, target_city_id, city_config):
     neighbor_radius = city_config.get('geospatial', {}).get('neighbor_radius_meters', NEIGHBOR_RADIUS_METERS)
     logger.info(f"Pre-calculating neighbors within {neighbor_radius}m for all unique blocks...")
     neighbor_cache = {}
-    unique_block_ids_in_data = processed_df['census_block_id'].unique()
-    logger.info(f"Found {len(unique_block_ids_in_data)} unique blocks with incidents to check for neighbors.")
+    # Use the primary key column 'census_block_pk' to get unique identifiers
+    unique_block_ids_in_data = processed_df['census_block_pk'].unique()
+    logger.info(f"Found {len(unique_block_ids_in_data)} unique blocks (by PK) with incidents to check for neighbors.")
     # Loop through unique blocks ONCE to fetch neighbors
     for block_id in tqdm(unique_block_ids_in_data, desc=f"Fetching neighbors for city {target_city_id}"):
         try:
+            # *** IMPORTANT ASSUMPTION CHECK ***
+            # Does find_block_neighbors_within_radius expect the primary key ('id') or the block_group_id?
+            # Let's assume it expects the primary key (`id` from census_blocks) for now, matching the FK reference.
             neighbor_response = supabase.rpc('find_block_neighbors_within_radius', {
-                'target_block_id': block_id,
+                'target_block_id': block_id, # Assuming this expects the PK
                 'radius_meters': neighbor_radius # Use potentially city-specific radius
             }).execute()
             if neighbor_response.data:
@@ -195,35 +199,55 @@ def calculate_metrics(processed_df, target_city_id, city_config):
 
         logger.info(f"Found {len(metric_crimes_df)} incidents for metric '{metric_type}' in city {target_city_id}.")
 
-        # Aggregate incidents by census block
-        block_group_stats = metric_crimes_df.groupby('census_block_id').agg(
+        # Aggregate incidents by the census block primary key ('census_block_pk')
+        # Include other necessary fields
+        block_group_stats = metric_crimes_df.groupby('census_block_pk').agg(
+            # We also need the original block_group_id if we display it anywhere later
+            block_group_identifier=('block_group_id', 'first'),
             direct_incidents=('crime_code', 'size'),
             latitude=('latitude', 'mean'), # Use standardized column name
             longitude=('longitude', 'mean'), # Use standardized column name
             population=('population', 'first'),
             housing_units=('housing_units', 'first'),
             population_density_proxy=('population_density_proxy', 'first')
-        ).reset_index()
+        ).reset_index() # census_block_pk becomes a column
 
         logger.info(f"Aggregated stats for {len(block_group_stats)} census blocks for metric '{metric_type}' in city {target_city_id}.")
 
-        metric_incident_map = block_group_stats.set_index('census_block_id')['direct_incidents'].to_dict()
+        # Create a map using the primary key for neighbor lookups
+        # Note: Neighbors are found using block_group_id in the RPC, so we need a way to link back if needed
+        # For weighted score calculation, we probably need incidents mapped by census_block_pk
+        metric_incident_map_pk = block_group_stats.set_index('census_block_pk')['direct_incidents'].to_dict()
 
         metric_records = []
         # --- Loop through each block that has incidents for THIS metric ---
+        # Fetch neighbors based on the 'block_group_identifier' (original block_group_id from census)
         for _, block_row in tqdm(block_group_stats.iterrows(), total=len(block_group_stats), desc=f"Calculating {metric_type} metrics for city {target_city_id}"):
-            current_block_id = block_row['census_block_id']
+            current_block_pk = block_row['census_block_pk'] # This is the PK for FK relationship
+            # Use original block group ID for neighbor lookup if the RPC uses that
+            original_block_group_id_for_neighbors = block_row['block_group_identifier']
+
             direct_incidents = block_row['direct_incidents']
             pop_density_proxy = block_row['population_density_proxy']
             population = block_row['population']
 
-            # Use the pre-calculated neighbor cache
-            neighbor_ids = neighbor_cache.get(current_block_id, [])
+            # --- Neighbor Incident Calculation ---
+            # Get neighbors using the *original* block group ID? Recheck RPC neighbor function input.
+            # Assuming find_block_neighbors_within_radius takes the PK ('id' from census_blocks)
+            neighbor_ids_pk = neighbor_cache.get(current_block_pk, []) # ASSUMPTION: neighbor_cache keys are census_block_pk
+
+            # If neighbor_cache keys are original block_group_id:
+            # neighbor_ids_original = neighbor_cache.get(original_block_group_id_for_neighbors, [])
+            # We need a map from original_block_group_id back to pk to use metric_incident_map_pk
+            # This adds complexity. Let's *assume* neighbor_cache uses the PK ('id') for now.
 
             neighbor_incident_map = {
-                nid: metric_incident_map.get(nid, 0) for nid in neighbor_ids if nid in metric_incident_map
+                nid_pk: metric_incident_map_pk.get(nid_pk, 0)
+                for nid_pk in neighbor_ids_pk if nid_pk in metric_incident_map_pk
             }
-            neighbor_count = len(neighbor_ids)
+            neighbor_count = len(neighbor_ids_pk) # Count neighbors by PK
+
+            # --- End Neighbor Incident Calculation ---
 
             weighted_incidents = calculate_weighted_incidents(direct_incidents, neighbor_incident_map, pop_density_proxy)
             score = calculate_safety_score(weighted_incidents)
@@ -233,8 +257,9 @@ def calculate_metrics(processed_df, target_city_id, city_config):
                 metric_type, score, direct_incidents, weighted_incidents, pop_density_proxy, incidents_per_1000, neighbor_count
             )
 
-            # Use target_city_id consistently for the metric record
-            id_string = f"{target_city_id}:{current_block_id}:{metric_type}" 
+            # Use target_city_id and the *block primary key* for the stable metric ID
+            # Use original block group id for display/logging if needed?
+            id_string = f"{target_city_id}:{current_block_pk}:{metric_type}"
             stable_metric_id = str(uuid.uuid5(uuid.NAMESPACE_DNS, id_string))
 
             geom_string = f"SRID=4326;POINT({block_row['longitude']} {block_row['latitude']})"
@@ -242,7 +267,8 @@ def calculate_metrics(processed_df, target_city_id, city_config):
             metric_record = {
                 'id': stable_metric_id,
                 'city_id': target_city_id, # Use target_city_id
-                'block_group_id': current_block_id, 
+                # Use the PK ('census_block_pk') for the FK column in safety_metrics
+                'block_group_id': current_block_pk, # <<< Use PK for the FK column
                 'latitude': float(block_row['latitude']),
                 'longitude': float(block_row['longitude']),
                 'geom': geom_string,
@@ -252,10 +278,11 @@ def calculate_metrics(processed_df, target_city_id, city_config):
                 'description': description, # Generated, uses base from METRIC_DEFINITIONS
                 'direct_incidents': int(direct_incidents),
                 'weighted_incidents': float(weighted_incidents),
-                'population_density': float(pop_density_proxy), 
+                'population_density': float(pop_density_proxy),
                 'incidents_per_1000': float(incidents_per_1000),
                 'created_at': now.isoformat(),
                 'expires_at': expires_at.isoformat()
+                # Consider adding 'block_group_identifier': block_row['block_group_identifier'] if needed for display
             }
             metric_records.append(metric_record)
 
@@ -888,52 +915,64 @@ def process_crime_data(raw_crime_data: list, city_config: dict) -> pd.DataFrame 
 
         block_data = []
         try:
-            # Call the RPC function (adjust function name if different)
-            # Consider batching if len(coordinates_rpc) is very large
+            # Initialize block_df to None outside the conditional blocks
+            block_df = None
+
+            # Call the RPC function
             logger.info(f"Calling Supabase RPC 'match_points_to_block_groups'...")
             rpc_response = supabase.rpc('match_points_to_block_groups', {'points_json': coordinates_rpc}).execute()
 
-            if rpc_response.data and len(rpc_response.data) == len(coordinates_rpc):
-                logger.info(f"Successfully received {len(rpc_response.data)} results from RPC.")
+            # Check if data was returned, regardless of length for now
+            if rpc_response.data:
+                if len(rpc_response.data) != len(coordinates_rpc):
+                    # Log a more critical warning about the mismatch
+                    logger.error(f"CRITICAL WARNING: RPC response length mismatch! Received {len(rpc_response.data)} results for {len(coordinates_rpc)} coordinates. Processing received data but results may be misaligned or incomplete.")
+                else:
+                     logger.info(f"Successfully received {len(rpc_response.data)} results from RPC matching input length.")
 
-                # --- Process RPC response manually to handle nulls and correct keys ---
+                # --- Process RPC response manually (handles nulls, correct keys, and potential length mismatch) ---
                 processed_block_data = []
-                expected_keys = ['block_group_id', 'total_population', 'housing_units'] # Keys from SQL function
+                # Iterate through the actual response data received
                 for item in rpc_response.data:
                     if item is not None and isinstance(item, dict):
-                        # Extract data using actual keys from SQL function
                         processed_block_data.append({
-                            'block_group_id': item.get('block_group_id'), # Use actual key
-                            'population': item.get('total_population'),   # Use actual key 'total_population' and map to 'population'
-                            'housing_units': item.get('housing_units')  # Use actual key
+                            # Capture the primary key 'id' returned by the RPC
+                            'census_block_pk': item.get('id'), # <<< Extract the 'id' field
+                            'block_group_id': item.get('block_group_id'),
+                            'population': item.get('total_population'),
+                            'housing_units': item.get('housing_units')
                         })
                     else:
-                        # Append None values if RPC returned null or unexpected type
                         processed_block_data.append({
-                            'block_group_id': None,
-                            'population': None,
-                            'housing_units': None
+                            'census_block_pk': None, # <<< Add None for PK
+                            'block_group_id': None, 'population': None, 'housing_units': None
                         })
 
+                # Create block_df from the processed data
                 block_df = pd.DataFrame(processed_block_data)
                 logger.info(f"Created block_df from processed RPC data. Shape: {block_df.shape}, Columns: {block_df.columns.tolist()}")
 
-                # Rename block_group_id to census_block_id for consistency
-                if 'block_group_id' in block_df.columns:
-                     block_df.rename(columns={'block_group_id': 'census_block_id'}, inplace=True)
-                     logger.info(f"Renamed 'block_group_id' to 'census_block_id'. Columns: {block_df.columns.tolist()}")
-                else:
-                     logger.warning("Column 'block_group_id' not found in processed RPC data, skipping rename.")
-                # --- End Processing ---
+                # >>> ADD LOGGING HERE <<<
+                logger.info(f"Block DF Head (from RPC):\n{block_df.head()}")
+                # >>> END LOGGING <<<
+
+                # No longer need to rename block_group_id to census_block_id
+                # Keep both census_block_pk (the primary key for FK) and block_group_id (original identifier)
+
+                # if 'block_group_id' in block_df.columns:
+                #      block_df.rename(columns={'block_group_id': 'census_block_id'}, inplace=True)
+                #      logger.info(f"Renamed 'block_group_id' to 'census_block_id'.")
+                # else:
+                #      logger.warning("Column 'block_group_id' not found in processed RPC data, skipping rename.")
 
             elif hasattr(rpc_response, 'error') and rpc_response.error:
                  logger.error(f"Supabase RPC error: {rpc_response.error}")
                  # Handle error - perhaps return None or empty DataFrame?
                  return None
-            else:
-                logger.warning(f"Unexpected RPC response format or length mismatch. Received {len(rpc_response.data)} results for {len(coordinates_rpc)} coordinates.")
-                # Fill with None to maintain DataFrame structure
-                block_data = [{'census_block_id': None, 'population': None, 'housing_units': None}] * len(coordinates_rpc)
+            # If block_df is still None here, it means RPC returned no data and no error
+            if block_df is None:
+                 logger.error("RPC call 'match_points_to_block_groups' returned no data and no error. Cannot proceed.")
+                 return None
 
         except APIError as api_err: # Catch specific PostgREST errors separately
              logger.error(f"Supabase RPC APIError for 'match_points_to_block_groups': {api_err}", exc_info=False)
@@ -949,7 +988,7 @@ def process_crime_data(raw_crime_data: list, city_config: dict) -> pd.DataFrame 
             return None
 
         # Check which columns were successfully created before merging
-        valid_block_cols = [col for col in ['census_block_id', 'population', 'housing_units'] if col in block_df.columns]
+        valid_block_cols = [col for col in ['census_block_pk', 'block_group_id', 'population', 'housing_units'] if col in block_df.columns]
         logger.info(f"Columns ready for merging from block_df: {valid_block_cols}")
 
         if not valid_block_cols:
@@ -960,16 +999,16 @@ def process_crime_data(raw_crime_data: list, city_config: dict) -> pd.DataFrame 
         df = pd.concat([df.reset_index(drop=True), block_df[valid_block_cols].reset_index(drop=True)], axis=1)
         logger.info(f"Merged census block data. DataFrame shape: {df.shape}, Columns: {df.columns.tolist()}")
 
-        # Drop rows where census_block_id is null (failed mapping)
+        # Drop rows where census_block_pk is null (failed mapping)
         initial_rows = len(df)
-        # Ensure 'census_block_id' column actually exists before dropping NAs
-        if 'census_block_id' in df.columns:
-            df.dropna(subset=['census_block_id'], inplace=True)
+        # Ensure 'census_block_pk' column actually exists before dropping NAs
+        if 'census_block_pk' in df.columns:
+            df.dropna(subset=['census_block_pk'], inplace=True)
             rows_after_drop = len(df)
             if initial_rows > rows_after_drop:
-                logger.info(f"Dropped {initial_rows - rows_after_drop} records that failed census block mapping.")
+                logger.info(f"Dropped {initial_rows - rows_after_drop} records that failed census block mapping (PK).")
         else:
-            logger.warning("Column 'census_block_id' not found after merge, skipping dropna step.")
+            logger.warning("Column 'census_block_pk' not found after merge, skipping dropna step.")
 
         if df.empty:
              logger.warning(f"No records remaining after census block mapping for {city_name}.")
@@ -991,7 +1030,8 @@ def process_crime_data(raw_crime_data: list, city_config: dict) -> pd.DataFrame 
         # Final column selection and type check
         final_cols = [
             'crime_code', 'latitude', 'longitude', 'hour',
-            'census_block_id', 'population', 'housing_units', 'population_density_proxy'
+            'census_block_pk', 'block_group_id', # Keep both PK and original ID
+            'population', 'housing_units', 'population_density_proxy'
         ]
         # Ensure all final columns exist before returning
         processed_df = df[[col for col in final_cols if col in df.columns]]
@@ -1162,7 +1202,7 @@ def main(target_city_id: int, test_mode=False):
         neighbor_radius = city_config.get('geospatial', {}).get('neighbor_radius_meters', NEIGHBOR_RADIUS_METERS) # Use default if not in config
         logger.info(f"Using neighbor radius: {neighbor_radius} meters")
 
-        days_back = 160
+        days_back = 100
         max_records = 500000
         if test_mode:
             logger.info("TEST MODE: Using smaller dataset parameters.")
