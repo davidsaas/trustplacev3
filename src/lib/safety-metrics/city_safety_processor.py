@@ -171,7 +171,6 @@ def calculate_metrics(processed_df, target_city_id, city_config):
     # --- End Neighbor Pre-calculation --- 
 
     # --- Main Metric Calculation Loop ---
-    # Use METRIC_DEFINITIONS loaded from the global config 
     for metric_type, metric_info in METRIC_DEFINITIONS.items(): 
         logger.info(f"--- Processing Metric: {metric_type} for city {target_city_id} ---")
 
@@ -214,6 +213,11 @@ def calculate_metrics(processed_df, target_city_id, city_config):
         elif time_filter_hours:
              logger.warning(f"Time filter for metric '{metric_type}' is defined but not a list: {time_filter_hours}. Skipping filter.")
 
+        # *** ADDED LOGGING: Incident count after filtering ***
+        initial_metric_incident_count = len(metric_crimes_df)
+        logger.info(f"Found {initial_metric_incident_count:,} incidents for metric '{metric_type}' after code/time filtering.")
+        # *** END ADDED LOGGING ***
+
         if metric_crimes_df.empty:
             logger.info(f"No relevant incidents found for metric '{metric_type}' in city {target_city_id} after code/time filtering.")
             results[metric_type] = []
@@ -242,9 +246,12 @@ def calculate_metrics(processed_df, target_city_id, city_config):
         metric_incident_map_pk = block_group_stats.set_index('census_block_pk')['direct_incidents'].to_dict()
 
         metric_records = []
+        # Log weighted incidents for the first few blocks of each metric type for debugging
+        logged_weighted_count = 0
+        MAX_WEIGHTED_LOGS_PER_METRIC = 5
+
         # --- Loop through each block that has incidents for THIS metric ---
-        # Fetch neighbors based on the 'block_group_identifier' (original block_group_id from census)
-        for _, block_row in tqdm(block_group_stats.iterrows(), total=len(block_group_stats), desc=f"Calculating {metric_type} metrics for city {target_city_id}"):
+        for idx, block_row in tqdm(block_group_stats.iterrows(), total=len(block_group_stats), desc=f"Calculating {metric_type} metrics for city {target_city_id}"):
             current_block_pk = block_row['census_block_pk'] # This is the PK for FK relationship
             # Use original block group ID for neighbor lookup if the RPC uses that
             original_block_group_id_for_neighbors = block_row['block_group_identifier']
@@ -258,6 +265,13 @@ def calculate_metrics(processed_df, target_city_id, city_config):
             # Assuming find_block_neighbors_within_radius takes the PK ('id' from census_blocks)
             neighbor_ids_pk = neighbor_cache.get(current_block_pk, []) # ASSUMPTION: neighbor_cache keys are census_block_pk
 
+            # *** ADDED LOGGING: Raw Neighbor Count Check ***
+            raw_neighbor_count = len(neighbor_ids_pk)
+            if logged_weighted_count < MAX_WEIGHTED_LOGS_PER_METRIC: # Reuse existing log limiter
+                 logger.debug(f"Neighbor Check (Metric: {metric_type}, Block PK: {current_block_pk}): "
+                              f"Raw neighbor IDs fetched from RPC/cache: {raw_neighbor_count}")
+            # *** END ADDED LOGGING ***
+
             # If neighbor_cache keys are original block_group_id:
             # neighbor_ids_original = neighbor_cache.get(original_block_group_id_for_neighbors, [])
             # We need a map from original_block_group_id back to pk to use metric_incident_map_pk
@@ -268,15 +282,32 @@ def calculate_metrics(processed_df, target_city_id, city_config):
                 for nid_pk in neighbor_ids_pk if nid_pk in metric_incident_map_pk
             }
             neighbor_count = len(neighbor_ids_pk) # Count neighbors by PK
+            # *** ADDED CALCULATION for logging ***
+            neighbor_incidents_total = sum(neighbor_incident_map.values())
+            # *** END ADDED CALCULATION ***
 
-            # --- End Neighbor Incident Calculation ---
+            # *** ADDED: Count neighbors that actually had incidents for this metric ***
+            contributing_neighbor_count = len(neighbor_incident_map)
+            # *** END ADDED ***
 
             weighted_incidents = calculate_weighted_incidents(direct_incidents, neighbor_incident_map, pop_density_proxy)
+
+            # *** ADDED LOGGING: Sample Weighted Incident Calculation ***
+            if logged_weighted_count < MAX_WEIGHTED_LOGS_PER_METRIC:
+                 logger.debug(f"Sample Weighted Calc (Metric: {metric_type}, Block PK: {current_block_pk}): "
+                              f"Direct={direct_incidents}, Neighbors={neighbor_count}, "
+                              f"Neighbor Incidents Total={neighbor_incidents_total}, "
+                              f"Resulting Weighted={weighted_incidents:.2f}")
+                 logged_weighted_count += 1
+            # *** END ADDED LOGGING ***
+
             score = calculate_safety_score(weighted_incidents)
             incidents_per_1000 = (direct_incidents / population) * 1000 if population > 0 else 0.0
 
+            # Use the UPDATED get_risk_description function
             description = get_risk_description(
-                metric_type, score, direct_incidents, weighted_incidents, pop_density_proxy, incidents_per_1000, neighbor_count
+                metric_type, score, direct_incidents, weighted_incidents,
+                pop_density_proxy, incidents_per_1000, contributing_neighbor_count # <<< Ensure this uses contributing_neighbor_count
             )
 
             # Use target_city_id and the *block primary key* for the stable metric ID
@@ -313,26 +344,37 @@ def calculate_metrics(processed_df, target_city_id, city_config):
 
     return results
 
+# --- Real get_risk_description Implementation ---
 # Modify get_risk_description to potentially use the base description from JSON
-def get_risk_description(metric_type, score, direct_incidents, weighted_incidents, density_proxy_value, incidents_per_1000, neighbor_count):
+def get_risk_description(metric_type, score, direct_incidents, weighted_incidents, density_proxy_value, incidents_per_1000, contributing_neighbor_count):
     try:
         if score >= 8: risk_level = "Very Low Risk"
-        elif score >= 7: risk_level = "Low Risk"
-        elif score >= 6: risk_level = "Moderate Risk"
-        elif score >= 4: risk_level = "High Risk"
+        elif score >= 6: risk_level = "Low Risk" # Adjusted threshold from 7
+        elif score >= 4: risk_level = "Moderate Risk" # Adjusted threshold from 6
+        elif score >= 2: risk_level = "High Risk" # Adjusted threshold from 4
         else: risk_level = "Very High Risk"
 
         # Get base description from loaded definitions
         base_description = METRIC_DEFINITIONS.get(metric_type, {}).get('description', 'Overall safety risk')
 
-        if density_proxy_value > 3: density_category = "high housing density"
-        elif density_proxy_value > 1.5: density_category = "medium housing density"
-        elif density_proxy_value > 0: density_category = "low housing density"
-        else: density_category = "unknown housing density"
+        # Removed density category for brevity for now, can be added back if needed
+        # if density_proxy_value > 3: density_category = "high housing density"
+        # elif density_proxy_value > 1.5: density_category = "medium housing density"
+        # elif density_proxy_value > 0: density_category = "low housing density"
+        # else: density_category = "unknown housing density"
 
-        description = f"{risk_level} ({base_description.lower()})."
-        description += f" Based on {direct_incidents} relevant incident(s) reported recently in this block."
-        # ... (rest of description generation) ...
+        # New description format
+        description = f"Risk Level: {risk_level} ({base_description.lower()})."
+        # Clarify the source of the score components
+        description += f" Score influenced by {direct_incidents} recent incident(s) in this block and relevant activity in {contributing_neighbor_count} nearby blocks."
+        description += f" (Weighted incidents: {weighted_incidents:.1f})."
+        # Add incidents per 1000 if meaningful population exists
+        if incidents_per_1000 > 0.01:
+             description += f" Approx. {incidents_per_1000:.1f} incidents per 1,000 residents in this block."
+        
+        # Example of adding back density:
+        # description += f" Area housing density: {density_category}."
+
         return description
     except Exception as e:
         logger.error(f"Error generating risk description: {str(e)}")
@@ -431,6 +473,10 @@ def update_accommodation_safety_scores(supabase_client: Client, target_city_id):
         missing_types_logged_count = 0 # Counter for logging missing types
         MAX_MISSING_TYPE_LOGS = 20 # Limit how many detailed missing logs we show
         no_metrics_found_count = 0 # Count accommodations with no metrics nearby
+        # *** ADDED LOGGING: Counter for zero-score logs ***
+        zero_score_detail_logged_count = 0
+        MAX_ZERO_SCORE_DETAIL_LOGS = 10
+        # *** END ADDED LOGGING ***
 
         for acc in tqdm(accommodations, desc=f"Calculating scores for {city_name}"):
             try:
@@ -461,7 +507,7 @@ def update_accommodation_safety_scores(supabase_client: Client, target_city_id):
 
                 closest_metrics_by_type = {}
                 inferred_block_id = None
-                inferred_city_id = None
+                # inferred_city_id = None # No longer needed
                 closest_overall_metric_dist = float('inf')
 
 
@@ -471,74 +517,106 @@ def update_accommodation_safety_scores(supabase_client: Client, target_city_id):
 
                 # --- Find closest overall metric first to infer block (City ID is known) ---
                 if valid_indices:
-                    closest_idx = valid_indices[0] # The first index corresponds to the smallest distance
-                    closest_metric_info = metrics_df.iloc[closest_idx]
-                    closest_overall_metric_dist = calculate_distance_km(acc_lat, acc_lon, closest_metric_info['latitude'], closest_metric_info['longitude'])
-                    # Use this closest metric to infer block ID only - using the correct PK column
-                    inferred_block_id = closest_metric_info['census_block_pk'] # <<< Use the PK column here
-                    # inferred_city_id = int(closest_metric_info['city_id']) if pd.notna(closest_metric_info['city_id']) else None # No longer need to infer city_id
-                    logger.debug(f"Acc {acc_id}: Closest metric at index {closest_idx} (dist: {closest_overall_metric_dist:.3f}km). Inferred block PK={inferred_block_id}")
+                    # Sort valid_indices by actual distance (Haversine)
+                    # KDTree uses Euclidean, which is an approximation. Sort by Haversine for accuracy.
+                    valid_metrics_with_dist = []
+                    for idx in valid_indices:
+                        metric = metrics_df.iloc[idx]
+                        dist_km = calculate_distance_km(acc_lat, acc_lon, metric['latitude'], metric['longitude'])
+                        if dist_km <= MAX_METRIC_DISTANCE_KM: # Pre-filter by radius
+                            valid_metrics_with_dist.append({'index': idx, 'distance': dist_km, 'metric': metric})
+                    
+                    # Sort by distance
+                    valid_metrics_with_dist.sort(key=lambda x: x['distance'])
+
+                    if valid_metrics_with_dist:
+                        closest_idx = valid_metrics_with_dist[0]['index'] 
+                        closest_metric_info = metrics_df.iloc[closest_idx]
+                        closest_overall_metric_dist = valid_metrics_with_dist[0]['distance']
+                        # Use this closest metric to infer block ID only - using the correct PK column
+                        inferred_block_id = closest_metric_info['census_block_pk'] # <<< Use the PK column here
+                        logger.debug(f"Acc {acc_id}: Closest metric (overall) at index {closest_idx} (dist: {closest_overall_metric_dist:.3f}km). Inferred block PK={inferred_block_id}")
+                    else:
+                        logger.warning(f"Acc {acc_id}: No metrics found within {MAX_METRIC_DISTANCE_KM}km after Haversine check.")
+                        # inferred_block_id will remain None
+                        
                 else:
                      logger.warning(f"Acc {acc_id}: No valid indices found from KDTree query.")
 
 
                 # --- Now, find the closest metric for *each type* within the radius ---
-                for i, index in enumerate(valid_indices):
-                    metric = metrics_df.iloc[index]
-                    metric_lat = metric['latitude']
-                    metric_lon = metric['longitude']
-                    metric_type = metric['metric_type']
-                    metric_score = metric['score']
+                # Use the distance-sorted list we already created
+                for item in valid_metrics_with_dist:
+                    # item = {'index': idx, 'distance': dist_km, 'metric': metric}
+                    metric_type = item['metric']['metric_type']
+                    metric_score = item['metric']['score']
+                    dist_km = item['distance'] # Already calculated Haversine distance
 
-                    # Calculate actual distance (or use distances[i] if metric is Euclidean)
-                    # Recalculating Haversine is safer
-                    dist_km = calculate_distance_km(acc_lat, acc_lon, metric_lat, metric_lon)
-
-                    # Only consider metrics within the defined radius for scoring
-                    if dist_km > MAX_METRIC_DISTANCE_KM:
-                        # Since indices are sorted by distance, we can potentially break early
-                        # if distances[i] > MAX_METRIC_DISTANCE_KM (if using Euclidean distance from KDTree)
-                        # With Haversine, we check all neighbors returned by KDTree query within the initial k
-                        continue
-
-                    # If we haven't found a metric of this type yet, or this one is closer
-                    if metric_type not in closest_metrics_by_type or dist_km < closest_metrics_by_type[metric_type]['distance']:
+                    # Since valid_metrics_with_dist is sorted by distance and pre-filtered by radius,
+                    # the first one we encounter for each type is the closest within the radius.
+                    if metric_type not in closest_metrics_by_type:
                         closest_metrics_by_type[metric_type] = {
                             'score': metric_score,
                             'distance': dist_km
                         }
-                        logger.debug(f"Acc {acc_id}: Found/Updated metric '{metric_type}' (Score: {metric_score}) at distance {dist_km:.3f}km for scoring.")
-
+                        logger.debug(f"Acc {acc_id}: Found closest metric '{metric_type}' (Score: {metric_score}) at distance {dist_km:.3f}km for scoring.")
 
                 # 6. Calculate overall score based on *found* metrics
                 found_metric_types = set(closest_metrics_by_type.keys())
                 overall_score = None # Default to None
                 num_found_types = 0 # Initialize count
+                average_score = None # Initialize average score for logging
 
                 if found_metric_types: # Calculate score if at least one metric type was found
-                    total_score = sum(m['score'] for m in closest_metrics_by_type.values())
-                    num_found_types = len(found_metric_types) # Calculate actual count here
-                    average_score = total_score / num_found_types
-                    overall_score = int(round(average_score * 10)) # Scale score 0-10 to 0-100
-                    scores_calculated_count += 1 # Increment count of successful calculations
+                    # Convert score to numeric, handle potential errors/None values gracefully
+                    valid_scores = [float(m['score']) for m in closest_metrics_by_type.values() if m.get('score') is not None]
+                    
+                    if valid_scores:
+                        total_score = sum(valid_scores)
+                        num_found_types = len(valid_scores) # Count based on valid scores found
+                        average_score = total_score / num_found_types
+                        overall_score = int(round(average_score * 10)) # Scale score 0-10 to 0-100
+                        scores_calculated_count += 1 # Increment count of successful calculations
 
-                    logger.debug(f"Acc {acc_id}: Found {num_found_types}/{len(REQUIRED_METRIC_TYPES)} types. Total={total_score}, Avg={average_score:.2f}, Overall={overall_score}")
+                        # *** ADDED LOGGING: Detailed scores if result is zero ***
+                        if overall_score == 0 and zero_score_detail_logged_count < MAX_ZERO_SCORE_DETAIL_LOGS:
+                            logger.warning(f"Acc {acc_id} resulted in overall_score=0.")
+                            logger.warning(f"  Avg Score (0-10): {average_score:.4f}")
+                            logger.warning(f"  Individual Metric Scores (0-10) used:")
+                            for m_type, m_data in closest_metrics_by_type.items():
+                                score_val = m_data.get('score')
+                                score_str = f"{float(score_val):.4f}" if score_val is not None else "None"
+                                logger.warning(f"    - {m_type}: {score_str} (Dist: {m_data.get('distance'):.2f}km)")
+                            zero_score_detail_logged_count += 1
+                        elif overall_score == 0 and zero_score_detail_logged_count == MAX_ZERO_SCORE_DETAIL_LOGS:
+                             logger.warning(f"Acc {acc_id} resulted in overall_score=0 (Further detail logs suppressed).")
+                             zero_score_detail_logged_count += 1 # Increment to stop logging
+                        # *** END ADDED LOGGING ***
 
-                    # Log if not all required types were found (only for a limited number)
-                    if num_found_types < len(REQUIRED_METRIC_TYPES):
-                         missing_types = REQUIRED_METRIC_TYPES - found_metric_types
-                         if missing_types_logged_count < MAX_MISSING_TYPE_LOGS:
-                              logger.warning(f"Acc {acc_id}: Score based on {num_found_types}/{len(REQUIRED_METRIC_TYPES)} types. "
-                                             f"Missing types within {MAX_METRIC_DISTANCE_KM}km: {', '.join(sorted(list(missing_types)))}")
-                              missing_types_logged_count += 1
-                         elif missing_types_logged_count == MAX_MISSING_TYPE_LOGS:
-                              logger.warning(f"Acc {acc_id}: Score based on incomplete types (Further detailed logs suppressed).")
-                              missing_types_logged_count += 1
+                        # Log if not all required types were found (only for a limited number)
+                        if num_found_types < len(REQUIRED_METRIC_TYPES):
+                            missing_types = REQUIRED_METRIC_TYPES - found_metric_types
+                            if missing_types_logged_count < MAX_MISSING_TYPE_LOGS:
+                                logger.warning(f"Acc {acc_id}: Score based on {num_found_types}/{len(REQUIRED_METRIC_TYPES)} types. "
+                                               f"Missing types within {MAX_METRIC_DISTANCE_KM}km (or types with null scores): {', '.join(sorted(list(missing_types)))}")
+                                missing_types_logged_count += 1
+                            elif missing_types_logged_count == MAX_MISSING_TYPE_LOGS:
+                                logger.warning(f"Acc {acc_id}: Score based on incomplete types (Further detailed logs suppressed).")
+                                missing_types_logged_count += 1
+                    else:
+                        # Found metric types, but none had valid scores
+                        no_metrics_found_count += 1 # Treat as if no metrics were found for scoring
+                        logger.warning(f"Acc {acc_id}: Score is NULL. Found nearby metrics but none had valid scores.")
+                        overall_score = None # Ensure score is None
+                        num_found_types = 0 # Reset count
+                        average_score = None # Ensure average is None if no valid scores
+
                 else:
                     # No metrics found within the radius
                     # num_found_types remains 0
                     no_metrics_found_count += 1
                     logger.warning(f"Acc {acc_id}: Score is NULL. No safety metrics found within {MAX_METRIC_DISTANCE_KM}km.")
+                    average_score = None # Ensure average is None if no metrics found
 
 
                 # 7. Append update, including block_id, score, metric count, and TARGET city ID
@@ -547,7 +625,7 @@ def update_accommodation_safety_scores(supabase_client: Client, target_city_id):
                     'overall_safety_score': overall_score,
                     'census_block_id': inferred_block_id, # Add inferred block ID (this is now the PK)
                     'city_id': target_city_id,           # Use the known target_city_id
-                    'safety_metric_types_found': num_found_types if found_metric_types else None # Add count, or None if no types found
+                    'safety_metric_types_found': num_found_types if num_found_types > 0 else None # Add count, or None if no types found
                 })
                 processed_count += 1
 
@@ -559,13 +637,31 @@ def update_accommodation_safety_scores(supabase_client: Client, target_city_id):
         logger.info(f"Processed {processed_count} accommodations for {city_name}.")
         logger.info(f"Calculated {scores_calculated_count} non-null overall scores.")
         if no_metrics_found_count > 0:
-             logger.warning(f"{no_metrics_found_count} accommodations had NO safety metrics within {MAX_METRIC_DISTANCE_KM}km and received a NULL score.")
+             logger.warning(f"{no_metrics_found_count} accommodations had NO safety metrics (or valid scores) within {MAX_METRIC_DISTANCE_KM}km and received a NULL score.")
 
         if scores_calculated_count == 0 and processed_count > 0:
             logger.critical(f"CRITICAL: No non-null overall safety scores were calculated for any of the {processed_count} processed accommodations. Check metric availability and distance settings.")
         elif processed_count > 0 and scores_calculated_count < (processed_count - no_metrics_found_count):
              # This condition means some scores were calculated, but fewer than expected given the ones with no metrics nearby
              logger.warning(f"WARNING: Only {scores_calculated_count} non-null scores calculated out of {processed_count - no_metrics_found_count} accommodations that had *some* nearby metrics. Check 'Missing types' logs.")
+
+
+        # *** ADDED LOGGING ***
+        # Log score distribution before attempting update
+        if updates_to_make:
+            score_values = [u['overall_safety_score'] for u in updates_to_make if u['overall_safety_score'] is not None]
+            if score_values:
+                 score_series = pd.Series(score_values)
+                 logger.info(f"Calculated Accommodation Score Distribution for {city_name} before update:")
+                 logger.info(f"Count: {len(score_values)}")
+                 logger.info(f"Min: {score_series.min()}, Max: {score_series.max()}, Mean: {score_series.mean():.2f}, Median: {score_series.median()}")
+                 # Simple histogram bins
+                 bins = [0, 20, 40, 60, 80, 100]
+                 hist = score_series.value_counts(bins=bins, sort=False)
+                 logger.info(f"Score Bins:\n{hist}")
+            else:
+                 logger.warning(f"No non-null accommodation scores were calculated to log distribution for {city_name}.")
+        # *** END ADDED LOGGING ***
 
 
         # 8. Batch update accommodations via RPC
@@ -913,85 +1009,109 @@ def process_crime_data(raw_crime_data: list, city_config: dict) -> pd.DataFrame 
              logger.warning(f"No valid records remaining after cleaning for {city_name}.")
              return df # Return empty DataFrame
 
-        # --- Geospatial Mapping via Supabase RPC ---
+        # --- Geospatial Mapping via Supabase RPC (BATCHED) ---
         logger.info(f"Starting geospatial mapping for {len(df)} records...")
         coordinates = df[['latitude', 'longitude']].to_dict('records')
-        # Rename keys for the RPC function if needed (assuming it expects 'lat', 'lon')
+        # Rename keys for the RPC function
         coordinates_rpc = [{'lat': c['latitude'], 'lon': c['longitude']} for c in coordinates]
+        # Clear original df coordinates to save memory before batching?
+        # del df['latitude'], df['longitude'] # Maybe not necessary yet
 
-        block_data = []
-        try:
-            # Initialize block_df to None outside the conditional blocks
-            block_df = None
+        all_block_data = [] # Store results from all batches
+        rpc_batch_size = 20000 # Adjust batch size as needed (e.g., 10k-50k)
+        total_coords = len(coordinates_rpc)
+        total_batches = math.ceil(total_coords / rpc_batch_size)
 
-            # Call the RPC function
-            logger.info(f"Calling Supabase RPC 'match_points_to_block_groups'...")
-            rpc_response = supabase.rpc('match_points_to_block_groups', {'points_json': coordinates_rpc}).execute()
+        logger.info(f"Processing {total_coords} coordinates in {total_batches} batches (size {rpc_batch_size})...")
 
-            # Check if data was returned, regardless of length for now
-            if rpc_response.data:
-                if len(rpc_response.data) != len(coordinates_rpc):
-                    # Log a more critical warning about the mismatch
-                    logger.error(f"CRITICAL WARNING: RPC response length mismatch! Received {len(rpc_response.data)} results for {len(coordinates_rpc)} coordinates. Processing received data but results may be misaligned or incomplete.")
+        for i in range(0, total_coords, rpc_batch_size):
+            coord_chunk = coordinates_rpc[i:i + rpc_batch_size]
+            batch_num = (i // rpc_batch_size) + 1
+            logger.info(f"Mapping coordinates: Batch {batch_num}/{total_batches} ({len(coord_chunk)} coords)")
+
+            try:
+                # Call the RPC function for the current chunk
+                rpc_response = supabase.rpc('match_points_to_block_groups', {'points_json': coord_chunk}).execute()
+
+                if rpc_response.data and isinstance(rpc_response.data, list):
+                    if len(rpc_response.data) != len(coord_chunk):
+                         logger.warning(f"RPC response length mismatch for batch {batch_num}! Received {len(rpc_response.data)} results for {len(coord_chunk)} coordinates.")
+                         # Handle mismatch? Pad with None or skip? For now, append what we got.
+                         # This might lead to misalignment if not handled carefully later
+                    all_block_data.extend(rpc_response.data) # Append results from this batch
+                    logger.debug(f"Mapping batch {batch_num} successful. Total results: {len(all_block_data)}.")
+                elif hasattr(rpc_response, 'error') and rpc_response.error:
+                    logger.error(f"Supabase RPC error for batch {batch_num}: {rpc_response.error}")
+                    # Add None placeholders for the failed batch to maintain length?
+                    all_block_data.extend([None] * len(coord_chunk))
                 else:
-                     logger.info(f"Successfully received {len(rpc_response.data)} results from RPC matching input length.")
+                    logger.warning(f"RPC call for batch {batch_num} returned unexpected data or no data.")
+                    all_block_data.extend([None] * len(coord_chunk))
 
-                # --- Process RPC response manually (handles nulls, correct keys, and potential length mismatch) ---
-                processed_block_data = []
-                # Iterate through the actual response data received
-                for item in rpc_response.data:
-                    if item is not None and isinstance(item, dict):
-                        processed_block_data.append({
-                            # Capture the primary key 'id' returned by the RPC
-                            'census_block_pk': item.get('id'), # <<< Extract the 'id' field
-                            'block_group_id': item.get('block_group_id'),
-                            'population': item.get('total_population'),
-                            'housing_units': item.get('housing_units')
-                        })
-                    else:
-                        processed_block_data.append({
-                            'census_block_pk': None, # <<< Add None for PK
-                            'block_group_id': None, 'population': None, 'housing_units': None
-                        })
+            except APIError as api_err:
+                logger.error(f"APIError during RPC call for batch {batch_num}: {api_err}", exc_info=False)
+                all_block_data.extend([None] * len(coord_chunk))
+            except Exception as rpc_err:
+                logger.error(f"Error processing RPC for batch {batch_num}: {rpc_err}", exc_info=True)
+                all_block_data.extend([None] * len(coord_chunk))
+                # Potentially break if a fundamental error occurs
+                # break
+            
+            time.sleep(0.1) # Small delay
 
-                # Create block_df from the processed data
-                block_df = pd.DataFrame(processed_block_data)
-                logger.info(f"Created block_df from processed RPC data. Shape: {block_df.shape}, Columns: {block_df.columns.tolist()}")
-
-                # >>> ADD LOGGING HERE <<<
-                logger.info(f"Block DF Head (from RPC):\n{block_df.head()}")
-                # >>> END LOGGING <<<
-
-                # No longer need to rename block_group_id to census_block_id
-                # Keep both census_block_pk (the primary key for FK) and block_group_id (original identifier)
-
-                # if 'block_group_id' in block_df.columns:
-                #      block_df.rename(columns={'block_group_id': 'census_block_id'}, inplace=True)
-                #      logger.info(f"Renamed 'block_group_id' to 'census_block_id'.")
-                # else:
-                #      logger.warning("Column 'block_group_id' not found in processed RPC data, skipping rename.")
-
-            elif hasattr(rpc_response, 'error') and rpc_response.error:
-                 logger.error(f"Supabase RPC error: {rpc_response.error}")
-                 # Handle error - perhaps return None or empty DataFrame?
-                 return None
-            # If block_df is still None here, it means RPC returned no data and no error
-            if block_df is None:
-                 logger.error("RPC call 'match_points_to_block_groups' returned no data and no error. Cannot proceed.")
-                 return None
-
-        except APIError as api_err: # Catch specific PostgREST errors separately
-             logger.error(f"Supabase RPC APIError for 'match_points_to_block_groups': {api_err}", exc_info=False)
-             # Log details from the error if available
-             if hasattr(api_err, 'details') and api_err.details:
-                  logger.error(f"APIError Details: {api_err.details}")
-             if hasattr(api_err, 'hint') and api_err.hint:
-                  logger.error(f"APIError Hint: {api_err.hint}")
-             return None
-        except Exception as rpc_err:
-            logger.error(f"Error processing Supabase RPC 'match_points_to_block_groups': {rpc_err}", exc_info=True)
-            # Handle error - perhaps return None or empty DataFrame?
+        # --- Process Combined RPC Results ---
+        logger.info(f"Finished RPC calls. Processing {len(all_block_data)} total results.")
+        if len(all_block_data) != total_coords:
+            logger.error(f"CRITICAL ERROR: Final block data length ({len(all_block_data)}) does not match input coordinate length ({total_coords}). Aborting processing.")
             return None
+            
+        # Initialize block_df to None outside the conditional blocks
+        block_df = None
+
+        try: 
+            # Process the combined list 'all_block_data'
+            processed_block_data = []
+            null_results_count = 0
+            for item in all_block_data:
+                if item is not None and isinstance(item, dict):
+                    processed_block_data.append({
+                        'census_block_pk': item.get('id'),
+                        'block_group_id': item.get('block_group_id'),
+                        'population': item.get('total_population'),
+                        'housing_units': item.get('housing_units')
+                    })
+                else:
+                    # This item failed mapping or the batch failed
+                    processed_block_data.append({
+                        'census_block_pk': None,
+                        'block_group_id': None, 'population': None, 'housing_units': None
+                    })
+                    if item is None:
+                        null_results_count += 1
+            
+            if null_results_count > 0:
+                 logger.warning(f"{null_results_count} results were None (likely due to failed mapping or batch errors).")
+
+            # Create block_df from the processed data
+            block_df = pd.DataFrame(processed_block_data)
+            logger.info(f"Created block_df from combined RPC data. Shape: {block_df.shape}, Columns: {block_df.columns.tolist()}")
+
+            # >>> ADD LOGGING HERE <<<
+            # logger.info(f"Block DF Head (from RPC):\n{block_df.head()}") # Keep logging commented for now
+            # >>> END LOGGING <<<
+
+            # Keep both census_block_pk (the primary key for FK) and block_group_id (original identifier)
+
+        except Exception as processing_err:
+             logger.error(f"Error processing combined RPC results: {processing_err}", exc_info=True)
+             return None
+             
+        # Check if block_df was created successfully
+        if block_df is None or block_df.empty:
+            logger.error("Failed to create DataFrame from RPC results.")
+            return None
+            
+        # --- Continue with merging and cleaning as before ---
 
         # Check which columns were successfully created before merging
         valid_block_cols = [col for col in ['census_block_pk', 'block_group_id', 'population', 'housing_units'] if col in block_df.columns]
@@ -1144,16 +1264,11 @@ def calculate_weighted_incidents(direct_incidents: int, neighbor_incident_map: d
     """
     Calculates a weighted incident count for a block.
     Considers direct incidents and a fraction of neighbor incidents.
-    (Note: pop_density_proxy is passed but not used in this specific calculation, 
-     it's used later in score interpretation/description).
+    (Note: pop_density_proxy is passed but not used in this specific calculation)
     """
     neighbor_incidents_total = sum(neighbor_incident_map.values())
-    
-    # Simple weighting: Direct incidents + 0.5 * Neighbor incidents
-    # Adjust the 0.5 factor based on desired neighbor influence
-    NEIGHBOR_WEIGHT = 0.5 
+    NEIGHBOR_WEIGHT = 0.25 # Changed from 0.5
     weighted_score = float(direct_incidents) + NEIGHBOR_WEIGHT * neighbor_incidents_total
-    # logger.debug(f"Weighted incidents: {direct_incidents} direct + {NEIGHBOR_WEIGHT} * {neighbor_incidents_total} neighbors = {weighted_score}")
     return weighted_score
 
 # --- Real calculate_safety_score Implementation ---
@@ -1164,8 +1279,8 @@ def calculate_safety_score(weighted_incidents: float) -> float:
     Maps 0 incidents to score 10, increasing incidents decrease score towards 0.
     """
     # Exponential decay: score = 10 * exp(-k * weighted_incidents)
-    # A smaller k makes the score decrease slower. k=0.05 is chosen as a starting point.
-    DECAY_CONSTANT_K = 0.05
+    # A smaller k makes the score decrease slower. k=0.01 chosen after further review.
+    DECAY_CONSTANT_K = 0.01 # Changed from 0.025
 
     # Ensure weighted_incidents is non-negative, although it should be from the calculation
     safe_weighted_incidents = max(0.0, weighted_incidents)
@@ -1212,8 +1327,8 @@ def main(target_city_id: int, test_mode=False):
         neighbor_radius = city_config.get('geospatial', {}).get('neighbor_radius_meters', NEIGHBOR_RADIUS_METERS) # Use default if not in config
         logger.info(f"Using neighbor radius: {neighbor_radius} meters")
 
-        days_back = 100
-        max_records = 500000
+        days_back = 360 # Changed from 600
+        max_records = 500000 # Kept max records high
         if test_mode:
             logger.info("TEST MODE: Using smaller dataset parameters.")
             days_back = 30

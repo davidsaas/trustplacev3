@@ -67,7 +67,7 @@ export const SafetyMetrics = ({ data }: SafetyMetricsProps) => {
   const metricsByType: Record<string, MetricData> = {};
 
   // 1. Initialize all metrics from config as 'No Data'
-  (metricDefinitions as MetricDefinition[]).forEach(def => {
+  (metricDefinitions.metrics as MetricDefinition[]).forEach(def => {
     const MetricIcon = LucideIcons[def.iconName] || LucideIcons.HelpCircle;
     metricsByType[def.id] = {
       title: def.question,
@@ -84,7 +84,7 @@ export const SafetyMetrics = ({ data }: SafetyMetricsProps) => {
   // 2. Populate with actual data if available
   if (data) {
     data.forEach(metric => {
-      const definition = (metricDefinitions as MetricDefinition[]).find(def => def.id === metric.metric_type);
+      const definition = (metricDefinitions.metrics as MetricDefinition[]).find(def => def.id === metric.metric_type);
       if (!definition) return; // Skip if metric type not in config
 
       const riskLevel = getRiskLevel(metric.score);
@@ -119,7 +119,7 @@ export const SafetyMetrics = ({ data }: SafetyMetricsProps) => {
   // Convert to array for rendering (ensure order matches JSON config if desired, or sort)
   const metricActions = [
     // Get metrics in the order defined in the JSON file
-    ...(metricDefinitions as MetricDefinition[]).map(def => metricsByType[def.id]),
+    ...(metricDefinitions.metrics as MetricDefinition[]).map(def => metricsByType[def.id]),
     // Add coming soon at the end
     comingSoonMetric
   ];

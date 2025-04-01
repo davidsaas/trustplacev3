@@ -88,7 +88,7 @@ export const getRiskLevel = (score: number): RiskLevel => {
     description: 'Exercise increased caution'
   }
   return { 
-    label: 'Maximum Risk', 
+    label: 'Very High Risk',
     color: 'bg-rose-500',
     bgColor: 'bg-rose-50',
     textColor: 'text-rose-700', 
