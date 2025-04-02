@@ -53,38 +53,41 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
     }
 
-    getSession()
-
     // Listen for changes on auth state
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (_event: AuthChangeEvent, session: Session | null) => {
         if (!isMounted) return;
 
         const currentUser = session?.user ?? null;
-        let previousUser: User | null = null;
-        setUser(current => {
-            previousUser = current;
-            return currentUser;
-        });
+        const wasPreviouslyLoggedOut = !user; // Check state *before* setUser runs
 
+        setUser(currentUser); // Update user state first
         setLoading(false);
 
-        // --- Redirect Logic ---
-        if (_event === 'SIGNED_IN' && currentUser && !previousUser && initialAuthCheckComplete) {
+        // --- Modified Redirect Logic ---
+        // Redirect *only* if:
+        // 1. It's a SIGNED_IN event.
+        // 2. There's a current user now.
+        // 3. The user was definitely logged out *before* this event fired.
+        // 4. The initial auth check is complete (prevents premature redirects).
+        if (_event === 'SIGNED_IN' && currentUser && wasPreviouslyLoggedOut && initialAuthCheckComplete) {
           const redirectPath = localStorage.getItem(REDIRECT_PATH_STORAGE_KEY);
-          localStorage.removeItem(REDIRECT_PATH_STORAGE_KEY); // Clear it immediately
+          localStorage.removeItem(REDIRECT_PATH_STORAGE_KEY); // Clear it
 
           if (redirectPath && !redirectPath.startsWith('/auth/')) {
-            console.log(`[AuthProvider] Redirecting to stored path: ${redirectPath}`);
+            console.log(`[AuthProvider] Redirecting to stored path after sign-in: ${redirectPath}`);
             router.push(redirectPath);
           } else {
-            console.log(`[AuthProvider] Redirecting to default path: ${ROUTES.HOME}`);
-            router.push(ROUTES.HOME); // Default redirect if no path or invalid path
+            console.log(`[AuthProvider] Redirecting to default path after sign-in: ${ROUTES.HOME}`);
+            router.push(ROUTES.HOME); // Default redirect
           }
         }
-        // --- End Redirect Logic ---
+        // --- End Modified Redirect Logic ---
       }
-    )
+    );
+
+    // Initial session check (keep as is)
+    getSession();
 
     return () => {
       isMounted = false;

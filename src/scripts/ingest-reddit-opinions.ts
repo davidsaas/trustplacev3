@@ -78,7 +78,7 @@ try {
   console.log(`Processing opinions for City ID: ${cityId}`);
 
   // --- Load City Configuration ---
-  const configPath = path.resolve(__dirname, `../../../config/cities/${cityId}.json`);
+  const configPath = path.resolve(__dirname, `../config/cities/${cityId}.json`);
   console.log(`Loading city config from: ${configPath}`);
   const configFile = fs.readFileSync(configPath, 'utf-8');
   cityConfig = JSON.parse(configFile);
@@ -246,13 +246,19 @@ async function ingestData(currentCityConfig: any) { // Accept config object
 
     for (const item of data) {
         processedItemCount++;
+        // Revert progress log
         if (processedItemCount % 50 === 0) console.log(`   Processed ${processedItemCount}/${totalItems} for ${currentCityConfig.city_name}...`);
-        if (!item.body || !(item.id || item.parsedId)) { geocodeFailCount++; continue; }
 
-        // Pass config to geocoder
+        // Revert to original checks and geocoding flow
+        if (!item.body || !(item.id || item.parsedId)) {
+            geocodeFailCount++;
+            continue;
+        }
+
         const geo = await geocodeRedditItem(item, currentCityConfig);
 
         if (geo) {
+            // Insert if geocoding succeeded
             geocodeSuccessCount++;
             opinionsToInsert.push({
                 external_id: item.id || item.parsedId,
@@ -268,15 +274,16 @@ async function ingestData(currentCityConfig: any) { // Accept config object
                 latitude: geo.latitude,
                 longitude: geo.longitude,
                 location: `POINT(${geo.longitude} ${geo.latitude})`, // PostGIS POINT string
-                city_id: geo.cityId, // Use cityId from geocoding result (which is targetCityId)
+                city_id: geo.cityId,
                 source_created_at: item.createdAt ? new Date(item.createdAt).toISOString() : null,
-                scraped_at: item.scrapedAt ? new Date(item.scrapedAt).toISOString() : null,
-                // Add any other relevant fields
+                source_scraped_at: item.scrapedAt ? new Date(item.scrapedAt).toISOString() : null,
             });
         } else {
+            // Geocoding failed or skipped
             geocodeFailCount++;
         }
     }
+    // Revert final logging
     console.log(`🏁 Geocoding finished for ${currentCityConfig.city_name}: Success: ${geocodeSuccessCount}, Failed/Skipped: ${geocodeFailCount}`);
 
     if (opinionsToInsert.length > 0) {
@@ -285,15 +292,14 @@ async function ingestData(currentCityConfig: any) { // Accept config object
         for (let i = 0; i < opinionsToInsert.length; i += BATCH_SIZE) {
             const batch = opinionsToInsert.slice(i, i + BATCH_SIZE);
             const { error } = await supabase
-                .from('community_opinions') // Corrected table name
+                .from('community_opinions')
                 .upsert(batch, {
-                    onConflict: 'source,external_id', // Adjust conflict resolution if needed
+                    onConflict: 'source,external_id',
                     ignoreDuplicates: false
                  });
 
             if (error) {
                 console.error(` Supabase batch insert error for ${currentCityConfig.city_name} (batch ${i / BATCH_SIZE + 1}):`, error.message);
-                // Consider how to handle batch errors - stop? continue?
             } else {
                 console.log(` Successfully inserted batch ${i / BATCH_SIZE + 1} of ${Math.ceil(opinionsToInsert.length / BATCH_SIZE)} for ${currentCityConfig.city_name}.`);
             }
