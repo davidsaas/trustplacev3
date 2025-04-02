@@ -1,4 +1,4 @@
-export const LOCATION_RADIUS = 0.1 // ~11km - Used for finding similar accommodations
+export const LOCATION_RADIUS = 0.2 // ~11km - Used for finding similar accommodations
 export const SAFETY_RADIUS = 0.01 // ~1.1km - Used for finding safety metrics near a location
 export const EARTH_RADIUS = 6371 // km
 export const PRICE_RANGE = {

@@ -30,14 +30,16 @@ export interface SafetyMetricWithDistance extends SafetyMetric {
 export interface SimilarAccommodation {
   id: string
   name: string
-  price_per_night: number
+  price_per_night: number | null
+  source: string | null
   latitude: number
   longitude: number
-  overall_score: number
-  source: string
-  hasCompleteData?: boolean
+  overall_score: number | null
+  hasCompleteData: boolean
+  metricTypesFound: number
+  distance: number
   image_url?: string | null
-  distance?: number
+  safety_metrics: SafetyMetric[] | null
 }
 
 export interface Location {

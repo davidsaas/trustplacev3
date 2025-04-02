@@ -124,7 +124,7 @@ const SAFER_SCORE_THRESHOLD = 5; // Alternative must be at least 5 points higher
 const MIN_METRIC_TYPES_FOR_RELIABLE_SCORE = 4; // Require at least 4 metric types for reliable comparison
 const MAX_SIMILAR_RESULTS = 5; // Show top 5 results
 
-// Function to fetch similar accommodations (REVISED)
+// Function to fetch similar accommodations (REVISED to include metrics)
 async function findSimilarAccommodations(
   currentAccommodation: Pick<
     AccommodationData,
@@ -199,18 +199,34 @@ async function findSimilarAccommodations(
 
     console.log(`[findSimilarAccommodations] Found ${candidates.length} candidates matching initial criteria.`);
 
-    // 2. Calculate distance for valid candidates and format results
-    const resultsWithDistance = candidates
+    // 2. Extract valid locations from candidates to fetch their metrics
+    const candidateLocations: Location[] = candidates
+        .map(acc => {
+            const accLat = typeof acc.latitude === 'string' ? parseFloat(acc.latitude) : acc.latitude;
+            const accLng = typeof acc.longitude === 'string' ? parseFloat(acc.longitude) : acc.longitude;
+            return isValidCoordinates(accLat, accLng) ? { lat: accLat, lng: accLng } : null;
+        })
+        .filter((loc): loc is Location => loc !== null);
+
+    // 3. Fetch metrics for all valid candidate locations in a batch
+    console.log(`[findSimilarAccommodations] Fetching metrics for ${candidateLocations.length} valid candidate locations.`);
+    const metricsByLocation = await findClosestSafetyMetricsBatch(candidateLocations);
+    console.log(`[findSimilarAccommodations] Received metrics for ${Object.keys(metricsByLocation).length} locations.`);
+
+    // 4. Process candidates: Calculate distance AND attach fetched metrics
+    const resultsWithData = candidates
       .map(acc => {
         const accLat = typeof acc.latitude === 'string' ? parseFloat(acc.latitude) : acc.latitude;
         const accLng = typeof acc.longitude === 'string' ? parseFloat(acc.longitude) : acc.longitude;
 
         if (!isValidCoordinates(accLat, accLng) || !acc.overall_safety_score) {
             console.warn(`[findSimilarAccommodations] Skipping candidate ${acc.id} due to invalid coords or missing score.`);
-            return null; // Skip if invalid coords or missing score (should be caught by query, but double-check)
+            return null;
         }
 
         const distance = calculateDistance(location, { lat: accLat, lng: accLng });
+        const locationKey = `${accLat},${accLng}`; // Key used in metricsByLocation
+        const safety_metrics = metricsByLocation[locationKey] || null; // Get metrics for this location
 
         return {
           id: acc.id,
@@ -219,27 +235,106 @@ async function findSimilarAccommodations(
           source: acc.source,
           latitude: accLat,
           longitude: accLng,
-          overall_score: acc.overall_safety_score, // Use pre-calculated score
-          // Use metric count for hasCompleteData - true if >= threshold
+          overall_score: acc.overall_safety_score,
           hasCompleteData: (acc.safety_metric_types_found ?? 0) >= MIN_METRIC_TYPES_FOR_RELIABLE_SCORE,
-          metricTypesFound: acc.safety_metric_types_found ?? 0, // Pass the count
-          distance: distance, // Add distance
-          image_url: acc.image_url // Add image_url
+          metricTypesFound: acc.safety_metric_types_found ?? 0,
+          distance: distance,
+          image_url: acc.image_url,
+          safety_metrics: safety_metrics // Attach the fetched metrics
         };
       })
       .filter((acc): acc is NonNullable<typeof acc> => acc !== null);
 
-    // 3. Sort by distance (closest first)
-    resultsWithDistance.sort((a, b) => a.distance - b.distance);
+    // 5. Sort by distance (closest first)
+    resultsWithData.sort((a, b) => a.distance - b.distance);
 
-    // 4. Limit results
-    const finalResults = resultsWithDistance.slice(0, MAX_SIMILAR_RESULTS);
+    // 6. Limit results
+    const finalResults = resultsWithData.slice(0, MAX_SIMILAR_RESULTS);
 
-    console.log(`[findSimilarAccommodations] Returning ${finalResults.length} similar, safer, nearby accommodations.`);
+    console.log(`[findSimilarAccommodations] Returning ${finalResults.length} similar, safer, nearby accommodations with metrics.`);
     return finalResults;
 
   } catch (err) {
     console.error('[findSimilarAccommodations] Unexpected error:', err);
+    return [];
+  }
+}
+
+// --- NEW: Function to fetch ALL nearby accommodations for Map Debugging ---
+const MAX_MAP_MARKERS = 50; // Limit markers on map for performance
+
+async function fetchAllNearbyAccommodations(
+  currentLocation: Location,
+  excludeId: string
+): Promise<SimilarAccommodation[]> {
+  if (!currentLocation || !isValidCoordinates(currentLocation.lat, currentLocation.lng)) {
+    console.warn('[fetchAllNearbyAccommodations] Invalid location provided.');
+    return [];
+  }
+
+  console.log(`[fetchAllNearbyAccommodations] Fetching up to ${MAX_MAP_MARKERS} accommodations near (${currentLocation.lat.toFixed(4)}, ${currentLocation.lng.toFixed(4)}) excluding ${excludeId}`);
+
+  try {
+    const { data: nearby, error } = await supabaseServer
+      .from('accommodations')
+      .select('id, name, price_per_night, latitude, longitude, source, overall_safety_score, safety_metric_types_found, image_url')
+      .neq('id', excludeId)
+      // --- Geographic Filter (Bounding Box) ---
+      .gte('latitude', currentLocation.lat - LOCATION_RADIUS)
+      .lte('latitude', currentLocation.lat + LOCATION_RADIUS)
+      .gte('longitude', currentLocation.lng - LOCATION_RADIUS)
+      .lte('longitude', currentLocation.lng + LOCATION_RADIUS)
+      // --- NO score/reliability/type/price filters here ---
+      .limit(MAX_MAP_MARKERS); // Apply limit
+
+    if (error) {
+      console.error('[fetchAllNearbyAccommodations] Error fetching nearby accommodations:', error);
+      return [];
+    }
+    if (!nearby || nearby.length === 0) {
+        console.log('[fetchAllNearbyAccommodations] No nearby accommodations found within radius.');
+        return [];
+    }
+
+    console.log(`[fetchAllNearbyAccommodations] Found ${nearby.length} raw nearby accommodations.`);
+
+    // Calculate distance and format
+    const resultsWithDistance = nearby
+      .map(acc => {
+        const accLat = typeof acc.latitude === 'string' ? parseFloat(acc.latitude) : acc.latitude;
+        const accLng = typeof acc.longitude === 'string' ? parseFloat(acc.longitude) : acc.longitude;
+
+        if (!isValidCoordinates(accLat, accLng)) { return null; }
+
+        const distance = calculateDistance(currentLocation, { lat: accLat, lng: accLng });
+        const score = acc.overall_safety_score ?? 0;
+        const metricTypes = acc.safety_metric_types_found ?? 0;
+
+        return {
+          id: acc.id,
+          name: acc.name,
+          price_per_night: acc.price_per_night,
+          source: acc.source,
+          latitude: accLat,
+          longitude: accLng,
+          overall_score: score,
+          hasCompleteData: metricTypes >= MIN_METRIC_TYPES_FOR_RELIABLE_SCORE,
+          metricTypesFound: metricTypes,
+          distance: distance,
+          image_url: acc.image_url,
+          safety_metrics: null // Add null metrics for map markers
+        };
+      })
+      .filter((acc): acc is NonNullable<typeof acc> => acc !== null);
+
+    // Optional: Sort by distance if needed, though map doesn't strictly require it
+    // resultsWithDistance.sort((a, b) => a.distance - b.distance);
+
+    console.log(`[fetchAllNearbyAccommodations] Returning ${resultsWithDistance.length} formatted nearby accommodations for map.`);
+    return resultsWithDistance;
+
+  } catch (err) {
+    console.error('[fetchAllNearbyAccommodations] Unexpected error:', err);
     return [];
   }
 }
@@ -353,6 +448,7 @@ async function getReportData(id: string): Promise<AccommodationData | null> {
 
 export default function SafetyReportPage({ params }: SafetyReportProps) {
   const [reportData, setReportData] = useState<AccommodationData | null>(null)
+  const [allNearbyAccommodations, setAllNearbyAccommodations] = useState<SimilarAccommodation[]>([])
   const [loading, setLoading] = useState(true)
   const [errorOccurred, setErrorOccurred] = useState(false)
   const [isAuthenticated, setIsAuthenticated] = useState(false)
@@ -360,6 +456,7 @@ export default function SafetyReportPage({ params }: SafetyReportProps) {
   const [activeSection, setActiveSection] = useState<ExtendedReportSection>('overview')
   const [osmInsights, setOsmInsights] = useState<OSMInsightsResponse | null>(null)
   const [loadingOSM, setLoadingOSM] = useState<boolean>(false)
+  const [loadingNearbyMapData, setLoadingNearbyMapData] = useState<boolean>(false)
   const { supabase } = useAuth()
 
   // Validate ID early
@@ -386,8 +483,10 @@ export default function SafetyReportPage({ params }: SafetyReportProps) {
       setLoading(true)
       setErrorOccurred(false)
       setAuthChecked(false)
-      setReportData(null) // Clear previous data
-      setOsmInsights(null) // Reset OSM data on new load
+      setReportData(null) // Clear previous report data
+      setAllNearbyAccommodations([]) // Clear previous nearby map data
+      setLoadingNearbyMapData(true) // Set loading true for nearby map data
+      setOsmInsights(null)
 
       try {
         if (!supabase) {
@@ -413,34 +512,58 @@ export default function SafetyReportPage({ params }: SafetyReportProps) {
           // Explicitly handle null data from getReportData as an error case for this page
           console.error(`[SafetyReportPage Effect] No report data returned or fetch failed for ID: ${params.id}`)
           setErrorOccurred(true)
+          setLoadingNearbyMapData(false) // Stop nearby loading if report fails
         } else {
           console.log("[SafetyReportPage Effect] Report data received:", data.name);
           setReportData(data)
-          // --- Trigger OSM data fetch AFTER report data is loaded ---
+
+          // --- Trigger Fetches for OSM and ALL Nearby Accommodations ---
+          const fetches: Promise<void>[] = [];
+
+          // OSM Fetch
           if (data.location) {
             setLoadingOSM(true);
-            fetch(`/api/osm-insights?lat=${data.location.lat}&lng=${data.location.lng}`)
-              .then(res => {
-                if (!res.ok) throw new Error(`OSM API fetch failed: ${res.statusText}`);
-                return res.json();
-              })
-              .then(osmData => {
-                if (isMounted) {
-                  console.log("[SafetyReportPage Effect] OSM Insights received:", osmData);
-                  setOsmInsights(osmData);
-                }
-              })
-              .catch(err => {
-                console.error("[SafetyReportPage Effect] Error fetching OSM insights:", err);
-                // Optionally set an error state for OSM data
-              })
-              .finally(() => {
-                if (isMounted) setLoadingOSM(false);
-              });
+            fetches.push(
+              fetch(`/api/osm-insights?lat=${data.location.lat}&lng=${data.location.lng}`)
+                .then(res => res.ok ? res.json() : Promise.reject(`OSM API fetch failed: ${res.statusText}`))
+                .then(osmData => { if (isMounted) setOsmInsights(osmData); })
+                .catch(err => console.error("[SafetyReportPage Effect] Error fetching OSM insights:", err))
+                .finally(() => { if (isMounted) setLoadingOSM(false); })
+            );
           } else {
              console.log("[SafetyReportPage Effect] Skipping OSM fetch due to missing location.");
           }
-          // --- End OSM fetch trigger ---
+
+          // Nearby Accommodations Fetch (for Map)
+          if (data.location) {
+             console.log("[SafetyReportPage Effect] Fetching all nearby accommodations for map...");
+             fetches.push(
+                fetchAllNearbyAccommodations(data.location, data.id)
+                 .then(nearbyData => {
+                    if (isMounted) {
+                       console.log(`[SafetyReportPage Effect] Received ${nearbyData.length} nearby accommodations for map.`);
+                       setAllNearbyAccommodations(nearbyData);
+                    }
+                 })
+                 .catch(err => console.error("[SafetyReportPage Effect] Error fetching nearby accommodations for map:", err))
+                 .finally(() => { if (isMounted) setLoadingNearbyMapData(false); }) // Set loading false here
+             );
+          } else {
+             console.log("[SafetyReportPage Effect] Skipping nearby accommodations fetch due to missing location.");
+             setLoadingNearbyMapData(false); // Set loading false if skipped
+          }
+
+          // Wait for secondary fetches if any were started
+          if (fetches.length > 0) {
+             await Promise.all(fetches);
+          } else {
+              // Ensure loading states are false if no secondary fetches occurred
+              if (isMounted) {
+                setLoadingOSM(false);
+                setLoadingNearbyMapData(false);
+              }
+          }
+          // --- End Secondary Fetches ---
         }
       } catch (error) {
         console.error("[SafetyReportPage Effect] Error during loadData:", error)
@@ -448,11 +571,12 @@ export default function SafetyReportPage({ params }: SafetyReportProps) {
           setErrorOccurred(true)
           // Ensure authChecked is also set in catch block if Promise.all failed before setting it
           if (!authChecked) setAuthChecked(true);
+          setLoadingNearbyMapData(false); // Ensure loading is false on error
         }
       } finally {
         if (isMounted) {
-          console.log("[SafetyReportPage Effect] Setting loading to false.");
-          setLoading(false)
+          console.log("[SafetyReportPage Effect] Setting main loading to false.");
+          setLoading(false) // Main loading stops after all primary and secondary fetches attempt
         }
       }
     }
@@ -519,6 +643,7 @@ export default function SafetyReportPage({ params }: SafetyReportProps) {
                   <SaferAlternativesSection
                     alternatives={reportData.similar_accommodations}
                     currentScore={reportData.overall_score}
+                    currentMetrics={reportData.safety_metrics}
                   />
               </div>
           </div>
@@ -537,30 +662,35 @@ export default function SafetyReportPage({ params }: SafetyReportProps) {
               </div>
             </div>
             <div className="h-[400px] bg-white rounded-b-xl shadow-sm overflow-hidden">
-              <Suspense fallback={<MapLoadingPlaceholder />}>
-                {reportData.location ? (
-                  <LazyMapView
-                    location={reportData.location}
-                    currentAccommodation={{
-                      id: reportData.id,
-                      name: reportData.name,
-                      overall_score: reportData.overall_score,
-                      // Pass the reliability-based flag
-                      hasCompleteData: reportData.hasCompleteData
-                    }}
-                    // Pass the filtered & sorted list directly from reportData
-                    similarAccommodations={reportData.similar_accommodations.map(acc => ({
-                      ...acc,
-                      // Ensure hasCompleteData is boolean
-                      hasCompleteData: !!acc.hasCompleteData
-                    }))}
-                  />
-                ) : (
-                  <div className="h-full bg-gray-100 flex items-center justify-center">
-                    <p className="text-gray-500">Location coordinates not available</p>
-                  </div>
-                )}
-              </Suspense>
+              {/* Show loading indicator specifically for map data if needed */}
+              {loadingNearbyMapData && (
+                 <div className="h-full flex items-center justify-center bg-gray-50">
+                    <p className="text-gray-500 animate-pulse">Loading map data...</p>
+                 </div>
+              )}
+              {/* Render map once nearby data loading is complete AND reportData exists */}
+              {!loadingNearbyMapData && reportData.location && (
+                  <Suspense fallback={<MapLoadingPlaceholder />}>
+                    <LazyMapView
+                      location={reportData.location}
+                      currentAccommodation={{
+                        id: reportData.id,
+                        name: reportData.name,
+                        overall_score: reportData.overall_score,
+                        hasCompleteData: reportData.hasCompleteData
+                      }}
+                      // --- Pass the NEW state to the map ---
+                      similarAccommodations={allNearbyAccommodations}
+                      // --- End change ---
+                    />
+                  </Suspense>
+              )}
+              {/* Handle case where location is missing even after loading */}
+              {!loadingNearbyMapData && !reportData.location && (
+                 <div className="h-full bg-gray-100 flex items-center justify-center">
+                    <p className="text-gray-500">Location coordinates not available for map.</p>
+                 </div>
+              )}
             </div>
           </div>
         );

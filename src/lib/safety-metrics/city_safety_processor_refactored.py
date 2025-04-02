@@ -678,6 +678,11 @@ def calculate_metrics(processed_df: pd.DataFrame, target_city_id: int, city_conf
             batch_num = (i // neighbor_batch_size) + 1
             logger.info(f"Fetching neighbors: Batch {batch_num}/{total_neighbor_batches} ({len(pk_chunk)} blocks)")
             
+            # --- ADDED: Log IDs for the specific batch that failed previously ---
+            if batch_num == 6:
+                logger.warning(f"DEBUG: Processing Batch 6 - Block IDs: {pk_chunk}")
+            # --- END ADDED ---
+
             try:
                 # Call the batch RPC function (expects list of strings)
                 # RPC function already sets a timeout internally
@@ -1073,21 +1078,54 @@ def update_accommodation_safety_scores(supabase_client: Client, target_city_id: 
              logger.error(f"Failed to build KDTree for safety metrics: {tree_err}", exc_info=True)
              return # Cannot proceed without KDTree
 
-        # 3. Fetch accommodations for the target city with valid coordinates
-        logger.info(f"Fetching accommodations for {city_name}...")
-        acc_response = supabase_client.table('accommodations') \
-                                      .select('id, latitude, longitude') \
-                                      .eq('city_id', target_city_id) \
-                                      .not_.is_('latitude', 'null') \
-                                      .not_.is_('longitude', 'null') \
-                                      .execute()
+        # 3. Fetch accommodations for the target city using PAGINATION
+        logger.info(f"Fetching accommodations for {city_name} with pagination...")
+        all_accommodations_data = []
+        acc_batch_size = 1000 # Batch size for fetching accommodations
+        acc_offset = 0
+        while True:
+            logger.debug(f"Fetching accommodations batch: offset={acc_offset}, limit={acc_batch_size}")
+            try:
+                 acc_response = supabase_client.table('accommodations') \
+                                               .select('id, latitude, longitude') \
+                                               .eq('city_id', target_city_id) \
+                                               .not_.is_('latitude', 'null') \
+                                               .not_.is_('longitude', 'null') \
+                                               .limit(acc_batch_size) \
+                                               .offset(acc_offset) \
+                                               .execute()
 
-        if not acc_response.data:
-            logger.info(f"No accommodations with valid coordinates found for {city_name}.")
+                 if acc_response.data:
+                     all_accommodations_data.extend(acc_response.data)
+                     logger.debug(f"  Fetched {len(acc_response.data)} accommodation records.")
+                     if len(acc_response.data) < acc_batch_size:
+                         break # Last page
+                     acc_offset += acc_batch_size
+                 else:
+                     if hasattr(acc_response, 'error') and acc_response.error:
+                          logger.error(f"Error fetching accommodations batch (offset {acc_offset}): {acc_response.error}")
+                          logger.warning("Aborting accommodation fetch due to API error.")
+                          break
+                     else:
+                          break # No more data
+            
+            except APIError as api_err:
+                logger.error(f"APIError fetching accommodations batch (offset {acc_offset}): {api_err}", exc_info=False)
+                logger.warning("Aborting accommodation fetch due to APIError.")
+                break
+            except Exception as fetch_err:
+                logger.error(f"Unexpected error fetching accommodations batch (offset {acc_offset}): {fetch_err}", exc_info=True)
+                logger.warning("Aborting accommodation fetch due to unexpected error.")
+                break
+                
+        logger.info(f"Total accommodations fetched via pagination: {len(all_accommodations_data)}")
+
+        if not all_accommodations_data:
+            logger.info(f"No accommodations with valid coordinates found for {city_name} after pagination.")
             return
 
-        accommodations = acc_response.data
-        logger.info(f"Fetched {len(accommodations)} accommodations for {city_name}.")
+        accommodations = all_accommodations_data # Use the full list
+        # logger.info(f"Fetched {len(accommodations)} accommodations for {city_name}.") # Logged above now
 
         # 4. Calculate Scores for Each Accommodation
         updates_to_make = [] # List to store update dictionaries
@@ -1379,7 +1417,7 @@ def main(target_city_id: int, test_mode: bool):
         city_name = city_config.get('city_name', f'ID {target_city_id}')
 
         # Determine parameters based on mode
-        days_back = 30 if test_mode else 200 # Example: 30 days for test, 800 for prod
+        days_back = 30 if test_mode else 800 # Example: 30 days for test, 800 for prod
         max_records = 5000 if test_mode else 500000 # Example: 5k for test, 500k for prod
         logger.info(f"Run Parameters: days_back={days_back}, max_records={max_records:,}")
 

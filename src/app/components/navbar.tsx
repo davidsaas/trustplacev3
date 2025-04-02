@@ -12,7 +12,6 @@ import { toast } from 'sonner'
 import { useAuth } from '@/components/shared/providers/auth-provider'
 import { ROUTES } from '@/lib/constants'
 import { parseAccommodationURL } from '@/lib/utils/url'
-import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 
 function classNames(...classes: (string | boolean | undefined)[]) {
   return classes.filter(Boolean).join(' ')
@@ -21,45 +20,11 @@ function classNames(...classes: (string | boolean | undefined)[]) {
 export function AppNavbar() {
   const [searchQuery, setSearchQuery] = useState('')
   const [isLoading, setIsLoading] = useState(false)
-  const [avatar, setAvatar] = useState<string | null>(null)
   const pathname = usePathname()
   const router = useRouter()
   const { user, signOut, supabase, loading } = useAuth()
-  const [userInitials, setUserInitials] = useState<string | null>(null);
 
   const isReportPage = pathname.startsWith('/safety-report/')
-
-  useEffect(() => {
-    const fetchUserProfile = async () => {
-      if (!user || !supabase) {
-        setAvatar(null)
-        return
-      }
-
-      const { data } = await supabase
-        .from('profiles')
-        .select('avatar_url')
-        .eq('id', user.id)
-        .single()
-
-      if (data?.avatar_url) {
-        setAvatar(data.avatar_url)
-      } else {
-        setAvatar(null)
-      }
-    }
-
-    fetchUserProfile()
-  }, [user, supabase])
-
-  useEffect(() => {
-    if (user) {
-      const initials = user.user_metadata?.full_name
-        ? user.user_metadata.full_name.split(' ').map((name: string) => name.charAt(0)).join('')
-        : null;
-      setUserInitials(initials);
-    }
-  }, [user]);
 
   const handleSearch = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -209,10 +174,7 @@ export function AppNavbar() {
                           <>
                             <PopoverButton className="flex items-center rounded-full bg-white text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2">
                               <span className="sr-only">Open user menu</span>
-                              <Avatar className="h-8 w-8">
-                                <AvatarImage src={avatar ?? undefined} />
-                                <AvatarFallback>{userInitials || 'U'}</AvatarFallback>
-                              </Avatar>
+                              <User className="h-8 w-8 rounded-full bg-gray-200 p-1 text-gray-600" />
                               <ChevronDown className={`ml-1 h-4 w-4 text-gray-500 transition-transform duration-200 ${open ? 'rotate-180' : ''}`} />
                             </PopoverButton>
 
@@ -299,10 +261,7 @@ export function AppNavbar() {
                   <>
                     <div className="flex items-center px-4 mb-3">
                       <div className="shrink-0">
-                        <Avatar className="h-10 w-10">
-                          <AvatarImage src={avatar ?? undefined} />
-                          <AvatarFallback>{userInitials || 'U'}</AvatarFallback>
-                        </Avatar>
+                        <User className="h-10 w-10 rounded-full bg-gray-200 p-2 text-gray-600" />
                       </div>
                       <div className="ml-3 min-w-0">
                         <div className="truncate text-base font-medium text-gray-800">{user.user_metadata?.full_name ?? 'User'}</div>
