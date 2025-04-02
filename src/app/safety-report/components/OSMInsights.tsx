@@ -169,40 +169,60 @@ export const OSMInsights = ({ data, isLoading }: OSMInsightsProps) => {
   return (
     <div className="bg-white p-6 shadow-sm rounded-b-xl">
       <div className="divide-y divide-gray-200 overflow-hidden bg-gray-200 sm:grid sm:grid-cols-2 sm:gap-px sm:divide-y-0">
-        {metricActions.map((action) => (
-          <div
-            key={action.key}
-            className={classNames(
-              action.isEmpty ? 'opacity-70' : '',
-              'group relative bg-white p-6 focus-within:ring-2 focus-within:ring-indigo-500 focus-within:ring-inset',
-            )}
-          >
-            <div>
-              <span
-                className={classNames(
-                  action.iconBackground,
-                  action.iconForeground,
-                  'inline-flex rounded-lg p-3 ring-4 ring-white',
-                )}
-              >
-                <action.icon aria-hidden="true" className="size-6" />
-              </span>
+        {metricActions.map((action) => {
+          // Determine background based on label
+          let backgroundClass = '';
+          switch (action.label) {
+            case 'High':
+              backgroundClass = 'bg-green-500/5'; // Subtle green
+              break;
+            case 'Medium':
+              backgroundClass = 'bg-yellow-500/5'; // Subtle yellow
+              break;
+            case 'Low':
+              backgroundClass = 'bg-orange-500/5'; // Subtle orange
+              break;
+            case 'Not Found':
+            default:
+              backgroundClass = 'bg-gray-500/5'; // Subtle gray for 'Not Found' or default
+          }
+          
+          return (
+            <div
+              key={action.key}
+              className={classNames(
+                action.isEmpty ? 'opacity-70' : '',
+                'group relative bg-white p-6 focus-within:ring-2 focus-within:ring-indigo-500 focus-within:ring-inset',
+                backgroundClass // Add the background class here
+              )}
+            >
+              <div>
+                <span
+                  className={classNames(
+                    action.iconBackground,
+                    action.iconForeground,
+                    'inline-flex rounded-lg p-3 ring-4 ring-white',
+                  )}
+                >
+                  <action.icon aria-hidden="true" className="size-6" />
+                </span>
+              </div>
+              <div className="mt-4">
+                <h3 className="text-base font-semibold text-gray-900 flex items-center justify-between">
+                  {action.title}
+                  {action.label && (
+                    <span className={`text-sm px-2 py-1 rounded-full ${action.iconBackground} ${action.iconForeground}`}>
+                      {action.label}
+                    </span>
+                  )}
+                </h3>
+                <p className="mt-2 text-sm text-gray-500">
+                  {action.description}
+                </p>
+              </div>
             </div>
-            <div className="mt-4">
-              <h3 className="text-base font-semibold text-gray-900 flex items-center justify-between">
-                {action.title}
-                {action.label && (
-                  <span className={`text-sm px-2 py-1 rounded-full ${action.iconBackground} ${action.iconForeground}`}>
-                    {action.label}
-                  </span>
-                )}
-              </h3>
-              <p className="mt-2 text-sm text-gray-500">
-                {action.description}
-              </p>
-            </div>
-          </div>
-        ))}
+          )
+        })}
       </div>
     </div>
   )

@@ -4,7 +4,6 @@ import * as React from 'react'
 import { 
   Clock, 
   Car, 
-  Baby, 
   Bus, 
   UserRound,
   Plus,
@@ -34,18 +33,12 @@ interface MetricDefinition {
 const LucideIcons = {
   Clock,
   Car,
-  Baby,
   Bus,
   UserRound,
   Home,
   Sun,
   HelpCircle // Default/fallback icon
 };
-
-// --- Remove old constants ---
-// const METRIC_QUESTIONS: Record<string, string> = { ... }
-// const METRIC_ICONS: Record<string, LucideIcon> = { ... }
-// const EXPECTED_METRIC_TYPES = [ ... ]
 
 function classNames(...classes: (string | boolean | undefined)[]) {
   return classes.filter(Boolean).join(' ')
@@ -102,66 +95,74 @@ export const SafetyMetrics = ({ data }: SafetyMetricsProps) => {
       }
     });
   }
-
-  // --- Removed old processing logic for available/missing metrics --- 
-
-  // Add "coming soon" metric (optional, can be removed if not needed)
-  const comingSoonMetric = {
-    title: "More metrics coming soon",
-    description: "We're constantly adding new safety indicators",
-    icon: Plus,
-    iconForeground: "text-blue-600",
-    iconBackground: "bg-blue-100",
-    label: "Coming Soon",
-    isEmpty: false // Treat as not empty for display purposes
-  }
   
   // Convert to array for rendering (ensure order matches JSON config if desired, or sort)
   const metricActions = [
     // Get metrics in the order defined in the JSON file
     ...(metricDefinitions.metrics as MetricDefinition[]).map(def => metricsByType[def.id]),
-    // Add coming soon at the end
-    comingSoonMetric
   ];
 
   // --- Render logic remains the same --- 
   return (
     <div className="bg-white p-6 shadow-sm rounded-b-xl">
       <div className="divide-y divide-gray-200 overflow-hidden bg-gray-200 sm:grid sm:grid-cols-2 sm:gap-px sm:divide-y-0">
-        {metricActions.map((action) => (
-          <div
-            key={action.title}
-            className={classNames(
-              action.isEmpty ? 'opacity-70' : '',
-              'group relative bg-white p-6 focus-within:ring-2 focus-within:ring-indigo-500 focus-within:ring-inset',
-            )}
-          >
-            <div>
-              <span
-                className={classNames(
-                  action.iconBackground,
-                  action.iconForeground,
-                  'inline-flex rounded-lg p-3 ring-4 ring-white',
-                )}
-              >
-                <action.icon aria-hidden="true" className="size-6" />
-              </span>
+        {metricActions.map((action) => {
+          // Determine background based on label
+          let backgroundClass = '';
+          if (!action.isEmpty) {
+            switch (action.label) {
+              case 'High':
+                backgroundClass = 'bg-green-50'; // Subtle green
+                break;
+              case 'Medium':
+                backgroundClass = 'bg-yellow-500/5'; // Subtle yellow
+                break;
+              case 'Low':
+                backgroundClass = 'bg-red-500/5'; // Subtle red
+                break;
+              default:
+                backgroundClass = 'bg-gray-500/5'; // Subtle gray for others or default
+            }
+          } else {
+             backgroundClass = 'bg-gray-500/5'; // Subtle gray for 'No Data'
+          }
+          
+          return (
+            <div
+              key={action.title}
+              className={classNames(
+                action.isEmpty ? 'opacity-70' : '',
+                'group relative bg-white p-6 focus-within:ring-2 focus-within:ring-indigo-500 focus-within:ring-inset',
+                 backgroundClass // Add the background class here
+              )}
+            >
+              <div>
+                <span
+                  className={classNames(
+                    action.iconBackground,
+                    action.iconForeground,
+                    'inline-flex rounded-lg p-3 ring-4 ring-white',
+                  )}
+                >
+                  <action.icon aria-hidden="true" className="size-6" />
+                </span>
+              </div>
+              <div className="mt-4">
+                <h3 className="text-base font-semibold text-gray-900 flex items-center justify-between">
+                  {action.title}
+                  {action.label && (
+                    <span className={`text-sm px-2 py-1 rounded-full ${action.iconBackground} ${action.iconForeground}`}>
+                      {action.label}
+                    </span>
+                  )}
+                </h3>
+                <p className="mt-2 text-sm text-gray-500">
+                  {action.description}
+                </p>
+              </div>
             </div>
-            <div className="mt-4">
-              <h3 className="text-base font-semibold text-gray-900 flex items-center justify-between">
-                {action.title}
-                {action.label && (
-                  <span className={`text-sm px-2 py-1 rounded-full ${action.iconBackground} ${action.iconForeground}`}>
-                    {action.label}
-                  </span>
-                )}
-              </h3>
-              <p className="mt-2 text-sm text-gray-500">
-                {action.description}
-              </p>
-            </div>
-          </div>
-        ))}
+          )
+        })}
       </div>
     </div>
   )

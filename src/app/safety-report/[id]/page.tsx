@@ -261,7 +261,7 @@ async function findSimilarAccommodations(
 }
 
 // --- NEW: Function to fetch ALL nearby accommodations for Map Debugging ---
-const MAX_MAP_MARKERS = 50; // Limit markers on map for performance
+const MAX_MAP_MARKERS = 200; // Limit markers on map for performance
 
 async function fetchAllNearbyAccommodations(
   currentLocation: Location,

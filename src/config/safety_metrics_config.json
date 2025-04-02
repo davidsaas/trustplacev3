@@ -14,12 +14,6 @@
       "iconName": "Car"
     },
     {
-      "id": "child",
-      "question": "Are kids safe here?",
-      "description": "Overall safety concerning crimes that could affect children",
-      "iconName": "Baby"
-    },
-    {
       "id": "transit",
       "question": "Is it safe to use public transport?",
       "description": "Safety at and around transit locations",
@@ -55,9 +49,6 @@
       "vehicle": [
         "330", "331", "410", "420", "421", "510", "520", "433", "647"
       ],
-      "child": [
-        "235", "627", "121", "122", "815", "820", "821"
-      ],
       "transit": [
         "210", "220", "230", "624", "761", "930", "351", "451", "352", "452", "350", "450", "250"
       ],
@@ -81,7 +72,6 @@
         "572", "578"
       ],
       "vehicle": ["110", "353"],
-      "child": ["120", "124", "345"],
       "transit": ["105", "106", "118", "230", "236", "341", "344", "578"],
       "women": ["104", "116", "124", "233", "355", "578"],
       "property": [

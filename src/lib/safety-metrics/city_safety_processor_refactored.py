@@ -50,7 +50,7 @@ ACCOMMODATION_UPDATE_BATCH_SIZE = 500 # Batch size for updating accommodations
 METRIC_EXPIRY_DAYS = 90 # How long metrics are considered valid
 MAX_ACCOMMODATION_METRIC_DISTANCE_KM = 4.0 # Max distance to link accommodations to metrics
 NEIGHBOR_INCIDENT_WEIGHT = 0.25 # Weighting factor for neighbor incidents in score
-SCORE_DECAY_CONSTANT_K = 0.01 # Decay factor for calculating score from weighted incidents
+SCORE_DECAY_CONSTANT_K = 0.005 # Decay factor for calculating score from weighted incidents
 
 # --- Initialize Supabase Client ---
 supabase: Client | None = None
@@ -678,10 +678,10 @@ def calculate_metrics(processed_df: pd.DataFrame, target_city_id: int, city_conf
             batch_num = (i // neighbor_batch_size) + 1
             logger.info(f"Fetching neighbors: Batch {batch_num}/{total_neighbor_batches} ({len(pk_chunk)} blocks)")
             
-            # --- ADDED: Log IDs for the specific batch that failed previously ---
-            if batch_num == 6:
-                logger.warning(f"DEBUG: Processing Batch 6 - Block IDs: {pk_chunk}")
-            # --- END ADDED ---
+            # # --- DEBUG: Log IDs for the specific batch that failed previously ---
+            # if batch_num == 6:
+            #     logger.warning(f"DEBUG: Processing Batch 6 - Block IDs: {pk_chunk}")
+            # # --- END DEBUG ---
 
             try:
                 # Call the batch RPC function (expects list of strings)
