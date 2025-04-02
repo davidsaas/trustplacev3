@@ -1,7 +1,21 @@
 import { Info, CheckCircle, AlertTriangle } from 'lucide-react'
+import { Suspense, lazy } from 'react';
+import type { SimilarAccommodation, SafetyMetric, Location, AccommodationData } from '@/types/safety-report';
+import { SaferAlternativesSection } from './SaferAlternativesSection';
+import { MapLoadingPlaceholder } from '../page';
+
+// Lazily import MapView
+const LazyMapView = lazy(() => import('../../components/MapView').then(module => ({ default: module.MapView })));
 
 type OverviewSectionProps = {
-  takeaways: string[] | null
+  takeaways: string[] | null;
+  alternatives: SimilarAccommodation[] | null | undefined;
+  currentAccommodation: Pick<AccommodationData, 'id' | 'name' | 'overall_score' | 'hasCompleteData'>;
+  currentMetrics: SafetyMetric[] | null | undefined;
+  currentScore: number | null | undefined;
+  allNearbyAccommodations: SimilarAccommodation[];
+  location: Location | null;
+  loadingNearbyMapData: boolean;
 }
 
 // Helper to determine icon based on takeaway text (copied from PropertyHeader)
@@ -16,11 +30,21 @@ const getTakeawayIcon = (text: string) => {
     return <Info className="h-4 w-4 text-blue-600 flex-shrink-0" />; // Default icon
 };
 
-export const OverviewSection = ({ takeaways }: OverviewSectionProps) => {
+export const OverviewSection = ({
+  takeaways,
+  alternatives,
+  currentAccommodation,
+  currentMetrics,
+  currentScore,
+  allNearbyAccommodations,
+  location,
+  loadingNearbyMapData,
+}: OverviewSectionProps) => {
   const hasTakeaways = takeaways && takeaways.length > 0;
 
   return (
     <div>
+      {/* Takeaways Section (Now Horizontally Scrollable) */}
       <div className="border-b border-gray-200 bg-white px-4 py-5 sm:px-6 rounded-t-xl shadow-sm">
         <div className="-ml-4 -mt-4 flex flex-wrap items-center justify-between sm:flex-nowrap">
           <div className="ml-4 mt-4">
@@ -31,35 +55,101 @@ export const OverviewSection = ({ takeaways }: OverviewSectionProps) => {
           </div>
         </div>
       </div>
-      <div className="bg-white p-6 shadow-sm rounded-b-xl">
+      <div className="bg-white pt-4 pb-6 px-6 shadow-sm rounded-b-xl mb-6">
         {hasTakeaways ? (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="flex space-x-4 overflow-x-auto pb-2 -mb-2 scrollbar-thin scrollbar-thumb-gray-300 scrollbar-track-gray-100">
             {takeaways.map((takeaway, index) => (
               <div
                 key={index}
-                className="relative overflow-hidden rounded-xl border border-gray-100"
+                className="relative flex-shrink-0 w-64 sm:w-72 overflow-hidden rounded-xl border border-gray-100"
                 style={{
-                  background: 'rgba(255, 255, 255, 0.7)',
-                  backdropFilter: 'blur(10px)',
-                  WebkitBackdropFilter: 'blur(10px)'
+                  background: 'rgb(70, 70, 70)'
                 }}
               >
                 {/* Gradient overlay */}
-                <div className="absolute inset-0 bg-gradient-to-br from-white/50 via-transparent to-transparent pointer-events-none" />
-
-                <div className="relative p-4 flex items-start gap-3">
-                  {getTakeawayIcon(takeaway)}
-                  <p className="text-sm text-gray-800 leading-relaxed">{takeaway}</p>
+                <div className="absolute inset-0" />
+                <div className="relative p-4 flex items-start gap-3 h-full">
+                  <p className="text-sm text-white leading-relaxed flex-grow">{takeaway}</p>
                 </div>
               </div>
             ))}
+            {/* Add padding element for better scroll appearance */}
+            <div className="flex-shrink-0 w-2"></div>
           </div>
         ) : (
-          <div className="p-8 rounded-lg bg-gray-50 flex items-center justify-center">
+          <div className="py-8 px-4 rounded-lg bg-gray-50 flex items-center justify-center">
             <p className="text-gray-500">No specific takeaways available for this property.</p>
           </div>
         )}
       </div>
+
+      {/* Safer Alternatives Section (Horizontally Scrollable) */}
+      <div className="mb-6">
+          <div className="border-b border-gray-200 bg-white px-4 py-5 sm:px-6 rounded-t-xl shadow-sm">
+              <div className="-ml-4 -mt-4 flex flex-wrap items-center justify-between sm:flex-nowrap">
+                <div className="ml-4 mt-4">
+                  <h3 className="text-base font-semibold text-gray-900">Safer Nearby Alternatives</h3>
+                  <p className="mt-1 text-sm text-gray-500">
+                    Similar properties nearby with significantly better safety scores.
+                  </p>
+                </div>
+              </div>
+            </div>
+            {/* Note: SaferAlternativesSection needs internal horizontal scrolling */}
+            <div className="bg-gray-50 p-4 sm:p-6 rounded-b-xl shadow-sm">
+                <SaferAlternativesSection
+                  alternatives={alternatives}
+                  currentScore={currentScore}
+                  currentMetrics={currentMetrics}
+                />
+            </div>
+      </div>
+
+      {/* Map Section */}
+      <div className="mb-6">
+        <div className="border-b border-gray-200 bg-white px-4 py-5 sm:px-6 rounded-t-xl shadow-sm">
+          <div className="-ml-4 -mt-4 flex flex-wrap items-center justify-between sm:flex-nowrap">
+            <div className="ml-4 mt-4">
+              <h3 className="text-base font-semibold text-gray-900">Map</h3>
+              <p className="mt-1 text-sm text-gray-500">
+                Property location and nearby accommodations.
+              </p>
+            </div>
+          </div>
+        </div>
+        <div
+          className="h-[500px] bg-white rounded-b-xl shadow-sm overflow-hidden relative"
+          style={{ height: '500px' }}
+        >
+          {/* Loading Overlay */}
+          {loadingNearbyMapData && (
+             <div className="absolute inset-0 z-10 flex items-center justify-center bg-gray-50/80 backdrop-blur-sm">
+                <div className="text-center">
+                    <svg className="animate-spin h-8 w-8 text-gray-500 mx-auto mb-2" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                    </svg>
+                    <p className="text-sm font-medium text-gray-600">Loading map data...</p>
+                </div>
+             </div>
+          )}
+          {/* Map Rendering Logic */}
+          {location ? (
+              <Suspense fallback={<MapLoadingPlaceholder />}>
+                <LazyMapView
+                  location={location}
+                  currentAccommodation={currentAccommodation}
+                  similarAccommodations={allNearbyAccommodations}
+                />
+              </Suspense>
+          ) : (
+             <div className="h-full bg-gray-100 flex items-center justify-center">
+                <p className="text-gray-500">Location coordinates not available for map.</p>
+             </div>
+          )}
+        </div>
+      </div>
+
     </div>
   );
 }; 

@@ -11,8 +11,6 @@ interface ReportNavMenuProps {
 
 const navItems: { id: ExtendedReportSection; label: string }[] = [
   { id: 'overview', label: 'Overview' },
-  { id: 'alternatives', label: 'Safer Alternatives' },
-  { id: 'map', label: 'Map' },
   { id: 'safety', label: 'Safety' },
   { id: 'neighborhood', label: 'Neighborhood' },
   { id: 'comments', label: 'Comments' },

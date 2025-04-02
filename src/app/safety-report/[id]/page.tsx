@@ -32,7 +32,7 @@ import type {
 const LazyMapView = lazy(() => import('../components/MapView').then(module => ({ default: module.MapView })));
 
 // Simple placeholder for map loading
-const MapLoadingPlaceholder = () => (
+export const MapLoadingPlaceholder = () => (
   <div className="h-full bg-gray-100 flex items-center justify-center rounded-xl">
     <div className="text-center">
       <svg className="animate-spin h-8 w-8 text-gray-400 mx-auto mb-2" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
@@ -707,75 +707,21 @@ export default function SafetyReportPage({ params }: SafetyReportProps) {
       case 'overview':
         return (
           <div key="overview" className="space-y-6">
-            <OverviewSection takeaways={reportData.accommodation_takeaways} />
-          </div>
-        );
-      case 'alternatives':
-        return (
-          <div key="alternatives">
-            <div className="border-b border-gray-200 bg-white px-4 py-5 sm:px-6 rounded-t-xl shadow-sm">
-                <div className="-ml-4 -mt-4 flex flex-wrap items-center justify-between sm:flex-nowrap">
-                  <div className="ml-4 mt-4">
-                    <h3 className="text-base font-semibold text-gray-900">Safer Nearby Alternatives</h3>
-                    <p className="mt-1 text-sm text-gray-500">
-                      Similar properties nearby with significantly better safety scores.
-                    </p>
-                  </div>
-                </div>
-              </div>
-              <div className="bg-gray-50 p-4 sm:p-6 rounded-b-xl shadow-sm">
-                  <SaferAlternativesSection
-                    alternatives={reportData.similar_accommodations}
-                    currentScore={reportData.overall_score}
-                    currentMetrics={reportData.safety_metrics}
-                  />
-              </div>
-          </div>
-        );
-      case 'map':
-        return (
-          <div key="map">
-            <div className="border-b border-gray-200 bg-white px-4 py-5 sm:px-6 rounded-t-xl shadow-sm">
-              <div className="-ml-4 -mt-4 flex flex-wrap items-center justify-between sm:flex-nowrap">
-                <div className="ml-4 mt-4">
-                  <h3 className="text-base font-semibold text-gray-900">Map</h3>
-                  <p className="mt-1 text-sm text-gray-500">
-                    Property location and nearby safer alternatives.
-                  </p>
-                </div>
-              </div>
-            </div>
-            <div className="h-[400px] bg-white rounded-b-xl shadow-sm overflow-hidden">
-              {/* Show loading indicator specifically for map data if needed */}
-              {loadingNearbyMapData && (
-                 <div className="h-full flex items-center justify-center bg-gray-50">
-                    <p className="text-gray-500 animate-pulse">Loading map data...</p>
-                 </div>
-              )}
-              {/* Render map once nearby data loading is complete AND reportData exists */}
-              {!loadingNearbyMapData && reportData.location && (
-                  <Suspense fallback={<MapLoadingPlaceholder />}>
-                    <LazyMapView
-                      location={reportData.location}
-                      currentAccommodation={{
-                        id: reportData.id,
-                        name: reportData.name,
-                        overall_score: reportData.overall_score,
-                        hasCompleteData: reportData.hasCompleteData
-                      }}
-                      // --- Pass the NEW state to the map ---
-                      similarAccommodations={allNearbyAccommodations}
-                      // --- End change ---
-                    />
-                  </Suspense>
-              )}
-              {/* Handle case where location is missing even after loading */}
-              {!loadingNearbyMapData && !reportData.location && (
-                 <div className="h-full bg-gray-100 flex items-center justify-center">
-                    <p className="text-gray-500">Location coordinates not available for map.</p>
-                 </div>
-              )}
-            </div>
+            <OverviewSection
+              takeaways={reportData.accommodation_takeaways}
+              alternatives={reportData.similar_accommodations}
+              currentAccommodation={{
+                 id: reportData.id,
+                 name: reportData.name,
+                 overall_score: reportData.overall_score,
+                 hasCompleteData: reportData.hasCompleteData
+              }}
+              currentMetrics={reportData.safety_metrics}
+              currentScore={reportData.overall_score}
+              allNearbyAccommodations={allNearbyAccommodations}
+              location={reportData.location}
+              loadingNearbyMapData={loadingNearbyMapData}
+            />
           </div>
         );
       case 'safety':
@@ -810,7 +756,7 @@ export default function SafetyReportPage({ params }: SafetyReportProps) {
             <OSMInsights data={osmInsights} isLoading={loadingOSM} />
           </div>
         );
-      case 'comments': // NEW Case for comments
+      case 'comments':
             return (
               <div key="comments">
                 <div className="border-b border-gray-200 bg-white px-4 py-5 sm:px-6 rounded-t-xl shadow-sm">
@@ -825,7 +771,6 @@ export default function SafetyReportPage({ params }: SafetyReportProps) {
                     </div>
                   </div>
                 </div>
-                {/* Render CommunityOpinions with fetched data */}
                 <CommunityOpinions
                   isAuthenticated={isAuthenticated}
                   opinions={communityOpinions}
@@ -902,7 +847,7 @@ export default function SafetyReportPage({ params }: SafetyReportProps) {
                     activeSection={activeSection}
                     onSectionChange={handleSectionChange}
                     hasCompleteData={reportData.hasCompleteData}
-                    commentsCount={communityOpinionsCount} // Pass the count here
+                    commentsCount={communityOpinionsCount}
                   />
                 </div>
               </div>

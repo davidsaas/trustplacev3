@@ -2,8 +2,6 @@
 
 import * as React from 'react'
 import { useEffect, useRef, useCallback } from 'react'
-// No longer need useRouter if only used for marker click
-// import { useRouter } from 'next/navigation'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 import type { SimilarAccommodation } from '@/types/safety-report'
@@ -16,9 +14,9 @@ const mapTilerMapId = 'streets-v2'; // Or choose another style like 'basic-v2', 
 // --- Constants ---
 const MIN_MARKER_OPACITY = 0.20; // Minimum opacity for the lowest score markers (0-1 range)
 const MAX_SCORE_FOR_OPACITY = 100; // Assume score ranges up to 100 for opacity calculation
-const INITIAL_ZOOM = 18; // Increased initial zoom
-const FIT_BOUNDS_MAX_ZOOM = 18; // Increased max zoom for bounds fitting
-const FLY_TO_ZOOM = 18; // Increased zoom level when flying to a single marker
+const INITIAL_ZOOM = 19; // Increased initial zoom
+const FIT_BOUNDS_MAX_ZOOM = 19; // Also increase max zoom for consistency
+const FLY_TO_ZOOM = 19; // Also increase fly to zoom
 
 // --- Helper Functions ---
 
@@ -67,32 +65,38 @@ const getOpacityFromScore = (score: number, isCurrent: boolean, hasCompleteData:
     return opacity;
 };
 
-// Creates HTML string for Leaflet's DivIcon, includes opacity and current halo class
-const createCustomMarkerHTML = (score: number, isCurrent: boolean = false, hasCompleteData: boolean = true): string => {
+
+// SIMPLIFIED: Creates HTML string for Leaflet's DivIcon (hover logic removed)
+const createCustomMarkerHTML = (
+    score: number,
+    isCurrent: boolean = false,
+    hasCompleteData: boolean = true
+    // isHovered parameter removed
+): string => {
     let markerColor = '#3b82f6'; // Default blue-500
     let haloColor = colorToRgba(markerColor, 0.3);
-    const scoreSize = isCurrent ? '26px' : '24px';
-    const fontSize = isCurrent ? '13px' : '12px';
-    const haloSize = isCurrent ? '38px' : '36px'; // Base halo size
-    const currentHaloClass = isCurrent ? 'current-halo-animation' : ''; // Class for current halo animation
-    const borderStyle = isCurrent ? '3px solid white' : '2px solid white';
-    const boxShadow = isCurrent ? '0 2px 5px rgba(0, 0, 0, 0.4)' : '0 1px 3px rgba(0, 0, 0, 0.3)';
-    const scoreText = hasCompleteData ? score : '?';
+    const scoreSize = isCurrent ? '26px' : '24px'; // Removed hover size increase
+    const fontSize = isCurrent ? '13px' : '12px'; // Removed hover font size increase
+    const haloSize = isCurrent ? '38px' : '36px'; // Removed hover halo increase
+    const currentHaloClass = isCurrent ? 'current-halo-animation' : '';
+    const borderStyle = isCurrent ? '3px solid white' : '2px solid white'; // Removed hover border increase
+    const boxShadow = isCurrent ? '0 2px 5px rgba(0, 0, 0, 0.4)' : '0 1px 3px rgba(0, 0, 0, 0.3)'; // Removed hover shadow increase
+    const scoreText = hasCompleteData ? score.toFixed(0) : '?'; // Ensure score is rounded
+    const zIndex = isCurrent ? 10 : 1; // Removed hover z-index increase
+    const scale = 'scale(1)'; // Removed hover scale
 
     if (!hasCompleteData) {
         markerColor = '#9ca3af'; // Grey-400 for incomplete
         haloColor = colorToRgba(markerColor, 0.3);
-    } else if (score >= 0) { // Allow score of 0
-        // Assuming getRiskLevel returns an object like { fill: '#hexcolor', ... }
+    } else if (score >= 0) {
         const riskLevel = getRiskLevel(score / 10); // Adjust score scale if needed
-        markerColor = riskLevel?.fill || '#3b82f6'; // Use risk color or default blue
+        markerColor = riskLevel?.fill || '#3b82f6';
         haloColor = colorToRgba(markerColor, 0.3);
     }
 
-    // Calculate Opacity
     const markerOpacity = getOpacityFromScore(score, isCurrent, hasCompleteData);
 
-    // Apply opacity to the main visual wrapper
+    // Removed hover-related inline styles (transform, z-index) and transitions from the elements
     return `
         <div class="marker-visual-content" style="opacity: ${markerOpacity};">
           <div class="marker-halo ${currentHaloClass}" style="background-color: ${haloColor}; width: ${haloSize}; height: ${haloSize};"></div>
@@ -114,12 +118,12 @@ const isValidCoordinate = (coord: number, type: 'lat' | 'lng'): boolean => {
     return false;
 };
 
-// --- Types (Unchanged) ---
+// --- Types (Update MapViewProps - Remove hover) ---
 interface Accommodation {
     id: string
     name: string
     overall_score: number
-    hasCompleteData?: boolean // Add this if needed on currentAccommodation
+    hasCompleteData?: boolean
 }
 
 type MapViewProps = {
@@ -129,15 +133,23 @@ type MapViewProps = {
     }
     currentAccommodation: Accommodation
     similarAccommodations: SimilarAccommodation[]
+    // hoveredAlternativeId: string | null; // REMOVED
+    // onMarkerHover: (id: string | null) => void; // REMOVED
 }
 
 // --- Component ---
-export const MapView = ({ location, currentAccommodation, similarAccommodations }: MapViewProps) => {
+export const MapView = ({
+    location,
+    currentAccommodation,
+    similarAccommodations,
+    // hoveredAlternativeId, // REMOVED
+    // onMarkerHover // REMOVED
+}: MapViewProps) => {
     const mapContainer = useRef<HTMLDivElement>(null);
     const map = useRef<L.Map | null>(null);
-    const markersRef = useRef<Map<string, L.Marker>>(new Map()); // Store markers by ID
-    const popupsRef = useRef<Map<string, L.Popup>>(new Map()); // Store popups by ID
-    const markerHoverTimeoutRef = useRef<NodeJS.Timeout | null>(null); // For delayed popup closing
+    const markersRef = useRef<Map<string, L.Marker>>(new Map());
+    const popupsRef = useRef<Map<string, L.Popup>>(new Map());
+    const markerHoverTimeoutRef = useRef<NodeJS.Timeout | null>(null);
     const isInitialized = useRef(false);
     const isValidCurrentLocation = isValidCoordinate(location.lat, 'lat') && isValidCoordinate(location.lng, 'lng');
 
@@ -189,35 +201,29 @@ export const MapView = ({ location, currentAccommodation, similarAccommodations 
     }, [currentAccommodation.id, currentAccommodation.hasCompleteData]);
 
 
-    // --- REVISED Marker Update Logic for Leaflet ---
+    // --- SIMPLIFIED Marker Update Logic --- (Hover logic removed)
     const updateMarkers = useCallback(() => {
-        if (!map.current || !mapContainer.current) {
-             // console.log("UpdateMarkers (Leaflet): Skipping, map not ready.");
-             return;
-        }
-        // console.log(`UpdateMarkers (Leaflet): Starting. Received ${similarAccommodations.length} alternatives.`);
+        if (!map.current || !mapContainer.current) return;
 
-        // 1. Cleanup previous markers & popups
+        // 1. Cleanup (keep existing)
         if (markerHoverTimeoutRef.current) clearTimeout(markerHoverTimeoutRef.current);
         markersRef.current.forEach((marker, id) => {
-            marker.off('mouseover mouseout click'); // Unbind events first!
-            const popup = popupsRef.current.get(id);
-            if (popup && map.current?.hasLayer(popup)) {
-                map.current.closePopup(popup); // Close open popup before removing marker
-            }
-            map.current?.removeLayer(marker); // Remove marker from map
-        });
+             marker.off('mouseover mouseout click'); // Unbind events first!
+             const popup = popupsRef.current.get(id);
+             if (popup && map.current?.hasLayer(popup)) {
+                 map.current.closePopup(popup); // Close open popup before removing marker
+             }
+             map.current?.removeLayer(marker); // Remove marker from map
+         });
         markersRef.current.clear();
-        popupsRef.current.clear(); // Popups are recreated and bound each time
-        // console.log("UpdateMarkers (Leaflet): Cleared old markers and popups.");
+        popupsRef.current.clear();
 
-        // 2. Combine current prop + PRE-FILTERED similar props
+        // 2. Combine Data (keep existing)
         const currentWithCoords = {
              ...currentAccommodation,
              isCurrent: true,
              lat: location.lat,
              lng: location.lng,
-             // Make sure currentAccommodation has hasCompleteData or default it
              hasCompleteData: currentAccommodation.hasCompleteData ?? true
         };
         const allAccommodations = [
@@ -227,119 +233,112 @@ export const MapView = ({ location, currentAccommodation, similarAccommodations 
                   isCurrent: false,
                   lat: acc.latitude,
                   lng: acc.longitude,
-                  // Default hasCompleteData if missing on similar items
                   hasCompleteData: acc.hasCompleteData ?? true
              }))
         ];
-        // console.log(`UpdateMarkers (Leaflet): Preparing to display ${allAccommodations.length} total markers.`);
 
         // 3. Create and add markers/popups
-        let addedMarkersCount = 0;
         allAccommodations.forEach(acc => {
-            // Use updated validation
-            if (!isValidCoordinate(acc.lat, 'lat') || !isValidCoordinate(acc.lng, 'lng')) {
-                // console.warn(`Skipping invalid coordinates for ${acc.name}: Lat ${acc.lat}, Lng ${acc.lng}`);
-                return;
-            }
-            const hasCompleteData = acc.hasCompleteData; // Already defaulted above
+            if (!isValidCoordinate(acc.lat, 'lat') || !isValidCoordinate(acc.lng, 'lng')) return;
+
+            const hasCompleteData = acc.hasCompleteData;
             const isCurrent = acc.isCurrent;
+            // const isHovered = !isCurrent && hoveredAlternativeId === acc.id; // REMOVED
 
             try {
-                // --- Create Custom Icon ---
-                const overallScore = acc.overall_score ?? 0; // Default to 0 if null
+                const overallScore = acc.overall_score ?? 0;
+                // --- isHovered parameter removed from icon creation ---
                 const iconHtml = createCustomMarkerHTML(overallScore, isCurrent, hasCompleteData);
                 const icon = L.divIcon({
                     html: iconHtml,
-                    className: 'custom-leaflet-icon', // Base class for the icon's div
-                    iconSize: [40, 40], // Should match the size of .marker-visual-content
-                    iconAnchor: [20, 40], // Center bottom of the iconSize
-                    popupAnchor: [0, -35] // Adjust as needed: relative to iconAnchor
+                    className: 'custom-leaflet-icon',
+                    iconSize: [40, 40], // Reverted size
+                    iconAnchor: [20, 40], // Reverted anchor
+                    popupAnchor: [0, -35] // Reverted popup anchor
                 });
 
-                // --- Create Marker ---
-                const marker = L.marker([acc.lat, acc.lng], { // L.marker uses [lat, lng]
+                const marker = L.marker([acc.lat, acc.lng], {
                     icon: icon,
-                    zIndexOffset: isCurrent ? 1000 : 500, // Higher zIndex for current marker
-                    riseOnHover: true // Slightly raise marker on hover
+                    zIndexOffset: isCurrent ? 1000 : 500, // Removed hover z-index
+                    riseOnHover: true
                 });
 
-                // --- Create and Bind Popup ---
+                // Popup creation (keep existing)
                 const popupContent = createPopupContent(acc);
                 const popup = L.popup({
-                    offset: L.point(0, -5), // Fine-tune offset relative to popupAnchor
+                    offset: L.point(0, -5),
                     closeButton: false,
-                    className: 'custom-leaflet-popup', // Add class for styling popup
+                    className: 'custom-leaflet-popup',
                     maxWidth: 280,
                 }).setContent(popupContent);
-
                 marker.bindPopup(popup);
-                popupsRef.current.set(acc.id, popup); // Store popup reference
+                popupsRef.current.set(acc.id, popup);
 
-                // --- Event Listeners ---
+                // --- SIMPLIFIED Event Listeners (No onMarkerHover calls) ---
                 marker.on('mouseover', (e) => {
-                    if (markerHoverTimeoutRef.current) {
-                        clearTimeout(markerHoverTimeoutRef.current);
-                        markerHoverTimeoutRef.current = null;
-                    }
-                    closeAllPopups();
+                    // Keep popup logic
+                    if (markerHoverTimeoutRef.current) clearTimeout(markerHoverTimeoutRef.current);
+                    closeAllPopups(); // Close others before opening this one
                     marker.openPopup();
                 });
 
                 marker.on('mouseout', (e) => {
+                    // Keep popup close logic
                     markerHoverTimeoutRef.current = setTimeout(() => {
-                        marker.closePopup();
-                        markerHoverTimeoutRef.current = null;
+                         marker.closePopup(); // Simpler close logic
+                         markerHoverTimeoutRef.current = null;
                     }, 200);
                 });
 
+                // Popup hover logic (keep existing, but simpler timeout for closing)
                 popup.on('add', () => {
                     const popupElement = popup.getElement();
-                    if (popupElement) {
-                        popupElement.addEventListener('mouseenter', () => {
-                            if (markerHoverTimeoutRef.current) {
-                                clearTimeout(markerHoverTimeoutRef.current);
-                                markerHoverTimeoutRef.current = null;
-                            }
-                        });
-                        popupElement.addEventListener('mouseleave', () => {
-                            markerHoverTimeoutRef.current = setTimeout(() => {
-                                marker.closePopup();
-                                markerHoverTimeoutRef.current = null;
-                            }, 200);
-                        });
-                    }
+                     if (popupElement) {
+                         popupElement.addEventListener('mouseenter', () => {
+                             if (markerHoverTimeoutRef.current) {
+                                 clearTimeout(markerHoverTimeoutRef.current);
+                                 markerHoverTimeoutRef.current = null;
+                             }
+                         });
+                         popupElement.addEventListener('mouseleave', () => {
+                             markerHoverTimeoutRef.current = setTimeout(() => {
+                                 if (map.current) { // Check if map is still valid
+                                     marker.closePopup();
+                                 }
+                                 markerHoverTimeoutRef.current = null;
+                             }, 200);
+                         });
+                     }
                 });
 
                 marker.on('click', (e) => {
                     L.DomEvent.stopPropagation(e);
-                    // console.log(`Marker clicked (Leaflet): ${acc.name}, Is Current: ${isCurrent}`);
                     if (isCurrent) {
-                        if (map.current) { // Check map ref before calling flyTo
-                           map.current.flyTo([acc.lat, acc.lng], map.current.getZoom()); // Maintain zoom
-                        }
+                        if (map.current) map.current.flyTo([acc.lat, acc.lng], map.current.getZoom());
                     } else {
                         handleMarkerClick(acc.id);
-                        if (map.current) { // Check map ref before calling flyTo
-                           map.current.flyTo([acc.lat, acc.lng], FLY_TO_ZOOM); // Use constant
-                        }
+                        if (map.current) map.current.flyTo([acc.lat, acc.lng], FLY_TO_ZOOM);
                     }
                 });
                 // --- END Event Listeners ---
 
                 marker.addTo(map.current!);
-                markersRef.current.set(acc.id, marker); // Store marker by ID
-                addedMarkersCount++;
+                markersRef.current.set(acc.id, marker);
 
-            } catch (error) { console.error("Error creating Leaflet marker or popup for:", acc.name, error); }
+            } catch (error) { console.error("Error creating Leaflet marker/popup:", acc.name, error); }
         });
-        // console.log(`UpdateMarkers (Leaflet): Added ${addedMarkersCount} markers.`);
 
-    }, [location, currentAccommodation, similarAccommodations, createPopupContent, handleMarkerClick, closeAllPopups]);
+    }, [ // Removed hoverAlternativeId and onMarkerHover from dependencies
+        location,
+        currentAccommodation,
+        similarAccommodations,
+        createPopupContent,
+        handleMarkerClick,
+        closeAllPopups
+    ]);
 
 
-    // --- Effects ---
-
-    // Effect for Map Initialization (Leaflet)
+    // --- Effect for Map Initialization (Keep existing) ---
     useEffect(() => {
         // console.log("Map Init Effect (Leaflet): Checking conditions...");
         if (!mapTilerApiKey) {
@@ -405,15 +404,26 @@ export const MapView = ({ location, currentAccommodation, similarAccommodations 
             map.current = mapInstance;
             isInitialized.current = true;
             // console.log("Map Init Effect (Leaflet): Map initialized successfully.");
+
+            // --- ADDED: Delayed invalidateSize --- 
+            const timer = setTimeout(() => {
+                if (map.current) {
+                    console.log("Manually invalidating map size after delay.");
+                    map.current.invalidateSize();
+                }
+            }, 100); // 100ms delay, adjust if needed
+            // --- END ADDED --- 
+
             const resizeObserver = new ResizeObserver(() => {
                  mapInstance?.invalidateSize();
                  // Using setTimeout as a workaround for debouncing since debounceTime is not a valid option
                  setTimeout(() => mapInstance?.invalidateSize(), 100);
              });
-             resizeObserver.observe(mapContainer.current);
+             resizeObserver.observe(mapContainer.current!);
 
              return () => {
                  // console.log("Map Init Effect (Leaflet): Cleaning up map instance.");
+                 clearTimeout(timer); // Clear the timeout on cleanup
                  resizeObserver.disconnect();
                  if (markerHoverTimeoutRef.current) clearTimeout(markerHoverTimeoutRef.current);
                  if (map.current) {
@@ -433,7 +443,7 @@ export const MapView = ({ location, currentAccommodation, similarAccommodations 
         }
     }, []); // IMPORTANT: Empty dependency array
 
-    // REVISED Effect for Updating Markers and Fitting Bounds (Leaflet)
+    // --- REVISED Effect for Updating Markers & Bounds (Keep existing, dependency array simplified) ---
     useEffect(() => {
         if (!map.current || !isInitialized.current) {
             // console.log("Marker/Bounds Effect (Leaflet): Skipping (Map not initialized yet).");
@@ -501,7 +511,13 @@ export const MapView = ({ location, currentAccommodation, similarAccommodations 
              map.current.whenReady(runUpdatesAndFitBounds);
         }
 
-    }, [location, currentAccommodation, similarAccommodations, updateMarkers, isValidCurrentLocation]); // Dependencies updated
+    }, [ // Simplified dependency array
+        location,
+        currentAccommodation,
+        similarAccommodations,
+        updateMarkers, // updateMarkers no longer depends on hover state
+        isValidCurrentLocation
+    ]); // Dependencies updated
 
 
     // --- Render Logic ---
@@ -520,12 +536,12 @@ export const MapView = ({ location, currentAccommodation, similarAccommodations 
             {/* Map Container */}
             <div
                 ref={mapContainer}
-                className="map-view-container w-full h-full rounded-2xl overflow-hidden shadow-lg bg-gray-200" // Added bg-gray-200 for loading state
+                className="map-view-container w-full h-full rounded-2xl overflow-hidden shadow-lg bg-gray-200"
                 style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }}
                 aria-label={`Map showing accommodation safety scores`}
             />
 
-            {/* Styles - Adapted for Leaflet */}
+            {/* Styles - Removed hover-related transitions */}\
             <style jsx global>{`
                 /* Base Leaflet Container Style */
                 .leaflet-container {
@@ -541,23 +557,20 @@ export const MapView = ({ location, currentAccommodation, similarAccommodations 
                     background: none; border: none; display: flex; justify-content: center; align-items: flex-end; pointer-events: none;
                 }
 
-                /* --- Marker Visual Structure Styles --- */
+                /* --- Marker Visual Structure Styles (Removed transitions) --- */
                 .marker-visual-content {
                     position: relative; width: 40px; height: 40px;
                     display: flex; align-items: center; justify-content: center;
                     pointer-events: auto; cursor: pointer;
-                    transition: opacity 0.3s ease; /* Add transition for opacity changes */
                     /* Opacity set inline */
                 }
 
                 .marker-halo {
                     position: absolute; top: 50%; left: 50%;
                     transform: translate(-50%, -50%); border-radius: 50%; z-index: 0; pointer-events: none;
-                    transition: background-color 0.3s ease;
-                    /* Base halo size set inline */
-                    /* Background color set inline */
+                    /* width, height, background-color set inline */
                 }
-                 /* --- NEW: Animation for Current Marker's Halo --- */
+                 /* --- Animation for Current Marker's Halo --- */
                 .marker-halo.current-halo-animation {
                     animation: halo-pulse-current 2.5s infinite ease-in-out;
                 }
@@ -576,8 +589,7 @@ export const MapView = ({ location, currentAccommodation, similarAccommodations 
                     z-index: 2; /* Above pulse */
                     text-shadow: 0 1px 1px rgba(0,0,0,0.4);
                     line-height: 1; /* Ensure text fits vertically */
-                    transition: background-color 0.3s ease, width 0.3s ease, height 0.3s ease, border 0.3s ease, box-shadow 0.3s ease;
-                    /* Dynamic styles (bg, size, border, shadow) applied inline */
+                     /* Dynamic styles applied inline */
                 }
 
                 .marker-pulse {
@@ -588,7 +600,6 @@ export const MapView = ({ location, currentAccommodation, similarAccommodations 
                     z-index: 1; /* Behind score */
                     animation: pulse 2s infinite ease-out;
                     pointer-events: none; /* Visual only */
-                    transition: background-color 0.3s ease;
                     /* Inline style for background-color */
                 }
 
@@ -618,7 +629,6 @@ export const MapView = ({ location, currentAccommodation, similarAccommodations 
                 .custom-leaflet-popup .leaflet-popup-content {
                      margin: 0 !important; /* Remove default margin */
                      font-family: inherit !important; /* Use app font */
-                     /* Inner content padding is handled by the <div className="p-2"> */
                      min-width: 180px; /* Ensure minimum width */
                 }
                 .custom-leaflet-popup .leaflet-popup-tip {
@@ -626,24 +636,23 @@ export const MapView = ({ location, currentAccommodation, similarAccommodations 
                      border-top-color: white !important;
                      box-shadow: none !important;
                 }
-                 /* Hide default close button if not already handled by option */
                  .leaflet-popup-close-button { display: none; }
 
 
                 /* --- Leaflet Control Styles (Zoom/Attribution) --- */
                 .leaflet-control-zoom a,
                 .leaflet-control-attribution a {
-                     color: #0078A8; /* Example link color */
+                     color: #0078A8;
                 }
                 .leaflet-control-zoom,
                 .leaflet-control-attribution {
                      border: none !important;
                      box-shadow: 0 2px 6px rgba(0,0,0,0.15) !important;
                      border-radius: 8px !important;
-                     background-clip: padding-box; /* Prevents background bleed under border */
+                     background-clip: padding-box;
                 }
                 .leaflet-control-zoom {
-                     overflow: hidden; /* Clip corners */
+                     overflow: hidden;
                 }
                 .leaflet-control-zoom a {
                     background-color: white;
@@ -658,7 +667,7 @@ export const MapView = ({ location, currentAccommodation, similarAccommodations 
                      border-bottom: 1px solid #ddd !important;
                  }
                 .leaflet-control-attribution {
-                     background-color: rgba(255, 255, 255, 0.8) !important; /* Slightly transparent */
+                     background-color: rgba(255, 255, 255, 0.8) !important;
                      padding: 2px 6px !important;
                      font-size: 11px;
                 }
