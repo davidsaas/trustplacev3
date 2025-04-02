@@ -1,8 +1,10 @@
 const { createClient } = require('@supabase/supabase-js');
 const dotenv = require('dotenv');
-const { GoogleGenerativeAI, HarmCategory, HarmBlockThreshold } = require('@google/generative-ai');
-/** @typedef {import('@google/generative-ai').GenerativeModel} GenerativeModel */
+// Removed GoogleGenerativeAI imports
 const { RateLimiterMemory, RateLimiterRes } = require('rate-limiter-flexible');
+// Assuming Node.js v18+ which has built-in fetch.
+// If using older Node, you might need 'node-fetch':
+// const fetch = require('node-fetch'); // Uncomment if needed
 
 dotenv.config({ path: '.env' });
 
@@ -21,117 +23,143 @@ interface OpinionRecord {
 // --- Configuration ---
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-const geminiApiKey = process.env.GEMINI_API_KEY;
+const deepseekApiKey = process.env.DEEPSEEK_API_KEY; // Changed from GEMINI_API_KEY
 const DB_FETCH_BATCH_SIZE = 100; // How many opinions to fetch from DB at once
 const DB_UPDATE_BATCH_SIZE = 50; // How many opinions to update in DB at once
+const DEEPSEEK_API_URL = 'https://api.deepseek.com/v1/chat/completions';
+const DEEPSEEK_MODEL = 'deepseek-chat'; // Or choose another appropriate model like 'deepseek-coder' if relevant
 
 // --- Initialization & Validation ---
 if (!supabaseUrl || !supabaseServiceKey) {
     console.error('🛑 Missing Supabase URL or Service Key environment variables.');
     process.exit(1);
 }
-if (!geminiApiKey) {
-    console.error("🛑 Missing GEMINI_API_KEY. AI relevance check cannot be performed.");
+// Updated API key check
+if (!deepseekApiKey) {
+    console.error("🛑 Missing DEEPSEEK_API_KEY. AI relevance check cannot be performed.");
     process.exit(1);
 }
 const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
-// Initialize Gemini AI
-let genAI;
-/** @type {GenerativeModel | null} */
-let relevanceModel = null;
-try {
-    genAI = new GoogleGenerativeAI(geminiApiKey);
-    relevanceModel = genAI.getGenerativeModel({
-        model: 'gemini-1.5-flash-latest', // Use a fast model for classification
-        safetySettings: [
-            { category: HarmCategory.HARM_CATEGORY_HARASSMENT, threshold: HarmBlockThreshold.BLOCK_ONLY_HIGH },
-            { category: HarmCategory.HARM_CATEGORY_HATE_SPEECH, threshold: HarmBlockThreshold.BLOCK_ONLY_HIGH },
-            { category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT, threshold: HarmBlockThreshold.BLOCK_ONLY_HIGH },
-            { category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT, threshold: HarmBlockThreshold.BLOCK_ONLY_HIGH },
-        ],
-    });
-} catch (e) {
-    console.error("🛑 Error initializing GoogleGenerativeAI:", e);
-    process.exit(1);
-}
+// Removed Gemini AI Initialization
 
-// Initialize Rate Limiter (Free Tier: 15 RPM, use slightly less)
+// Initialize Rate Limiter (Adjust based on DeepSeek's limits if needed)
+// Kept Gemini's 15 RPM free tier limit (using 14) as a starting point.
 const relevanceRateLimiter = new RateLimiterMemory({
     points: 14,
-    duration: 60,
+    duration: 60, // Per minute
 });
 const MAX_AI_RETRIES = 2;
 const AI_RETRY_DELAY_MS = 3000;
 
-// --- AI Relevance Check Function (Copied & Adapted) ---
+// --- AI Relevance Check Function (Adapted for DeepSeek) ---
 async function isSafetyRelevant(title?: string | null, body?: string | null): Promise<SafetyRelevanceResult> {
-    if (!relevanceModel) {
-        console.error("   🤖 AI Relevance Check SKIPPED: Model not initialized.");
-        return { isRelevant: false, reason: "Model not initialized" };
-    }
+    // Removed relevanceModel check, now checking API key directly earlier
 
     const textToAnalyze = `${title || ''} ${body || ''}`.trim(); // Combine title and body safely
     if (!textToAnalyze || textToAnalyze.length < 15) { // Skip very short comments
         return { isRelevant: false, reason: "Too short" };
     }
 
-    const MAX_CHARS_FOR_RELEVANCE = 1000;
+    const MAX_CHARS_FOR_RELEVANCE = 1000; // Keep truncation consistent
     const truncatedText = textToAnalyze.length > MAX_CHARS_FOR_RELEVANCE
         ? textToAnalyze.substring(0, MAX_CHARS_FOR_RELEVANCE) + "..."
         : textToAnalyze;
 
+    // Keep the same prompt, should work well for classification
     const prompt = `Analyze the following text from a discussion about a specific location.\nIs this comment a genuine first-hand opinion, personal experience, observation, or specific advice related DIRECTLY to **personal safety** (feeling safe/unsafe, crime, police presence, dangerous situations, positive safety observations, specific times/places to avoid/prefer for safety)?\n\n**Comment Text:**\n"${truncatedText}"\n\n**Instructions:**\n- Answer ONLY with "YES" or "NO".\n- Answer "YES" if it clearly discusses personal safety experiences or observations.\n- Answer "NO" if it's primarily a question, an argument, meta-commentary, general chat, moving advice NOT about safety, or discusses topics other than personal safety.\n\n**Answer (YES or NO):**`;
-
 
     let attempts = 0;
     while (attempts <= MAX_AI_RETRIES) {
         attempts++;
         try {
-            await relevanceRateLimiter.consume('gemini_relevance_check');
+            // Consume rate limit point before making the API call
+            await relevanceRateLimiter.consume('deepseek_relevance_check'); // Changed key name slightly
 
-            const result = await relevanceModel.generateContent(prompt);
+            console.log(`   📞 Calling DeepSeek API (Attempt ${attempts})...`); // Log API call attempt
 
-            if (result.response.promptFeedback?.blockReason) {
-                console.warn(`   🤖 AI Check BLOCKED (Attempt ${attempts}): ${result.response.promptFeedback.blockReason}`);
-                return { isRelevant: false, reason: `Blocked: ${result.response.promptFeedback.blockReason}` };
+            const response = await fetch(DEEPSEEK_API_URL, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${deepseekApiKey}`,
+                },
+                body: JSON.stringify({
+                    model: DEEPSEEK_MODEL,
+                    messages: [
+                        // Optional system message (can sometimes help guide the model)
+                        // { role: "system", content: "You are a helpful assistant classifying text relevance." },
+                        { role: "user", content: prompt }
+                    ],
+                    max_tokens: 5, // Only need YES or NO
+                    temperature: 0.1, // Low temperature for deterministic classification
+                    // stream: false // Default is false
+                }),
+                // Add a timeout (e.g., 30 seconds)
+                 signal: AbortSignal.timeout(30000) // 30 seconds timeout
+            });
+
+            if (!response.ok) {
+                // Throw an error with status code for retry logic
+                const errorBody = await response.text();
+                throw new Error(`API request failed with status ${response.status}: ${errorBody}`);
             }
 
-            const responseText = result.response.text()?.trim().toUpperCase();
+            const data = await response.json();
+
+            // Extract the response text from DeepSeek's format
+            const responseText = data?.choices?.[0]?.message?.content?.trim().toUpperCase();
+
+            console.log(`   🤖 DeepSeek Raw Response: "${data?.choices?.[0]?.message?.content}"`); // Log raw response
+
+            // Removed Gemini-specific block reason check
 
             if (responseText === 'YES') {
                 return { isRelevant: true };
             } else if (responseText === 'NO') {
                 return { isRelevant: false, reason: "AI classified as NO" };
             } else {
-                console.warn(`   🤖 AI Check: Unexpected response (Attempt ${attempts}): "${result.response.text()}"`);
+                console.warn(`   🤖 DeepSeek Check: Unexpected response (Attempt ${attempts}): "${responseText}"`);
                 if (attempts >= MAX_AI_RETRIES) return { isRelevant: false, reason: "Unexpected AI response" };
+                 // Continue to retry logic below
             }
 
         } catch (error: any) {
-             console.warn(`   🤖 Error during AI Relevance Check (Attempt ${attempts}):`, error.message || error);
+             console.warn(`   🤖 Error during DeepSeek Relevance Check (Attempt ${attempts}):`, error.message || error);
+
+             // Handle rate limit errors specifically from the rate limiter library
              if (error instanceof RateLimiterRes) {
-                 console.warn(`   ⏳ Rate limit hit. Waiting ${Math.ceil(error.msBeforeNext / 1000)}s...`);
+                 console.warn(`   ⏳ Rate limit hit (local). Waiting ${Math.ceil(error.msBeforeNext / 1000)}s...`);
                  await new Promise(resolve => setTimeout(resolve, error.msBeforeNext));
                  attempts--; // Retry without counting this as an attempt
-                 continue;
+                 continue; // Skip the rest of the loop and retry the API call
              }
-             const isRetryableError = error.status === 429 || error.status >= 500 || (error.message && (error.message.includes('429') || error.message.includes('503')));
+
+              // Check for common retryable HTTP status codes (like 429 Too Many Requests, 5xx Server Errors)
+             // The error message now includes the status code from our thrown error
+             const statusMatch = error.message?.match(/status (\d+)/);
+             const statusCode = statusMatch ? parseInt(statusMatch[1], 10) : null;
+             const isRetryableError = statusCode === 429 || statusCode >= 500 || error.name === 'TimeoutError'; // Added TimeoutError
+
              if (!isRetryableError || attempts >= MAX_AI_RETRIES) {
                 return { isRelevant: false, reason: `AI call failed: ${error.message || 'Unknown error'}` };
              }
+
+             // Implement exponential backoff
              const delay = AI_RETRY_DELAY_MS * Math.pow(2, attempts - 1);
-             console.log(`   Waiting ${delay}ms before AI check retry...`);
+             console.log(`   ⏳ Waiting ${delay / 1000}s before DeepSeek check retry...`);
              await new Promise(resolve => setTimeout(resolve, delay));
+             // Continue loop to retry
         }
     }
+    // If loop finishes without success
     return { isRelevant: false, reason: "Exceeded max retries" };
 }
 
 
-// --- Main Script Logic ---
+// --- Main Script Logic (Mostly Unchanged) ---
 async function updateRelevanceForAllOpinions() {
-    console.log("🚀 Starting AI Safety Relevance Update Script...");
+    console.log("🚀 Starting DeepSeek Safety Relevance Update Script..."); // Updated log message
 
     let totalChecked = 0;
     let totalRelevant = 0;
@@ -166,16 +194,20 @@ async function updateRelevanceForAllOpinions() {
         let updatesToBatch = [];
 
         for (const opinion of opinions as OpinionRecord[]) {
-            const relevanceResult = await isSafetyRelevant(opinion.title, opinion.body);
+            console.log(`   Checking relevance for opinion ID: ${opinion.id}...`); // Log stays the same
+            const relevanceResult = await isSafetyRelevant(opinion.title, opinion.body); // Calls the adapted function
             totalChecked++;
 
             if (relevanceResult.isRelevant) {
                 totalRelevant++;
+                console.log(`   -> Relevant (ID: ${opinion.id})`); // Log stays the same
             } else {
                 totalIrrelevant++;
-                // Log reason for irrelevance if desired
-                 if (relevanceResult.reason && relevanceResult.reason !== "AI classified as NO") {
-                     console.log(`   -> Marked irrelevant (ID: ${opinion.id}): ${relevanceResult.reason}`);
+                const reason = relevanceResult.reason || 'Unknown';
+                console.log(`   -> Irrelevant (ID: ${opinion.id}): ${reason}`); // Log stays the same
+                // Keep detailed logging for non-standard reasons
+                 if (relevanceResult.reason && relevanceResult.reason !== "AI classified as NO" && reason !== "Too short" && !reason.startsWith("AI call failed") && !reason.startsWith("Exceeded max retries") && !reason.startsWith("Unexpected AI response")) {
+                     console.log(`   -> Detailed Irrelevant Reason (ID: ${opinion.id}): ${relevanceResult.reason}`);
                  }
             }
 
@@ -194,11 +226,13 @@ async function updateRelevanceForAllOpinions() {
                 if (updateError) {
                     console.error(`   ❌ DB Update Error: ${updateError.message}`);
                     totalErrors += updatesToBatch.length; // Count failed updates
+                } else {
+                    console.log(`   ✅ DB Batch Update Successful (${updatesToBatch.length} records).`);
                 }
                 updatesToBatch = []; // Clear batch
             }
-             // Small delay between AI calls even within a batch if needed, but rate limiter should handle this
-             // await new Promise(resolve => setTimeout(resolve, 50));
+             // Small delay between AI calls is handled by the rate limiter now
+             // await new Promise(resolve => setTimeout(resolve, 50)); // Removed unnecessary small delay
         }
 
         // Update any remaining records in the batch
@@ -211,9 +245,10 @@ async function updateRelevanceForAllOpinions() {
              if (updateError) {
                  console.error(`   ❌ DB Update Error: ${updateError.message}`);
                  totalErrors += updatesToBatch.length;
+             } else {
+                 console.log(`   ✅ Final DB Batch Update Successful (${updatesToBatch.length} records).`);
              }
         }
-
 
         currentOffset += opinions.length; // Move to the next page for DB fetch
 
