@@ -22,6 +22,13 @@ const LoadingState = () => {
   )
 }
 
+// Read the base URL from environment variables
+// Fallback to trustplace.app, but ensure this is set in your environment!
+const appBaseUrl = process.env.NEXT_PUBLIC_APP_BASE_URL || 'https://trustplace.app';
+if (!process.env.NEXT_PUBLIC_APP_BASE_URL) {
+    console.warn("NEXT_PUBLIC_APP_BASE_URL environment variable is not set. Falling back to 'https://trustplace.app'.");
+}
+
 export const URLProcessor = () => {
   const router = useRouter()
   const searchParams = useSearchParams()
@@ -45,7 +52,7 @@ export const URLProcessor = () => {
        clearInterval(timerRef.current); // Clear timer if manually navigating
        timerRef.current = null;
      }
-     window.location.href = 'https://trustplace.app'; // Use window.location for external redirect
+     window.location.href = appBaseUrl; // Use window.location for external redirect
   }
 
   const handleUrlProcessing = async (urlToProcess: string) => {
@@ -104,7 +111,10 @@ export const URLProcessor = () => {
             console.log('API Response:', data)
             if (data.reportId) {
               navigated = true;
-              router.push(`/safety-report/${data.reportId}`)
+              // Redirect to the production domain using the base URL
+              const redirectUrl = `${appBaseUrl}/safety-report/${data.reportId}`;
+              console.log('Redirecting to:', redirectUrl);
+              window.location.href = redirectUrl;
             } else {
               toast.error('Could not generate report', {
                 description: 'No valid report ID was returned'
