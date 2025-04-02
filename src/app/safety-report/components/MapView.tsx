@@ -246,7 +246,8 @@ export const MapView = ({ location, currentAccommodation, similarAccommodations 
 
             try {
                 // --- Create Custom Icon ---
-                const iconHtml = createCustomMarkerHTML(acc.overall_score, isCurrent, hasCompleteData);
+                const overallScore = acc.overall_score ?? 0; // Default to 0 if null
+                const iconHtml = createCustomMarkerHTML(overallScore, isCurrent, hasCompleteData);
                 const icon = L.divIcon({
                     html: iconHtml,
                     className: 'custom-leaflet-icon', // Base class for the icon's div
@@ -404,9 +405,10 @@ export const MapView = ({ location, currentAccommodation, similarAccommodations 
             map.current = mapInstance;
             isInitialized.current = true;
             // console.log("Map Init Effect (Leaflet): Map initialized successfully.");
-
             const resizeObserver = new ResizeObserver(() => {
-                 mapInstance?.invalidateSize({ debounceTime: 100 });
+                 mapInstance?.invalidateSize();
+                 // Using setTimeout as a workaround for debouncing since debounceTime is not a valid option
+                 setTimeout(() => mapInstance?.invalidateSize(), 100);
              });
              resizeObserver.observe(mapContainer.current);
 
