@@ -7,6 +7,11 @@ import { getValidImageUrl, getRiskLevel } from '../utils'
 import type { PropertyHeaderProps, Location } from '@/types/safety-report'
 import { ReportNavMenu, type ExtendedReportSection } from '../[id]/components/ReportNavMenu'
 
+// Add commentsCount to the props interface definition
+interface ExtendedPropertyHeaderProps extends PropertyHeaderProps {
+  commentsCount?: number;
+}
+
 export const PropertyHeader = memo(({
   name,
   price_per_night,
@@ -21,7 +26,8 @@ export const PropertyHeader = memo(({
   location,
   activeSection,
   onSectionChange,
-}: PropertyHeaderProps) => {
+  commentsCount, // Destructure commentsCount
+}: ExtendedPropertyHeaderProps) => { // Use the extended interface
   // State to manage the score value for animation
   const [animatedScore, setAnimatedScore] = useState(0);
 
@@ -163,6 +169,7 @@ export const PropertyHeader = memo(({
         <ReportNavMenu
           activeSection={activeSection}
           onSectionChange={onSectionChange}
+          commentsCount={commentsCount} // Pass commentsCount down
         />
       </div>
     </div>

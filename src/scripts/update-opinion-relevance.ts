@@ -1,7 +1,9 @@
 const { createClient } = require('@supabase/supabase-js');
 const dotenv = require('dotenv');
 // Removed GoogleGenerativeAI imports
-const { RateLimiterMemory, RateLimiterRes } = require('rate-limiter-flexible');
+const { RateLimiterRes } = require('rate-limiter-flexible');
+// Import p-limit correctly for require
+const pLimit = require('p-limit').default;
 // Assuming Node.js v18+ which has built-in fetch.
 // If using older Node, you might need 'node-fetch':
 // const fetch = require('node-fetch'); // Uncomment if needed
@@ -18,6 +20,9 @@ interface OpinionRecord {
     id: string; // Assuming UUID or numeric ID from DB
     title: string | null;
     body: string | null;
+    // Add fields needed for upsert due to NOT NULL constraints
+    source: string;
+    external_id: string;
 }
 
 // --- Configuration ---
@@ -28,6 +33,8 @@ const DB_FETCH_BATCH_SIZE = 100; // How many opinions to fetch from DB at once
 const DB_UPDATE_BATCH_SIZE = 50; // How many opinions to update in DB at once
 const DEEPSEEK_API_URL = 'https://api.deepseek.com/v1/chat/completions';
 const DEEPSEEK_MODEL = 'deepseek-chat'; // Or choose another appropriate model like 'deepseek-coder' if relevant
+// Concurrency setting for parallel processing
+const MAX_CONCURRENT_AI_CALLS = 10;
 
 // --- Initialization & Validation ---
 if (!supabaseUrl || !supabaseServiceKey) {
@@ -43,12 +50,9 @@ const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
 // Removed Gemini AI Initialization
 
-// Initialize Rate Limiter (Adjust based on DeepSeek's limits if needed)
-// Kept Gemini's 15 RPM free tier limit (using 14) as a starting point.
-const relevanceRateLimiter = new RateLimiterMemory({
-    points: 14,
-    duration: 60, // Per minute
-});
+// Initialize p-limit (Concurrency control)
+const limit = pLimit(MAX_CONCURRENT_AI_CALLS);
+
 const MAX_AI_RETRIES = 2;
 const AI_RETRY_DELAY_MS = 3000;
 
@@ -73,10 +77,7 @@ async function isSafetyRelevant(title?: string | null, body?: string | null): Pr
     while (attempts <= MAX_AI_RETRIES) {
         attempts++;
         try {
-            // Consume rate limit point before making the API call
-            await relevanceRateLimiter.consume('deepseek_relevance_check'); // Changed key name slightly
-
-            console.log(`   📞 Calling DeepSeek API (Attempt ${attempts})...`); // Log API call attempt
+            console.log(`   📞 Calling DeepSeek API (Attempt ${attempts})...`);
 
             const response = await fetch(DEEPSEEK_API_URL, {
                 method: 'POST',
@@ -127,19 +128,20 @@ async function isSafetyRelevant(title?: string | null, body?: string | null): Pr
         } catch (error: any) {
              console.warn(`   🤖 Error during DeepSeek Relevance Check (Attempt ${attempts}):`, error.message || error);
 
-             // Handle rate limit errors specifically from the rate limiter library
+             // Keep RateLimiterRes check in case it somehow still triggers or for future use
              if (error instanceof RateLimiterRes) {
                  console.warn(`   ⏳ Rate limit hit (local). Waiting ${Math.ceil(error.msBeforeNext / 1000)}s...`);
                  await new Promise(resolve => setTimeout(resolve, error.msBeforeNext));
-                 attempts--; // Retry without counting this as an attempt
-                 continue; // Skip the rest of the loop and retry the API call
+                 attempts--;
+                 continue;
              }
 
               // Check for common retryable HTTP status codes (like 429 Too Many Requests, 5xx Server Errors)
              // The error message now includes the status code from our thrown error
              const statusMatch = error.message?.match(/status (\d+)/);
              const statusCode = statusMatch ? parseInt(statusMatch[1], 10) : null;
-             const isRetryableError = statusCode === 429 || statusCode >= 500 || error.name === 'TimeoutError'; // Added TimeoutError
+             // Handle null statusCode case explicitly with nullish coalescing
+             const isRetryableError = (statusCode ?? 0) === 429 || (statusCode ?? 0) >= 500 || error.name === 'TimeoutError';
 
              if (!isRetryableError || attempts >= MAX_AI_RETRIES) {
                 return { isRelevant: false, reason: `AI call failed: ${error.message || 'Unknown error'}` };
@@ -157,9 +159,9 @@ async function isSafetyRelevant(title?: string | null, body?: string | null): Pr
 }
 
 
-// --- Main Script Logic (Mostly Unchanged) ---
+// --- Main Script Logic (Refactored for Parallelism) ---
 async function updateRelevanceForAllOpinions() {
-    console.log("🚀 Starting DeepSeek Safety Relevance Update Script..."); // Updated log message
+    console.log(`🚀 Starting DeepSeek Safety Relevance Update Script (Concurrency: ${MAX_CONCURRENT_AI_CALLS})...`);
 
     let totalChecked = 0;
     let totalRelevant = 0;
@@ -173,13 +175,14 @@ async function updateRelevanceForAllOpinions() {
 
         const { data: opinions, error: fetchError } = await supabase
             .from('community_opinions')
-            .select('id, title, body') // Select necessary fields
-            .is('is_safety_relevant', null) // Fetch only those not yet checked
+            // Select additional required fields for upsert
+            .select('id, title, body, source, external_id')
+            .is('is_safety_relevant', null) // Check for NULL in the boolean column
             .range(currentOffset, currentOffset + DB_FETCH_BATCH_SIZE - 1);
 
         if (fetchError) {
             console.error("❌ Error fetching opinions:", fetchError.message);
-            keepFetching = false; // Stop if we can't fetch
+            keepFetching = false;
             totalErrors++;
             break;
         }
@@ -190,74 +193,78 @@ async function updateRelevanceForAllOpinions() {
             break;
         }
 
-        console.log(`Processing ${opinions.length} opinions...`);
+        console.log(`Processing ${opinions.length} opinions in parallel (limit ${MAX_CONCURRENT_AI_CALLS})...`);
+
+        // Create tasks for p-limit
+        const tasks = (opinions as OpinionRecord[]).map(opinion => {
+            // Wrap the async isSafetyRelevant call in the limiter
+            return limit(async () => {
+                // console.log(`   -> Starting check for ID: ${opinion.id}`); // More verbose logging if needed
+                const relevanceResult = await isSafetyRelevant(opinion.title, opinion.body);
+                // Return original opinion data along with result for easy upsert
+                return { ...opinion, relevanceResult };
+            });
+        });
+
+        // Execute tasks in parallel, respecting the concurrency limit
+        const results = await Promise.all(tasks);
+        console.log(`   Batch of ${results.length} AI checks completed.`);
+
+        // Process results and prepare DB updates
         let updatesToBatch = [];
-
-        for (const opinion of opinions as OpinionRecord[]) {
-            console.log(`   Checking relevance for opinion ID: ${opinion.id}...`); // Log stays the same
-            const relevanceResult = await isSafetyRelevant(opinion.title, opinion.body); // Calls the adapted function
+        for (const item of results) {
             totalChecked++;
-
-            if (relevanceResult.isRelevant) {
+            if (item.relevanceResult.isRelevant) {
                 totalRelevant++;
-                console.log(`   -> Relevant (ID: ${opinion.id})`); // Log stays the same
+                 console.log(`   -> Relevant (ID: ${item.id})`);
             } else {
                 totalIrrelevant++;
-                const reason = relevanceResult.reason || 'Unknown';
-                console.log(`   -> Irrelevant (ID: ${opinion.id}): ${reason}`); // Log stays the same
-                // Keep detailed logging for non-standard reasons
-                 if (relevanceResult.reason && relevanceResult.reason !== "AI classified as NO" && reason !== "Too short" && !reason.startsWith("AI call failed") && !reason.startsWith("Exceeded max retries") && !reason.startsWith("Unexpected AI response")) {
-                     console.log(`   -> Detailed Irrelevant Reason (ID: ${opinion.id}): ${relevanceResult.reason}`);
+                const reason = item.relevanceResult.reason || 'Unknown';
+                 console.log(`   -> Irrelevant (ID: ${item.id}): ${reason}`);
+                 if (item.relevanceResult.reason && item.relevanceResult.reason !== "AI classified as NO" && reason !== "Too short" && !reason.startsWith("AI call failed") && !reason.startsWith("Exceeded max retries") && !reason.startsWith("Unexpected AI response")) {
+                     console.log(`   -> Detailed Irrelevant Reason (ID: ${item.id}): ${item.relevanceResult.reason}`);
                  }
             }
-
+            // Include all necessary fields for upsert
             updatesToBatch.push({
-                id: opinion.id,
-                is_safety_relevant: relevanceResult.isRelevant,
+                id: item.id,
+                source: item.source, // Include source
+                external_id: item.external_id, // Include external_id
+                title: item.title, // Include title
+                body: item.body, // Include body
+                is_safety_relevant: item.relevanceResult.isRelevant,
             });
+        }
 
-             // Update DB in smaller batches
-            if (updatesToBatch.length >= DB_UPDATE_BATCH_SIZE) {
-                console.log(`   Updating ${updatesToBatch.length} records in DB...`);
-                const { error: updateError } = await supabase
-                    .from('community_opinions')
-                    .upsert(updatesToBatch); // Use upsert on primary key 'id'
+        // Update DB in batches
+        for (let i = 0; i < updatesToBatch.length; i += DB_UPDATE_BATCH_SIZE) {
+            const batch = updatesToBatch.slice(i, i + DB_UPDATE_BATCH_SIZE);
+            console.log(`   Updating ${batch.length} records in DB...`);
+            const { error: updateError } = await supabase
+                .from('community_opinions')
+                .upsert(batch);
 
-                if (updateError) {
-                    console.error(`   ❌ DB Update Error: ${updateError.message}`);
-                    totalErrors += updatesToBatch.length; // Count failed updates
-                } else {
-                    console.log(`   ✅ DB Batch Update Successful (${updatesToBatch.length} records).`);
-                }
-                updatesToBatch = []; // Clear batch
+            if (updateError) {
+                console.error(`   ❌ DB Update Error: ${updateError.message}`);
+                // Optionally, log the batch that failed
+                // console.error('Failed batch:', batch);
+                totalErrors += batch.length; // Increment error count for the failed batch
+                // Decide if you want to continue to the next batch or stop
+                // continue; // or break;
+            } else {
+                // console.log(`   ✅ Successfully updated batch ${i / DB_UPDATE_BATCH_SIZE + 1}`);
             }
-             // Small delay between AI calls is handled by the rate limiter now
-             // await new Promise(resolve => setTimeout(resolve, 50)); // Removed unnecessary small delay
         }
 
-        // Update any remaining records in the batch
-        if (updatesToBatch.length > 0) {
-             console.log(`   Updating remaining ${updatesToBatch.length} records in DB...`);
-             const { error: updateError } = await supabase
-                 .from('community_opinions')
-                 .upsert(updatesToBatch);
+        // Update offset for the next fetch
+        currentOffset += opinions.length;
 
-             if (updateError) {
-                 console.error(`   ❌ DB Update Error: ${updateError.message}`);
-                 totalErrors += updatesToBatch.length;
-             } else {
-                 console.log(`   ✅ Final DB Batch Update Successful (${updatesToBatch.length} records).`);
-             }
-        }
-
-        currentOffset += opinions.length; // Move to the next page for DB fetch
-
-        // If we fetched less than the batch size, it means we're done
         if (opinions.length < DB_FETCH_BATCH_SIZE) {
             keepFetching = false;
         }
     }
 
+    // Final Summary (unchanged)
     console.log("\n--- Relevance Update Summary ---");
     console.log(`Total Opinions Checked: ${totalChecked}`);
     console.log(`Marked as Relevant:   ${totalRelevant}`);

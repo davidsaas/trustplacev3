@@ -1,9 +1,8 @@
-// src/scripts/ingest-reddit-opinions.ts
-const { createClient } = require('@supabase/supabase-js');
-const nodeFetch = require('node-fetch');
-const dotenv = require('dotenv');
-const nlp = require('compromise');
-const fs = require('fs');
+import { createClient } from '@supabase/supabase-js';
+import fetch from 'node-fetch';
+import * as dotenv from 'dotenv';
+import nlp from 'compromise';
+import fs from 'fs';
 const path = require('path');
 const { parseArgs } = require('node:util'); // Use built-in arg parser
 
@@ -151,13 +150,22 @@ async function geocodeRedditItem(item: RedditItem, currentCityConfig: any): Prom
     const encodedQuery = encodeURIComponent(mapboxQuery);
     // Use bbox and proximity from config
     const geocodeUrl = `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodedQuery}.json?access_token=${mapboxAccessToken}&limit=1&bbox=${cityBbox}&proximity=${cityProximity}&types=neighborhood,locality,place,poi,address`;
-
     try {
-        const geoResponse = await nodeFetch(geocodeUrl);
-        if (!geoResponse.ok) { console.error(`🗺️ Mapbox API error for "${mapboxQuery}": ${geoResponse.status}`); return null; }
-        const geoData = await geoResponse.json() as MapboxResponse;
+        const response = await fetch(geocodeUrl);
+        if (!response.ok) {
+            console.error(`🗺️ Mapbox API error for "${mapboxQuery}": ${response.status}`);
+            return null;
+        }
 
-        if (geoData.features && geoData.features.length > 0) {
+        let geoData: MapboxResponse;
+        try {
+            geoData = await response.json();
+        } catch (error) {
+            console.error(`🗺️ Failed to parse Mapbox response for "${mapboxQuery}": ${error}`);
+            return null;
+        }
+
+        if (Array.isArray(geoData.features) && geoData.features.length > 0) {
             const bestMatch = geoData.features[0];
             const [longitude, latitude] = bestMatch.center;
             if (typeof latitude !== 'number' || typeof longitude !== 'number') return null;
@@ -233,12 +241,15 @@ async function ingestData(currentCityConfig: any) { // Accept config object
 
   console.log(`Fetching data for ${currentCityConfig.city_name} from Apify: ${cityApifyUrl}`);
   try {
-    const response = await nodeFetch(cityApifyUrl);
-    if (!response.ok) throw new Error(`Apify fetch failed: ${response.status} ${response.statusText}`);
-    const rawData = await response.json();
+    const response = nodeFetch(cityApifyUrl) as unknown as Response;
+    if (!response?.ok) throw new Error(`Apify fetch failed: ${response?.status} ${response?.statusText}`);
+    const rawData = await response?.json() as unknown;
     const data = Array.isArray(rawData) ? rawData as RedditItem[] : [];
     console.log(`✅ Fetched ${data.length} items for ${currentCityConfig.city_name}.`);
-    if (data.length === 0) { console.log('🟡 No data to process.'); return; }
+    if (!data.length) {
+      console.log('🟡 No data to process.');
+      return;
+    }
 
     const opinionsToInsert = [];
     let geocodeSuccessCount = 0; let geocodeFailCount = 0; let processedItemCount = 0; const totalItems = data.length;
@@ -246,11 +257,19 @@ async function ingestData(currentCityConfig: any) { // Accept config object
 
     for (const item of data) {
         processedItemCount++;
-        // Revert progress log
         if (processedItemCount % 50 === 0) console.log(`   Processed ${processedItemCount}/${totalItems} for ${currentCityConfig.city_name}...`);
 
-        // Revert to original checks and geocoding flow
-        if (!item.body || !(item.id || item.parsedId)) {
+        // --- Add check for missing ID ---
+        const externalId = item.id || item.parsedId;
+        if (!externalId) {
+            console.warn(`   Skipping item: Missing both id and parsedId.`);
+            geocodeFailCount++; // Count as a failed/skipped item
+            continue;
+        }
+        // --- End check for missing ID ---
+
+        // Original check for body
+        if (!item.body) {
             geocodeFailCount++;
             continue;
         }
@@ -258,10 +277,9 @@ async function ingestData(currentCityConfig: any) { // Accept config object
         const geo = await geocodeRedditItem(item, currentCityConfig);
 
         if (geo) {
-            // Insert if geocoding succeeded
             geocodeSuccessCount++;
             opinionsToInsert.push({
-                external_id: item.id || item.parsedId,
+                external_id: externalId, // Use the verified externalId
                 source: 'reddit',
                 url: item.url || item.link,
                 title: item.title,
@@ -288,7 +306,7 @@ async function ingestData(currentCityConfig: any) { // Accept config object
 
     if (opinionsToInsert.length > 0) {
         console.log(`Inserting ${opinionsToInsert.length} opinions into Supabase for ${currentCityConfig.city_name}...`);
-        const BATCH_SIZE = 100;
+        const BATCH_SIZE = 200;
         for (let i = 0; i < opinionsToInsert.length; i += BATCH_SIZE) {
             const batch = opinionsToInsert.slice(i, i + BATCH_SIZE);
             const { error } = await supabase
@@ -323,4 +341,8 @@ if (cityId !== null && cityConfig) {
 } else {
     console.error("City ID or City Config is invalid, cannot start ingestion.");
     process.exit(1);
+}
+
+function nodeFetch(cityApifyUrl: any) {
+    throw new Error('Function not implemented.');
 }

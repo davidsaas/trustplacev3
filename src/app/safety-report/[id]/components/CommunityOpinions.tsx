@@ -1,29 +1,29 @@
 // src/app/safety-report/[id]/components/CommunityOpinions.tsx
 'use client'
 
-import React, { useState, useEffect } from 'react';
+import React from 'react';
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { MessageSquare, ExternalLink } from 'lucide-react';
 import Link from 'next/link';
 import { formatDistanceToNow } from 'date-fns';
-import { createClient } from '@/lib/supabase/client';
 import { StarIcon } from '@heroicons/react/20/solid';
 
 // --- Types ---
-interface CommunityOpinion {
-  id: string; // Ensure your RPC returns this if needed for keys, otherwise use index
+export interface CommunityOpinion {
+  id: string;
   external_id: string | null;
   url: string | null;
   username: string | null;
   body: string;
-  source_created_at: string | null; // ISO string date
+  source_created_at: string | null;
 }
 
 interface CommunityOpinionsProps {
   isAuthenticated: boolean;
-  latitude: number | null;
-  longitude: number | null;
+  opinions: CommunityOpinion[] | null;
+  isLoading: boolean;
+  error: string | null;
 }
 
 // --- Loading / Empty / Auth States ---
@@ -41,7 +41,7 @@ const SignUpPrompt = () => (
         <div className="absolute inset-0 bg-gradient-to-b from-white/60 to-gray-100/90 backdrop-blur-md z-10 flex items-center justify-center p-4">
             <div className="text-center p-6 bg-white rounded-lg shadow-xl border border-gray-200 max-w-md">
                  <MessageSquare className="h-10 w-10 text-blue-500 mx-auto mb-3" />
-                 <h3 className="text-lg font-semibold text-gray-800 mb-2">Unlock Community Feedback</h3>
+                 <h3 className="text-lg font-semibold text-gray-800 mb-2">Unlock Community Comments</h3>
                  <p className="text-sm text-gray-600 mb-4">Sign up or log in to see raw comments from local discussions near this location.</p>
                  <Link href="/auth/login" passHref>
                      <Button className="w-full py-2">
@@ -85,84 +85,25 @@ const RedditLogo = () => (
 // --- Main Component ---
 export const CommunityOpinions = ({
     isAuthenticated,
-    latitude,
-    longitude
+    opinions,
+    isLoading,
+    error
 }: CommunityOpinionsProps) => {
-  const [opinions, setOpinions] = useState<CommunityOpinion[] | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const supabase = createClient();
-
-  useEffect(() => {
-    if (!isAuthenticated) {
-      setLoading(false);
-      setError(null);
-      setOpinions(null);
-      return;
-    }
-    if (latitude === null || longitude === null) {
-        setLoading(false);
-        setError("Location data is missing, cannot load community comments.");
-        setOpinions(null);
-        return;
-    }
-
-    const fetchOpinions = async () => {
-      setLoading(true);
-      setError(null);
-      setOpinions(null);
-
-      try {
-        console.log(`CommunityOpinions: Fetching opinions for location [${latitude}, ${longitude}]`);
-        const radiusMeters = 2000; // Consistent radius
-        const opinionLimit = 50; // Limit raw opinions displayed
-
-        const { data: fetchedOpinions, error: opinionError } = await supabase
-            .rpc('get_opinions_within_radius', {
-                target_lat: latitude,
-                target_lon: longitude,
-                radius_meters: radiusMeters,
-                opinion_limit: opinionLimit
-            });
-
-        if (opinionError) {
-            console.error('CommunityOpinions: Error fetching opinions:', opinionError.message);
-            throw new Error('Failed to fetch community opinions.');
-        }
-
-        if (fetchedOpinions && fetchedOpinions.length > 0) {
-            console.log(`CommunityOpinions: Fetched ${fetchedOpinions.length} opinions.`);
-            setOpinions(fetchedOpinions as CommunityOpinion[]);
-        } else {
-            console.log("CommunityOpinions: No opinions found nearby.");
-            setOpinions([]); // Set to empty array for "no data" state
-        }
-
-      } catch (err: any) {
-        console.error('CommunityOpinions: Error fetching community feedback:', err);
-        setError(err.message || 'Could not load community comments.');
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    fetchOpinions();
-  }, [isAuthenticated, latitude, longitude, supabase]);
 
   if (!isAuthenticated) {
       return <SignUpPrompt />;
   }
 
   const hasOpinions = opinions && opinions.length > 0;
-  const noDataFound = !loading && !error && !hasOpinions;
+  const noDataFound = !isLoading && !error && !hasOpinions;
 
   return (
     <div className="bg-white rounded-xl p-4 sm:p-6 shadow-sm border border-gray-100">
        <h3 className="text-lg font-semibold text-gray-900 mb-4">Raw Community Comments</h3>
 
-        {loading && <OpinionsLoadingSkeleton />}
+        {isLoading && <OpinionsLoadingSkeleton />}
 
-        {error && !loading && (
+        {error && !isLoading && (
            <div className="p-4 bg-rose-50 border border-rose-200 rounded-lg text-center">
              <p className="text-sm text-rose-700 font-medium">Could not load comments</p>
              <p className="text-xs text-rose-600 mt-1">{error}</p>
@@ -172,14 +113,14 @@ export const CommunityOpinions = ({
         {noDataFound && (
              <div className="text-center py-6 px-4 bg-gray-50 rounded-lg border border-gray-100">
                 <MessageSquare className="h-8 w-8 text-gray-400 mx-auto mb-2" />
-                <p className="text-sm text-gray-600 font-medium">No comments found</p>
-                <p className="text-xs text-gray-500 mt-1">No recent comments were found for this specific area.</p>
+                <p className="text-sm text-gray-600 font-medium">No safety-related comments found</p>
+                <p className="text-xs text-gray-500 mt-1">No recent safety-related comments were found for this specific area.</p>
              </div>
         )}
 
-        {!loading && !error && hasOpinions && (
+        {!isLoading && !error && hasOpinions && (
           <div className="-my-10">
-            {opinions.map((opinion, index) => (
+            {opinions?.map((opinion, index) => (
               <div key={opinion.id || `opinion-${index}`} className="flex space-x-4 text-sm text-gray-500">
                 <div className="flex-none py-10">
                   <RedditLogo />
@@ -190,7 +131,7 @@ export const CommunityOpinions = ({
                   </h3>
                   <p>
                     <time dateTime={opinion.source_created_at || ''}>
-                      {opinion.source_created_at 
+                      {opinion.source_created_at
                         ? formatDistanceToNow(new Date(opinion.source_created_at), { addSuffix: true })
                         : 'Recently'}
                     </time>

@@ -3,7 +3,7 @@
 import React, { useState, useEffect, Suspense, lazy } from 'react'
 import { notFound } from 'next/navigation'
 import { SafetyMetrics } from '../components/SafetyMetrics'
-import { CommunityOpinions } from './components/CommunityOpinions'
+import { CommunityOpinions, type CommunityOpinion } from './components/CommunityOpinions'
 import { RestrictedContent } from '@/app/auth/components/restricted-content'
 import { supabaseServer } from '@/lib/supabase/server'
 import { PropertyHeader } from '../components/PropertyHeader'
@@ -16,7 +16,7 @@ import type { ReportSection, ExtendedReportSection } from './components/ReportNa
 import { useAuth } from '@/components/shared/providers/auth-provider'
 import { OSMInsights } from '../components/OSMInsights'
 import type { OSMInsightsResponse } from '@/app/api/osm-insights/route'
-import { ImageOff } from 'lucide-react'
+import { ImageOff, MessageSquare } from 'lucide-react'
 import { SaferAlternativesSection } from './components/SaferAlternativesSection'
 
 import type {
@@ -457,6 +457,14 @@ export default function SafetyReportPage({ params }: SafetyReportProps) {
   const [osmInsights, setOsmInsights] = useState<OSMInsightsResponse | null>(null)
   const [loadingOSM, setLoadingOSM] = useState<boolean>(false)
   const [loadingNearbyMapData, setLoadingNearbyMapData] = useState<boolean>(false)
+
+  // --- State for Community Opinions ---
+  const [communityOpinions, setCommunityOpinions] = useState<CommunityOpinion[] | null>(null);
+  const [loadingCommunityOpinions, setLoadingCommunityOpinions] = useState<boolean>(false);
+  const [communityOpinionsError, setCommunityOpinionsError] = useState<string | null>(null);
+  const [communityOpinionsCount, setCommunityOpinionsCount] = useState<number>(0);
+  // --- End State for Community Opinions ---
+
   const { supabase } = useAuth()
 
   // Validate ID early
@@ -487,6 +495,11 @@ export default function SafetyReportPage({ params }: SafetyReportProps) {
       setAllNearbyAccommodations([]) // Clear previous nearby map data
       setLoadingNearbyMapData(true) // Set loading true for nearby map data
       setOsmInsights(null)
+      // Reset community opinions state
+      setCommunityOpinions(null);
+      setLoadingCommunityOpinions(true);
+      setCommunityOpinionsError(null);
+      setCommunityOpinionsCount(0);
 
       try {
         if (!supabase) {
@@ -505,7 +518,8 @@ export default function SafetyReportPage({ params }: SafetyReportProps) {
         }
 
         console.log("[SafetyReportPage Effect] Auth session:", session ? `User ${session.user.id}` : 'No session');
-        setIsAuthenticated(!!session)
+        const authenticated = !!session;
+        setIsAuthenticated(authenticated)
         setAuthChecked(true) // Mark auth as checked regardless of data outcome
 
         if (!data) {
@@ -513,17 +527,18 @@ export default function SafetyReportPage({ params }: SafetyReportProps) {
           console.error(`[SafetyReportPage Effect] No report data returned or fetch failed for ID: ${params.id}`)
           setErrorOccurred(true)
           setLoadingNearbyMapData(false) // Stop nearby loading if report fails
+          setLoadingCommunityOpinions(false); // Stop community opinions loading if report fails
         } else {
           console.log("[SafetyReportPage Effect] Report data received:", data.name);
           setReportData(data)
 
-          // --- Trigger Fetches for OSM and ALL Nearby Accommodations ---
-          const fetches: Promise<void>[] = [];
+          // --- Trigger Secondary Fetches --- //
+          const secondaryFetches: Promise<any>[] = [];
 
           // OSM Fetch
           if (data.location) {
             setLoadingOSM(true);
-            fetches.push(
+            secondaryFetches.push(
               fetch(`/api/osm-insights?lat=${data.location.lat}&lng=${data.location.lng}`)
                 .then(res => res.ok ? res.json() : Promise.reject(`OSM API fetch failed: ${res.statusText}`))
                 .then(osmData => { if (isMounted) setOsmInsights(osmData); })
@@ -532,12 +547,14 @@ export default function SafetyReportPage({ params }: SafetyReportProps) {
             );
           } else {
              console.log("[SafetyReportPage Effect] Skipping OSM fetch due to missing location.");
+             if (isMounted) setLoadingOSM(false);
           }
 
           // Nearby Accommodations Fetch (for Map)
           if (data.location) {
              console.log("[SafetyReportPage Effect] Fetching all nearby accommodations for map...");
-             fetches.push(
+             setLoadingNearbyMapData(true); // Ensure loading state is true before fetch
+             secondaryFetches.push(
                 fetchAllNearbyAccommodations(data.location, data.id)
                  .then(nearbyData => {
                     if (isMounted) {
@@ -550,20 +567,85 @@ export default function SafetyReportPage({ params }: SafetyReportProps) {
              );
           } else {
              console.log("[SafetyReportPage Effect] Skipping nearby accommodations fetch due to missing location.");
-             setLoadingNearbyMapData(false); // Set loading false if skipped
+             if (isMounted) setLoadingNearbyMapData(false); // Set loading false if skipped
           }
 
-          // Wait for secondary fetches if any were started
-          if (fetches.length > 0) {
-             await Promise.all(fetches);
+          // Community Opinions Fetch (if authenticated and location available)
+          if (authenticated && data.location) {
+            console.log("[SafetyReportPage Effect] Fetching safety-related community opinions...");
+            setLoadingCommunityOpinions(true); // Ensure loading is true
+            const { lat, lng } = data.location;
+            const radiusMeters = 2000; // Define radius
+            const opinionLimit = 50; // Define limit
+
+            secondaryFetches.push(
+                Promise.all([
+                    supabase.rpc('get_safety_related_opinions_within_radius', {
+                        target_lat: lat,
+                        target_lon: lng,
+                        radius_meters: radiusMeters,
+                        opinion_limit: opinionLimit
+                    }),
+                    supabase.rpc('count_safety_related_opinions_within_radius', {
+                        target_lat: lat,
+                        target_lon: lng,
+                        radius_meters: radiusMeters
+                    })
+                ]).then(([opinionsResult, countResult]) => {
+                    if (!isMounted) return;
+
+                    // Handle Opinions Data
+                    if (opinionsResult.error) {
+                        console.error("[SafetyReportPage Effect] Error fetching community opinions:", opinionsResult.error.message);
+                        setCommunityOpinionsError('Failed to fetch community comments.');
+                        setCommunityOpinions(null);
+                    } else {
+                        console.log(`[SafetyReportPage Effect] Fetched ${opinionsResult.data?.length ?? 0} community opinions.`);
+                        setCommunityOpinions(opinionsResult.data as CommunityOpinion[] ?? []);
+                    }
+
+                    // Handle Count Data
+                    if (countResult.error) {
+                        console.error("[SafetyReportPage Effect] Error fetching community opinions count:", countResult.error.message);
+                        setCommunityOpinionsCount(0); // Set count to 0 on error
+                    } else {
+                        // Assuming count is returned in a `count` property or directly in `data`
+                        const count = countResult.count ?? (typeof countResult.data === 'number' ? countResult.data : 0);
+                        console.log(`[SafetyReportPage Effect] Fetched community opinions count: ${count}`);
+                        setCommunityOpinionsCount(count);
+                    }
+
+                }).catch(err => {
+                    console.error("[SafetyReportPage Effect] Error in community opinions Promise.all:", err);
+                    if (isMounted) {
+                        setCommunityOpinionsError('Could not load community comments or count.');
+                        setCommunityOpinions(null);
+                        setCommunityOpinionsCount(0);
+                    }
+                }).finally(() => {
+                    if (isMounted) setLoadingCommunityOpinions(false);
+                })
+            );
+          } else {
+              console.log("[SafetyReportPage Effect] Skipping community opinions fetch (not authenticated or missing location).");
+              if (isMounted) setLoadingCommunityOpinions(false); // Set loading false if skipped
+          }
+          // --- End Community Opinions Fetch ---
+
+          // Wait for all secondary fetches
+          if (secondaryFetches.length > 0) {
+             console.log(`[SafetyReportPage Effect] Waiting for ${secondaryFetches.length} secondary fetches...`);
+             await Promise.all(secondaryFetches);
+             console.log("[SafetyReportPage Effect] All secondary fetches completed.");
           } else {
               // Ensure loading states are false if no secondary fetches occurred
               if (isMounted) {
                 setLoadingOSM(false);
                 setLoadingNearbyMapData(false);
+                setLoadingCommunityOpinions(false);
               }
           }
-          // --- End Secondary Fetches ---
+          // --- End Secondary Fetches --- //
         }
       } catch (error) {
         console.error("[SafetyReportPage Effect] Error during loadData:", error)
@@ -572,6 +654,8 @@ export default function SafetyReportPage({ params }: SafetyReportProps) {
           // Ensure authChecked is also set in catch block if Promise.all failed before setting it
           if (!authChecked) setAuthChecked(true);
           setLoadingNearbyMapData(false); // Ensure loading is false on error
+          setLoadingOSM(false);
+          setLoadingCommunityOpinions(false);
         }
       } finally {
         if (isMounted) {
@@ -587,7 +671,7 @@ export default function SafetyReportPage({ params }: SafetyReportProps) {
       console.log(`[SafetyReportPage Effect] Cleanup for ID: ${params.id}`);
       isMounted = false
     }
-  }, [params.id, supabase])
+  }, [params.id, supabase]) // Added supabase dependency
 
   const handleSectionChange = (section: ExtendedReportSection) => {
     setActiveSection(section)
@@ -702,20 +786,12 @@ export default function SafetyReportPage({ params }: SafetyReportProps) {
                 <div className="ml-4 mt-4">
                   <h3 className="text-base font-semibold text-gray-900">Safety</h3>
                   <p className="mt-1 text-sm text-gray-500">
-                    Detailed safety metrics and community feedback for this location.
+                    Detailed safety metrics for this location.
                   </p>
                 </div>
               </div>
             </div>
             <SafetyMetrics data={reportData.safety_metrics} />
-
-            <div className="mt-6">
-              <CommunityOpinions
-                isAuthenticated={isAuthenticated}
-                latitude={reportData.location?.lat ?? null}
-                longitude={reportData.location?.lng ?? null}
-              />
-            </div>
           </div>
         );
       case 'neighborhood':
@@ -734,6 +810,30 @@ export default function SafetyReportPage({ params }: SafetyReportProps) {
             <OSMInsights data={osmInsights} isLoading={loadingOSM} />
           </div>
         );
+      case 'comments': // NEW Case for comments
+            return (
+              <div key="comments">
+                <div className="border-b border-gray-200 bg-white px-4 py-5 sm:px-6 rounded-t-xl shadow-sm">
+                  <div className="-ml-4 -mt-4 flex flex-wrap items-center justify-between sm:flex-nowrap">
+                    <div className="ml-4 mt-4">
+                      <h3 className="text-base font-semibold text-gray-900 flex items-center gap-2">
+                         <MessageSquare className="size-5 text-gray-500" /> Raw Community Comments
+                      </h3>
+                      <p className="mt-1 text-sm text-gray-500">
+                        Safety-related comments from local discussions near this location.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+                {/* Render CommunityOpinions with fetched data */}
+                <CommunityOpinions
+                  isAuthenticated={isAuthenticated}
+                  opinions={communityOpinions}
+                  isLoading={loadingCommunityOpinions}
+                  error={communityOpinionsError}
+                />
+              </div>
+            );
       case 'activities':
         // --- Dynamic Location Logic ---
         const { location, neighborhood } = reportData;
@@ -742,26 +842,6 @@ export default function SafetyReportPage({ params }: SafetyReportProps) {
         let gygLocationLink = 'https://www.getyourguide.com/los-angeles-l179/'; // Default link
 
         // TODO: Implement actual GetYourGuide Location ID lookup
-        // Option 1: Use GetYourGuide API with location.lat, location.lng or neighborhood name.
-        // Option 2: Use a manual mapping from neighborhood name to GYG Location ID.
-        // Example (Manual Mapping - requires maintaining this map):
-        /*
-        const locationMap: { [key: string]: { id: string; name: string; link: string } } = {
-          'Downtown Los Angeles': { id: '179', name: 'Los Angeles', link: 'https://www.getyourguide.com/los-angeles-l179/' },
-          'Santa Monica': { id: '540', name: 'Santa Monica', link: 'https://www.getyourguide.com/santa-monica-l540/' },
-          // Add other relevant neighborhoods/cities and their GYG IDs
-        };
-        if (neighborhood && locationMap[neighborhood]) {
-           gygLocationId = locationMap[neighborhood].id;
-           gygLocationName = locationMap[neighborhood].name;
-           gygLocationLink = locationMap[neighborhood].link;
-        } else if (location) {
-           // Fallback: Attempt API lookup if neighborhood mapping fails or isn't present
-           // gygLocationId = await fetchGygIdFromApi(location.lat, location.lng);
-           // Update name/link based on API result
-        }
-        */
-        // For now, we stick with the default '179' (Los Angeles)
 
         return (
           <div key="activities">
@@ -822,6 +902,7 @@ export default function SafetyReportPage({ params }: SafetyReportProps) {
                     activeSection={activeSection}
                     onSectionChange={handleSectionChange}
                     hasCompleteData={reportData.hasCompleteData}
+                    commentsCount={communityOpinionsCount} // Pass the count here
                   />
                 </div>
               </div>
