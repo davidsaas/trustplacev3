@@ -34,6 +34,19 @@ export const URLProcessor = () => {
   const searchParams = useSearchParams()
   const initialUrlParam = searchParams.get('url') // Check param immediately
 
+  // If we have a URL parameter, redirect immediately to the correct domain
+  useEffect(() => {
+    if (initialUrlParam) {
+      const currentUrl = window.location.href;
+      // Only redirect if we're on localhost
+      if (currentUrl.includes('localhost')) {
+        const targetUrl = `${appBaseUrl}/?url=${encodeURIComponent(initialUrlParam)}`;
+        window.location.href = targetUrl;
+        return;
+      }
+    }
+  }, [initialUrlParam]);
+
   // Initialize state based on the param presence
   const [url, setUrl] = useState(initialUrlParam || '')
   // isLoading controls the "Processing..." button text & disabled state
