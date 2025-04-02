@@ -387,7 +387,7 @@ def update_accommodation_safety_scores(supabase_client: Client, target_city_id):
     for accommodations based on the latest safety_metrics.
     """
     logger.info("Starting accommodation overall safety score update...")
-    MAX_METRIC_DISTANCE_KM = 2.0 # Only consider metrics within 2km (adjust as needed)
+    MAX_METRIC_DISTANCE_KM = 4.0 # Only consider metrics within 2km (adjust as needed)
     REQUIRED_METRIC_TYPES = set(METRIC_DEFINITIONS.keys())
     TARGET_CITY_ID_FOR_METRIC_FETCH = target_city_id
 
@@ -529,6 +529,13 @@ def update_accommodation_safety_scores(supabase_client: Client, target_city_id):
                     # Sort by distance
                     valid_metrics_with_dist.sort(key=lambda x: x['distance'])
 
+                    # *** ADDED LOGGING: Check list state AFTER sort, BEFORE block ID inference ***
+                    if acc_id == "17199843-2c68-4bff-959f-c87f1b7762d2":
+                        logger.info(f"DEBUG {acc_id}: State of valid_metrics_with_dist AFTER sort (size={len(valid_metrics_with_dist)}):")
+                        sample_to_log_post_sort = [ { 'type': item['metric']['metric_type'], 'dist': item['distance'], 'score': item['metric']['score'] } for item in valid_metrics_with_dist[:10] ]
+                        logger.info(f"DEBUG {acc_id}: First items post-sort: {sample_to_log_post_sort}")
+                    # *** END ADDED LOGGING ***
+
                     if valid_metrics_with_dist:
                         closest_idx = valid_metrics_with_dist[0]['index'] 
                         closest_metric_info = metrics_df.iloc[closest_idx]
@@ -540,28 +547,56 @@ def update_accommodation_safety_scores(supabase_client: Client, target_city_id):
                         logger.warning(f"Acc {acc_id}: No metrics found within {MAX_METRIC_DISTANCE_KM}km after Haversine check.")
                         # inferred_block_id will remain None
                         
+                    # *** ADDED LOGGING: Check the input list for the loop ***
+                    if acc_id == "17199843-2c68-4bff-959f-c87f1b7762d2":
+                        logger.info(f"DEBUG {acc_id}: Number of metrics in valid_metrics_with_dist: {len(valid_metrics_with_dist)}")
+                        # Log first 10 items to see initial types and distances
+                        sample_to_log = [ { 'type': item['metric']['metric_type'], 'dist': item['distance'], 'score': item['metric']['score'] } for item in valid_metrics_with_dist[:10] ]
+                        logger.info(f"DEBUG {acc_id}: First items in valid_metrics_with_dist: {sample_to_log}")
+                    # *** END ADDED LOGGING ***
+
                 else:
                      logger.warning(f"Acc {acc_id}: No valid indices found from KDTree query.")
 
 
                 # --- Now, find the closest metric for *each type* within the radius ---
-                # Use the distance-sorted list we already created
+                # Refactored approach: Group first, then find minimum distance per type.
+                metrics_by_type_in_radius = {}
                 for item in valid_metrics_with_dist:
                     # item = {'index': idx, 'distance': dist_km, 'metric': metric}
                     metric_type = item['metric']['metric_type']
-                    metric_score = item['metric']['score']
-                    dist_km = item['distance'] # Already calculated Haversine distance
+                    if metric_type not in metrics_by_type_in_radius:
+                        metrics_by_type_in_radius[metric_type] = []
+                    metrics_by_type_in_radius[metric_type].append({
+                        'score': item['metric']['score'],
+                        'distance': item['distance'] # Already calculated Haversine distance
+                        # Store other metric info if needed later, e.g., item['metric']['id']
+                    })
+                    # Log grouping progress for the target accommodation
+                    if acc_id == "17199843-2c68-4bff-959f-c87f1b7762d2":
+                        logger.info(f"DEBUG {acc_id}: Grouping loop, added metric type '{metric_type}' (dist: {item['distance']:.3f}) to potential candidates.")
 
-                    # Since valid_metrics_with_dist is sorted by distance and pre-filtered by radius,
-                    # the first one we encounter for each type is the closest within the radius.
-                    if metric_type not in closest_metrics_by_type:
-                        closest_metrics_by_type[metric_type] = {
-                            'score': metric_score,
-                            'distance': dist_km
-                        }
-                        logger.debug(f"Acc {acc_id}: Found closest metric '{metric_type}' (Score: {metric_score}) at distance {dist_km:.3f}km for scoring.")
+
+                # Now find the actual closest metric for each type from the groups
+                closest_metrics_by_type = {}
+                for metric_type, metrics_list in metrics_by_type_in_radius.items():
+                    if metrics_list: # Ensure the list is not empty
+                        # Find the metric with the minimum distance in this group
+                        closest_metric_for_type = min(metrics_list, key=lambda x: x['distance'])
+                        closest_metrics_by_type[metric_type] = closest_metric_for_type
+                        # Log selection progress for the target accommodation
+                        if acc_id == "17199843-2c68-4bff-959f-c87f1b7762d2":
+                            logger.info(f"DEBUG {acc_id}: Selected closest for type '{metric_type}': Score={closest_metric_for_type['score']}, Dist={closest_metric_for_type['distance']:.3f}")
+                    else:
+                         # This case shouldn't happen if grouping logic is correct, but good practice
+                         logger.warning(f"Acc {acc_id}: Empty metrics list found for type '{metric_type}' after grouping.")
+
 
                 # 6. Calculate overall score based on *found* metrics
+                # *** ADDED LOGGING: Log state before calculation ***
+                if acc_id == "17199843-2c68-4bff-959f-c87f1b7762d2":
+                    logger.info(f"DEBUG {acc_id}: State of closest_metrics_by_type IMMEDIATELY AFTER loop (size={len(closest_metrics_by_type)}): {closest_metrics_by_type}") # MODIFIED LOG
+                # *** END ADDED LOGGING ***
                 found_metric_types = set(closest_metrics_by_type.keys())
                 overall_score = None # Default to None
                 num_found_types = 0 # Initialize count
@@ -645,6 +680,14 @@ def update_accommodation_safety_scores(supabase_client: Client, target_city_id):
              # This condition means some scores were calculated, but fewer than expected given the ones with no metrics nearby
              logger.warning(f"WARNING: Only {scores_calculated_count} non-null scores calculated out of {processed_count - no_metrics_found_count} accommodations that had *some* nearby metrics. Check 'Missing types' logs.")
 
+        # *** ADDED LOGGING: Inspect the complete updates list ***
+        TARGET_ID_INSPECT = "17199843-2c68-4bff-959f-c87f1b7762d2"
+        for update_item in updates_to_make:
+            if update_item.get('id') == TARGET_ID_INSPECT:
+                logger.info(f"FINAL LIST CHECK for {TARGET_ID_INSPECT}: {update_item}")
+                break # Log only once
+        # *** END ADDED LOGGING ***
+
 
         # *** ADDED LOGGING ***
         # Log score distribution before attempting update
@@ -681,6 +724,14 @@ def update_accommodation_safety_scores(supabase_client: Client, target_city_id):
                 # Pass the list/dict directly, the client library handles JSON conversion
                 rpc_payload = {'updates_json': batch_data}
                 
+                # *** ADDED LOGGING: Check specific payload item ***
+                TARGET_ACC_ID_TO_LOG = "17199843-2c68-4bff-959f-c87f1b7762d2"
+                for item in batch_data:
+                    if item.get('id') == TARGET_ACC_ID_TO_LOG:
+                        logger.info(f"PAYLOAD CHECK for {TARGET_ACC_ID_TO_LOG}: {item}")
+                        break # Log only once if found
+                # *** END ADDED LOGGING ***
+
                 # Log a sample of the payload for debugging (first item of first batch)
                 if i == 0 and batch_data:
                     logger.debug(f"Sample RPC Payload Item: {batch_data[0]}")
@@ -1327,7 +1378,7 @@ def main(target_city_id: int, test_mode=False):
         neighbor_radius = city_config.get('geospatial', {}).get('neighbor_radius_meters', NEIGHBOR_RADIUS_METERS) # Use default if not in config
         logger.info(f"Using neighbor radius: {neighbor_radius} meters")
 
-        days_back = 360 # Changed from 600
+        days_back = 800 # Changed from 600
         max_records = 500000 # Kept max records high
         if test_mode:
             logger.info("TEST MODE: Using smaller dataset parameters.")
