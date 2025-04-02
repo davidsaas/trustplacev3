@@ -992,23 +992,62 @@ def update_accommodation_safety_scores(supabase_client: Client, target_city_id: 
     logger.info(f"Maximum distance for linking metrics: {MAX_ACCOMMODATION_METRIC_DISTANCE_KM} km")
 
     try:
-        # 1. Fetch all current safety metrics for the target city with valid data
-        logger.info(f"Fetching safety metrics for {city_name}...")
-        metrics_response = supabase_client.table('safety_metrics') \
-                                          .select('id, latitude, longitude, metric_type, score, block_group_id, city_id') \
-                                          .eq('city_id', target_city_id) \
-                                          .not_.is_('latitude', 'null') \
-                                          .not_.is_('longitude', 'null') \
-                                          .not_.is_('block_group_id', 'null') \
-                                          .not_.is_('score', 'null') \
-                                          .limit(10000) \
-                                          .execute()
+        # 1. Fetch all current safety metrics for the target city using PAGINATION
+        logger.info(f"Fetching all safety metrics for {city_name} with pagination...")
+        all_metrics_data = []
+        batch_size = 1000 # Fetch in batches of 1000 (known working limit)
+        offset = 0
+        while True:
+            logger.debug(f"Fetching metrics batch: offset={offset}, limit={batch_size}")
+            try:
+                metrics_response = supabase_client.table('safety_metrics') \
+                                                  .select('id, latitude, longitude, metric_type, score, block_group_id, city_id') \
+                                                  .eq('city_id', target_city_id) \
+                                                  .not_.is_('latitude', 'null') \
+                                                  .not_.is_('longitude', 'null') \
+                                                  .not_.is_('block_group_id', 'null') \
+                                                  .not_.is_('score', 'null') \
+                                                  .limit(batch_size) \
+                                                  .offset(offset) \
+                                                  .execute()
+                
+                if metrics_response.data:
+                    all_metrics_data.extend(metrics_response.data)
+                    logger.debug(f"  Fetched {len(metrics_response.data)} records in this batch.")
+                    # If fewer records than batch size were returned, we got the last page
+                    if len(metrics_response.data) < batch_size:
+                        break 
+                    offset += batch_size # Prepare for next batch
+                else:
+                    # No more data or an error occurred (check error attribute)
+                    if hasattr(metrics_response, 'error') and metrics_response.error:
+                         logger.error(f"Error fetching metrics batch (offset {offset}): {metrics_response.error}")
+                         # Decide whether to proceed with partial data or abort
+                         # For now, let's break and use what we have, but log a warning
+                         logger.warning("Aborting metric fetch pagination due to API error.")
+                         break
+                    else:
+                        break # No data and no error means we are done
 
-        if not metrics_response.data:
-            logger.warning(f"No valid safety metrics found for {city_name} to calculate accommodation scores.")
+            except APIError as api_err:
+                logger.error(f"APIError fetching metrics batch (offset {offset}): {api_err}", exc_info=False)
+                logger.warning("Aborting metric fetch pagination due to APIError.")
+                break # Stop fetching on error
+            except Exception as fetch_err:
+                logger.error(f"Unexpected error fetching metrics batch (offset {offset}): {fetch_err}", exc_info=True)
+                logger.warning("Aborting metric fetch pagination due to unexpected error.")
+                break # Stop fetching on error
+
+        logger.info(f"Total metrics fetched via pagination: {len(all_metrics_data)}")
+
+        if not all_metrics_data:
+            logger.warning(f"No valid safety metrics found for {city_name} after pagination fetch.")
             return
-
-        metrics_df = pd.DataFrame(metrics_response.data)
+        
+        # Proceed with creating the DataFrame from the combined list
+        metrics_df = pd.DataFrame(all_metrics_data)
+        # logger.info(f"Initial metrics count from DB query: {len(metrics_df)}") # No longer needed right after creation
+        
         # Convert types, handle potential errors
         metrics_df['latitude'] = pd.to_numeric(metrics_df['latitude'], errors='coerce')
         metrics_df['longitude'] = pd.to_numeric(metrics_df['longitude'], errors='coerce')
