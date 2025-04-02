@@ -24,9 +24,9 @@ const LoadingState = () => {
 
 // Read the base URL from environment variables
 // Fallback to trustplace.app, but ensure this is set in your environment!
-const appBaseUrl = process.env.NEXT_PUBLIC_APP_BASE_URL || 'https://trustplace.app';
+const appBaseUrl = process.env.NEXT_PUBLIC_APP_BASE_URL || 'https://trustplacev3-one.vercel.app';
 if (!process.env.NEXT_PUBLIC_APP_BASE_URL) {
-    console.warn("NEXT_PUBLIC_APP_BASE_URL environment variable is not set. Falling back to 'https://trustplace.app'.");
+    console.warn("NEXT_PUBLIC_APP_BASE_URL environment variable is not set. Falling back to 'https://trustplacev3-one.vercel.app'.");
 }
 
 export const URLProcessor = () => {
