@@ -17,7 +17,7 @@
   "apify_urls": {
     "reddit_opinions_url": "https://api.apify.com/v2/datasets/mJtmMvNAxOTz3LXpN/items?clean=true&format=json",
     "accommodations_airbnb": "https://api.apify.com/v2/datasets/Wk1y5cR26ruj2vm59/items?clean=true&format=json",
-    "accommodations_booking": "https://api.apify.com/v2/datasets/f0zLgeObIt04pjSn4/items?clean=true&format=json"
+    "accommodations_booking": ""
   },
   "context_places": [
     "los angeles", "santa monica", "west hollywood", "beverly hills",

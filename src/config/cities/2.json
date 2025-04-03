@@ -18,7 +18,7 @@
   "apify_urls": {
     "reddit_opinions_url": "https://api.apify.com/v2/datasets/MsDdqxegheVVVeEps/items?clean=true&format=json",
     "accommodations_airbnb": "https://api.apify.com/v2/datasets/lihqeW4NClKwdkddp/items?clean=true&format=json",
-    "accommodations_booking": "https://api.apify.com/v2/datasets/QMlpMrvHPuRzfQ3Lf/items?clean=true&format=json"
+    "accommodations_booking": ""
   },
   "context_places": [
     "new york city", "manhattan", "brooklyn", "queens", "bronx", "staten island",

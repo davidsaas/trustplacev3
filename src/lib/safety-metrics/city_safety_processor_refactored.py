@@ -589,45 +589,105 @@ def calculate_safety_score(weighted_incidents: float) -> float:
 def get_risk_description(
     metric_type: str,
     score: float,
-    direct_incidents: int,
-    weighted_incidents: float,
-    # density_proxy_value: float, # Currently unused in description
-    incidents_per_1000: float,
-    contributing_neighbor_count: int
+    direct_incidents: int, # Kept for potential future use, but not primary in description
+    weighted_incidents: float, # Kept for potential future use
+    incidents_per_1000: float, # Kept for potential future use
+    contributing_neighbor_count: int # Kept for potential future use
 ) -> str:
     """
-    Generates a descriptive text string for the calculated metric score.
-    Uses the base description from METRIC_DEFINITIONS.
+    Generates a user-friendly, implication-focused description based on the
+    metric type and calculated safety score (0-10 scale).
     """
     try:
         # Determine risk level category based on score (0-10)
-        if score >= 8: risk_level = "Very Low Risk"
-        elif score >= 6: risk_level = "Low Risk"
-        elif score >= 4: risk_level = "Moderate Risk"
-        elif score >= 2: risk_level = "High Risk"
-        else: risk_level = "Very High Risk"
+        if score >= 8: risk_level = "Very Low"
+        elif score >= 6: risk_level = "Low"
+        elif score >= 4: risk_level = "Moderate"
+        elif score >= 2: risk_level = "High"
+        else: risk_level = "Very High"
 
-        # Get base description from loaded global config
-        base_description = METRIC_DEFINITIONS.get(metric_type, {}).get('description', 'Overall safety risk')
+        # Get base question/context from loaded global config
+        metric_config = METRIC_DEFINITIONS.get(metric_type, {})
+        base_question = metric_config.get('question', f'Regarding {metric_type.replace("_", " ")}')
+        base_description = metric_config.get('description', f'overall safety risk for {metric_type.replace("_", " ")}')
 
-        # Construct the description string
-        description = f"Risk Level: {risk_level} ({base_description.lower()})."
-        description += f" Score influenced by {direct_incidents} recent incident(s) in this block"
-        if contributing_neighbor_count > 0:
-            description += f" and relevant activity in {contributing_neighbor_count} nearby blocks."
-        else:
-            description += "."
-        description += f" (Weighted incidents: {weighted_incidents:.1f})."
+        # --- User-Friendly Descriptions based on Risk Level and Metric Type ---
+        # Structure: { metric_type: { risk_level: description_string } }
+        descriptions = {
+            "night_safety": {
+                "Very Low": "Feel confident exploring this area after dark; nighttime incidents are rare.",
+                "Low": "Generally safe at night, though basic awareness is always recommended.",
+                "Moderate": "Exercise caution after dark; stick to well-lit streets and avoid walking alone.",
+                "High": "Increased caution needed at night. Consider using taxis or ride-shares.",
+                "Very High": "High nighttime incident rates reported. Avoid walking alone after dark."
+            },
+            "day_safety": {
+                 "Very Low": "Excellent daytime safety. Enjoy peace of mind while out and about.",
+                 "Low": "Daytime incidents are uncommon. Standard precautions are sufficient.",
+                 "Moderate": "Be mindful of your surroundings during the day, especially in crowded areas.",
+                 "High": "Pay close attention during the day; reports indicate a noticeable level of incidents.",
+                 "Very High": "Daytime safety requires vigilance. Be aware of potential risks."
+            },
+            "parking_safety": {
+                "Very Low": "Low risk of vehicle break-ins or theft. Parking here is generally secure.",
+                "Low": "Vehicle-related crime is infrequent. Standard precautions like locking doors are advised.",
+                "Moderate": "Some risk of car break-ins. Avoid leaving valuables visible in your vehicle.",
+                "High": "Notable risk of vehicle theft or break-ins. Use secure parking if possible.",
+                "Very High": "High rates of vehicle crime reported. Prioritize secure, well-lit parking."
+            },
+            "transport_safety": {
+                "Very Low": "Public transport in this area is considered very safe, day and night.",
+                "Low": "Using public transport is generally safe; incidents are infrequent.",
+                "Moderate": "Be aware of your surroundings on public transport, especially during off-peak hours.",
+                "High": "Exercise caution using public transport; stay alert to potential issues.",
+                "Very High": "Reports indicate safety concerns on nearby public transport. Stay vigilant."
+            },
+            "women_safety": {
+                 "Very Low": "Area considered very safe for solo women travelers, day and night.",
+                 "Low": "Generally comfortable for solo women, standard awareness is sufficient.",
+                 "Moderate": "Solo women should exercise increased awareness, particularly after dark.",
+                 "High": "Concerns reported regarding solo women's safety. Take extra precautions.",
+                 "Very High": "Significant safety concerns for solo women reported. Avoid traveling alone if possible."
+            },
+             "lgbtq_safety": {
+                 "Very Low": "Considered a very welcoming and safe area for LGBTQ+ individuals.",
+                 "Low": "Generally safe and inclusive for the LGBTQ+ community.",
+                 "Moderate": "Exercise standard awareness; while generally safe, isolated incidents may occur.",
+                 "High": "Some concerns reported regarding LGBTQ+ safety. Be mindful of your surroundings.",
+                 "Very High": "Reports indicate potential safety risks for LGBTQ+ individuals. Exercise caution."
+             },
+             "tourist_safety": {
+                 "Very Low": "Excellent safety record for tourists. Enjoy exploring with confidence.",
+                 "Low": "Generally safe for tourists. Basic precautions against petty theft are advisable.",
+                 "Moderate": "Be mindful of potential tourist scams or pickpocketing, especially in busy areas.",
+                 "High": "Increased vigilance required for tourists due to reported incidents.",
+                 "Very High": "Tourists should be highly cautious due to significant safety concerns reported."
+             },
+            # Add more specific descriptions for other metric types as needed
+        }
 
-        # Add incidents per 1000 if population > 0 and result is meaningful
-        if incidents_per_1000 > 0.01: # Avoid showing negligible rates
-             description += f" Approx. {incidents_per_1000:.1f} incidents per 1,000 residents."
+        # Fallback description using the base description from config
+        default_descriptions = {
+            "Very Low": f"Very low risk regarding {base_description}.",
+            "Low": f"Low risk regarding {base_description}.",
+            "Moderate": f"Moderate risk regarding {base_description}. Exercise reasonable caution.",
+            "High": f"High risk regarding {base_description}. Increased awareness is advised.",
+            "Very High": f"Very high risk regarding {base_description}. Take significant precautions."
+        }
 
-        return description
+        # Get the specific description or fallback
+        description = descriptions.get(metric_type, default_descriptions).get(risk_level, default_descriptions[risk_level])
+
+        # Prepend the base question for context
+        full_description = f"{base_question}: {description}"
+
+        return full_description.strip()
 
     except Exception as e:
-        logger.error(f"Error generating risk description for {metric_type}: {e}", exc_info=False)
-        return "Risk level could not be determined due to an error."
+        logger.error(f"Error generating user-friendly risk description for {metric_type}: {e}", exc_info=False)
+        # Fallback to a generic error message including the metric type
+        metric_name = metric_type.replace('_', ' ')
+        return f"Could not determine specific risk details for {metric_name}. Score indicates {risk_level.lower()} risk overall."
 
 
 def calculate_metrics(processed_df: pd.DataFrame, target_city_id: int, city_config: dict) -> dict:
@@ -1417,7 +1477,7 @@ def main(target_city_id: int, test_mode: bool):
         city_name = city_config.get('city_name', f'ID {target_city_id}')
 
         # Determine parameters based on mode
-        days_back = 30 if test_mode else 800 # Example: 30 days for test, 800 for prod
+        days_back = 300 if test_mode else 800 # Example: 30 days for test, 800 for prod
         max_records = 5000 if test_mode else 500000 # Example: 5k for test, 500k for prod
         logger.info(f"Run Parameters: days_back={days_back}, max_records={max_records:,}")
 

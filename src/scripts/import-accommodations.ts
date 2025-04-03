@@ -35,22 +35,22 @@ try {
 
   // --- Load City Configuration ---
   const configPath = path.resolve(process.cwd(), `src/config/cities/${cityId}.json`); // Use process.cwd() for more reliable path
-  console.log(`Loading city config from: ${configPath}`);
+  // console.log(`Loading city config from: ${configPath}`); // REMOVE
   const configFile = fs.readFileSync(configPath, 'utf-8');
   // --- Add logging for raw file content ---
-  console.log("DEBUG: Raw content read from config file:\\n", configFile); // Keep this, add newline for readability
+  // console.log("DEBUG: Raw content read from config file:\\n", configFile); // REMOVE
   // --- End logging for raw file content ---
 
   // --- Add logging around JSON.parse ---
-  console.log("DEBUG: configFile type BEFORE parse:", typeof configFile);
+  // console.log("DEBUG: configFile type BEFORE parse:", typeof configFile); // REMOVE
   try {
     cityConfig = JSON.parse(configFile);
     // Log AFTER parse
-    console.log("DEBUG: cityConfig type AFTER parse:", typeof cityConfig);
-    console.log("DEBUG: cityConfig.apify_urls AFTER parse:", JSON.stringify(cityConfig?.apify_urls, null, 2));
+    // console.log("DEBUG: cityConfig type AFTER parse:", typeof cityConfig); // REMOVE
+    // console.log("DEBUG: cityConfig.apify_urls AFTER parse:", JSON.stringify(cityConfig?.apify_urls, null, 2)); // REMOVE
   } catch (parseError: any) {
     console.error("FATAL: Failed to parse city config JSON:", parseError.message);
-    console.error("Raw content leading to parse error:", configFile);
+    // console.error("Raw content leading to parse error:", configFile); // Keep this error context
     process.exit(1);
   }
   // --- End logging around JSON.parse ---
@@ -78,8 +78,8 @@ const AIRBNB_DATASET_URL = cityConfig?.apify_urls?.accommodations_airbnb || ''; 
 const BOOKING_DATASET_URL = cityConfig?.apify_urls?.accommodations_booking || ''; // Revert to optional chaining
 
 // --- Add immediate logging ---
-console.log(`DEBUG: Assigned AIRBNB_DATASET_URL: '${AIRBNB_DATASET_URL}'`); // Keep this
-console.log(`DEBUG: Assigned BOOKING_DATASET_URL: '${BOOKING_DATASET_URL}'`); // Keep this
+// console.log(`DEBUG: Assigned AIRBNB_DATASET_URL: '${AIRBNB_DATASET_URL}'`); // REMOVE
+// console.log(`DEBUG: Assigned BOOKING_DATASET_URL: '${BOOKING_DATASET_URL}'`); // REMOVE
 // --- End immediate logging ---
 
 // Initialize Supabase client
@@ -126,6 +126,16 @@ type ApifyAirbnbItem = {
   }
   seoTitle?: string
   sharingConfigTitle?: string
+  metaDescription?: string
+  amenities?: Array<{
+    title: string
+    values?: Array<{
+      title: string
+      subtitle?: string
+      icon?: string
+      available?: boolean
+    }>
+  }>
 }
 
 type ApifyBookingItem = {
@@ -236,8 +246,8 @@ function parseNumericField(value: any, fieldName: string, itemId: string): numbe
 }
 
 function transformAirbnbData(item: ApifyAirbnbItem, cityIdToAssign: number) {
-  // console.log(`[transformAirbnbData] Processing item URL: ${item.url || item.id || 'N/A'}`); // Ensure commented
-  // console.log('[transformAirbnbData] Input item:', JSON.stringify(item, null, 2)); // Ensure commented
+  // console.log(`[transformAirbnbData] Processing item URL: ${item.url || item.id || 'N/A'}`); // REMOVE
+  // console.log('[transformAirbnbData] Input item:', JSON.stringify(item, null, 2)); // REMOVE
 
   // Skip items without required base fields (ID, URL, thumbnail, price object)
   if (!item.id || !item.url || !item.thumbnail || typeof item.price !== 'object' || item.price === null) {
@@ -263,11 +273,37 @@ function transformAirbnbData(item: ApifyAirbnbItem, cityIdToAssign: number) {
   const title = item.seoTitle?.split(' - ')[0] || item.sharingConfigTitle?.split(' · ')[0] || 'Untitled Listing'
 
   // Safely parse numeric fields using the helper
-  const bedrooms = parseNumericField(item.bedrooms, 'bedrooms', item.id);
-  const bathrooms = parseNumericField(item.bathrooms, 'bathrooms', item.id);
-  const maxGuests = parseNumericField(item.personCapacity, 'personCapacity', item.id);
   const rating = parseNumericField(item.rating?.guestSatisfaction, 'rating.guestSatisfaction', item.id);
   const totalReviews = parseNumericField(item.rating?.reviewsCount, 'rating.reviewsCount', item.id);
+
+  // Extract amenities
+  let amenities: string[] | null = null;
+  if (Array.isArray(item.amenities)) {
+      const amenityTitles = new Set<string>();
+      item.amenities.forEach(category => {
+          if (Array.isArray(category.values)) {
+              category.values.forEach(value => {
+                  if (value.title && value.available) { // Only add available amenities with a title
+                      amenityTitles.add(value.title.trim());
+                  }
+              });
+          }
+      });
+      if (amenityTitles.size > 0) {
+          amenities = Array.from(amenityTitles);
+      }
+  }
+
+  // Clean and extract description
+  let description: string | null = null;
+  if (item.metaDescription) {
+    // Regex to match the prefix: Month Day, Year - Type for $Price.
+    const prefixRegex = /^[A-Za-z]{3}\s\d{1,2},\s\d{4}\s-\s.*?\sfor\s\$\d+\.?\s*/;
+    description = item.metaDescription.replace(prefixRegex, '').trim();
+    if (description === "") { // If removing prefix leaves empty string, set to null
+      description = null;
+    }
+  }
 
   const transformed = {
     city_id: cityIdToAssign,
@@ -279,26 +315,23 @@ function transformAirbnbData(item: ApifyAirbnbItem, cityIdToAssign: number) {
     price_per_night: price, // Already validated above
     latitude: item.coordinates.latitude.toString(), // Already validated above
     longitude: item.coordinates.longitude.toString(), // Already validated above
-    neighborhood: null, // To be filled later if possible
     property_type: item.propertyType || null,
     room_type: mapRoomType(item.roomType),
-    bedrooms: bedrooms,
-    bathrooms: bathrooms,
-    max_guests: maxGuests,
     rating: rating,
     total_reviews: totalReviews,
     host_name: item.host?.name || null,
     host_id: item.host?.id || null,
-    host_is_superhost: item.host?.isSuperhost || null,
-    last_scraped_at: new Date().toISOString()
+    last_scraped_at: new Date().toISOString(),
+    amenities: amenities, // Add the extracted amenities
+    description: description // Use the cleaned description
   };
 
-  // console.log('[transformAirbnbData] Output object:', JSON.stringify(transformed, null, 2)); // Ensure commented
+  // console.log('[transformAirbnbData] Output object:', JSON.stringify(transformed, null, 2)); // REMOVE
   return transformed;
 }
 
 function transformBookingData(item: ApifyBookingItem, cityIdToAssign: number) {
-  // console.log(`[transformBookingData] Processing item URL: ${item.url || item.name || 'N/A'}`); // Ensure commented
+  // console.log(`[transformBookingData] Processing item URL: ${item.url || item.name || 'N/A'}`); // REMOVE
   // Get the first image from images array if main image is null
   const imageUrl = item.image || (item.images && item.images.length > 0 ? item.images[0] : null)
   
@@ -380,13 +413,15 @@ async function importAccommodations(cityIdToImport: number) {
 
   // Transform the data, passing cityId
   const transformedAirbnb = airbnbData.map(item => transformAirbnbData(item, cityIdToImport)).filter((item): item is NonNullable<ReturnType<typeof transformAirbnbData>> => item !== null);
-  console.log(`DEBUG: transformedAirbnb length after map/filter: ${transformedAirbnb.length}`); // Keep existing log
+  // console.log(`DEBUG: transformedAirbnb length after map/filter: ${transformedAirbnb.length}`); // REMOVE
+  /* REMOVE multi-line debug block
   if (transformedAirbnb.length > 2600) {
     // Add detailed logging for the item potentially causing issues BEFORE concatenation
     console.log(`DEBUG: Item at index 2600 in transformedAirbnb (PRE-CONCAT) - Source: ${transformedAirbnb[2600]?.source}`);
     console.log(`DEBUG: Item at index 2600 in transformedAirbnb (PRE-CONCAT) - Price: ${JSON.stringify(transformedAirbnb[2600]?.price_per_night)}`);
     console.log(`DEBUG: Item at index 2600 in transformedAirbnb (PRE-CONCAT) - URL: ${transformedAirbnb[2600]?.url}`);
   }
+  */
   // --- DEBUG LOGS START --- // Remove or comment out original debug block if redundant
   // console.log(`DEBUG: transformedAirbnb length: ${transformedAirbnb.length}`);
   // if (transformedAirbnb.length > 0) {
@@ -395,7 +430,7 @@ async function importAccommodations(cityIdToImport: number) {
   // --- DEBUG LOGS END --- //
 
   const transformedBooking = bookingData.map(item => transformBookingData(item, cityIdToImport)).filter((item): item is NonNullable<ReturnType<typeof transformBookingData>> => item !== null);
-  console.log(`DEBUG: transformedBooking length after map/filter: ${transformedBooking.length}`); // Add this log
+  // console.log(`DEBUG: transformedBooking length after map/filter: ${transformedBooking.length}`); // REMOVE
   // --- DEBUG LOGS START --- // Remove or comment out original debug block if redundant
   // console.log(`DEBUG: transformedBooking length: ${transformedBooking.length}`);
   // if (transformedBooking.length > 0) {
@@ -406,7 +441,8 @@ async function importAccommodations(cityIdToImport: number) {
   const allAccommodations = [...transformedAirbnb, ...transformedBooking];
 
   // --- MORE DEBUG LOGS --- // Modify existing debug block
-  console.log(`DEBUG: allAccommodations length after concatenation: ${allAccommodations.length}`); // Keep existing log
+  // console.log(`DEBUG: allAccommodations length after concatenation: ${allAccommodations.length}`); // REMOVE
+  /* REMOVE multi-line debug block
   if (allAccommodations.length > 0) {
       console.log(`DEBUG: First item source in allAccommodations (POST-CONCAT): ${allAccommodations[0]?.source}`);
   }
@@ -416,9 +452,10 @@ async function importAccommodations(cityIdToImport: number) {
       console.log(`DEBUG: Item at index 2600 in allAccommodations (POST-CONCAT) - Price: ${JSON.stringify(allAccommodations[2600]?.price_per_night)}`);
       console.log(`DEBUG: Item at index 2600 in allAccommodations (POST-CONCAT) - URL: ${allAccommodations[2600]?.url}`);
   }
+  */
   // --- MORE DEBUG LOGS END --- //
 
-  console.log(`Total accommodations after transformation and filtering: ${allAccommodations.length}`);
+  console.log(`Total valid accommodations found: ${allAccommodations.length}`); // Adjusted wording slightly
 
   if (allAccommodations.length === 0) {
     console.log(`No valid accommodations to insert for ${cityConfig.city_name}. Import finished early.`);
@@ -432,9 +469,10 @@ async function importAccommodations(cityIdToImport: number) {
   for (let i = 0; i < allAccommodations.length; i += BATCH_SIZE) {
     const batch = allAccommodations.slice(i, i + BATCH_SIZE)
     const batchNumber = Math.ceil(i / BATCH_SIZE) + 1; // Calculate batch number
-    console.log(`--- Preparing Batch ${batchNumber} ---`); // Use batchNumber
+    // console.log(`--- Preparing Batch ${batchNumber} ---`); // REMOVE - Too noisy
 
     // Add specific logging for the problematic batch range BEFORE upsert
+    /* REMOVE multi-line debug block
     if (batchNumber >= 26 && batchNumber <= 28) { // Log batches 26, 27, 28
         console.log(`DEBUG: Batch ${batchNumber} - First Item Check (Index ${i} in allAccommodations)`);
         console.log(`DEBUG: Batch ${batchNumber} - Source: ${batch[0]?.source}`);
@@ -446,6 +484,7 @@ async function importAccommodations(cityIdToImport: number) {
         //     console.log(`DEBUG: Batch ${batchNumber} - Second item price: ${JSON.stringify(batch[1]?.price_per_night)}`);
         // }
     }
+    */
 
     // Optional: Log the actual batch data (keep commented)
     // console.log(`Batch ${batchNumber} Data:`, JSON.stringify(batch, null, 2));
@@ -466,7 +505,7 @@ async function importAccommodations(cityIdToImport: number) {
           console.error(`First item in failed batch (${batchNumber}):`, JSON.stringify(batch[0], null, 2)); // Use batchNumber
       }
     } else {
-      console.log(`✅ Successfully upserted ${data?.length ?? 0} records in Batch ${batchNumber} of ${Math.ceil(allAccommodations.length / BATCH_SIZE)} for ${cityConfig.city_name}`); // Use batchNumber
+      console.log(`✅ Batch ${batchNumber}/${Math.ceil(allAccommodations.length / BATCH_SIZE)}: Upserted ${data?.length ?? 0} records for ${cityConfig.city_name}`); // Simplified success log
       // Optional: Log the data returned by select() (keep commented)
       // if (data && data.length > 0) {
       //   console.log(`Upserted IDs from Batch ${batchNumber}:`, data.map(d => d.id || d.external_id));

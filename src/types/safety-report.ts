@@ -98,4 +98,6 @@ export interface AccommodationData {
   hasCompleteData: boolean
   metricTypesFound?: number
   accommodation_takeaways: string[] | null
+  description: string | null
+  city_id: number | null
 } 

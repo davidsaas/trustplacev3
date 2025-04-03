@@ -139,7 +139,7 @@ export const CommunityOpinions = ({
 
                   <p className="sr-only">Community feedback</p>
 
-                  <div className="mt-4 text-sm/6 text-gray-500 whitespace-pre-wrap">
+                  <div className="mt-4 text-sm/6 text-gray-500 whitespace-pre-wrap break-words">
                     {opinion.body}
                   </div>
 

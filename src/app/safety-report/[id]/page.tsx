@@ -5,9 +5,9 @@ import { notFound } from 'next/navigation'
 import { SafetyMetrics } from '../components/SafetyMetrics'
 import { CommunityOpinions, type CommunityOpinion } from './components/CommunityOpinions'
 import { RestrictedContent } from '@/app/auth/components/restricted-content'
-import { supabaseServer } from '@/lib/supabase/server'
+import { supabaseServer } from '@/lib/supabase/server' // Note: Using supabaseServer in 'use client' is generally not recommended directly for auth, relying on Auth context is better. This looks like it might be from server-side props originally, ensure correct usage.
 import { PropertyHeader } from '../components/PropertyHeader'
-import { LOCATION_RADIUS, SAFETY_RADIUS, PRICE_RANGE } from '../constants'
+import { LOCATION_RADIUS, SAFETY_RADIUS } from '../constants'
 import { isValidCoordinates, calculateDistance } from '../utils'
 import Loading from './loading'
 import { AppNavbar } from '@/app/components/navbar'
@@ -44,6 +44,71 @@ export const MapLoadingPlaceholder = () => (
   </div>
 );
 
+// --- Helper Function for Background Gradient (FIXED) ---
+const getGradientBackgroundStyle = (score: number): React.CSSProperties => {
+  // Normalize score to 0-1 range
+  const normalizedScore = Math.max(0, Math.min(100, score)) / 100;
+
+  // Define HSL color stops roughly matching getRiskLevel:
+  // Very High Risk (0-39): Rose/Red (Hue ~0, Sat 80%, Light 50%)
+  // High Risk (40-59): Orange (Hue ~30, Sat 95%, Light 50%)
+  // Medium Risk (60-79): Amber (Hue ~40, Sat 90%, Light 50%)
+  // Low Risk (80-100): Green (Hue ~120, Sat 60%, Light 45%)
+  let hue: number;
+  let saturation: number;
+  let lightness: number;
+
+  if (normalizedScore < 0.4) {
+    // Very High Risk Range (Rose/Red)
+    hue = 0; // Keep hue at red
+    saturation = 80;
+    lightness = 50;
+  } else if (normalizedScore < 0.6) {
+    // High Risk Range (Interpolate Red -> Orange)
+    const t = (normalizedScore - 0.4) / 0.2; // Scale 0.4-0.6 to 0-1
+    hue = 0 + (30 - 0) * t;
+    saturation = 80 + (95 - 80) * t;
+    lightness = 50;
+  } else if (normalizedScore < 0.8) {
+     // Medium Risk Range (Interpolate Orange -> Amber)
+    const t = (normalizedScore - 0.6) / 0.2; // Scale 0.6-0.8 to 0-1
+    hue = 30 + (40 - 30) * t;
+    saturation = 95 + (90 - 95) * t;
+    lightness = 50;
+  } else {
+    // Low Risk Range (Interpolate Amber -> Green)
+    const t = (normalizedScore - 0.8) / 0.2; // Scale 0.8-1.0 to 0-1
+    hue = 40 + (120 - 40) * t; // Go towards green
+    saturation = 90 + (60 - 90) * t; // Decrease saturation towards green
+    lightness = 50 + (45 - 50) * t; // Slightly darken towards green
+  }
+
+  const startColor = `hsla(${hue.toFixed(0)}, ${saturation.toFixed(0)}%, ${lightness.toFixed(0)}%, 0.15)`; // Start with 15% opacity
+  const midColor = `hsla(${hue.toFixed(0)}, ${saturation.toFixed(0)}%, ${lightness.toFixed(0)}%, 0.05)`; // Fade to 5% opacity
+  const endColor = 'transparent'; // End transparent (will show bg-gray-50 underneath)
+
+  return {
+    // Define the gradient image
+    backgroundImage: `linear-gradient(to bottom, ${startColor} 0%, ${midColor} 50%, ${endColor} 100%)`,
+    // Fix the background relative to the viewport
+    backgroundAttachment: 'fixed',
+    // Prevent the gradient from repeating
+    backgroundRepeat: 'no-repeat',
+  };
+};
+// ----------------------------------------------
+
+
+// NOTE: The following async functions (findClosestSafetyMetricsBatch, findSimilarAccommodations, etc.)
+// are typically run on the server or in API routes in Next.js.
+// Calling them directly within a 'use client' component like this is unusual and might imply
+// they were originally intended for Server Components or `getServerSideProps`/`getStaticProps`.
+// If these need to run *on the client*, consider moving them to API routes and fetching
+// the results using `fetch`. If they *can* run on the server, this component structure
+// might need rethinking (e.g., fetching data in a parent Server Component and passing it down).
+// For this example, I'm leaving them as defined, assuming they work in your current setup,
+// but be aware of this potential architecture issue.
+
 // Function to find closest safety metrics for MULTIPLE locations
 async function findClosestSafetyMetricsBatch(locations: Location[]): Promise<Record<string, SafetyMetric[] | null>> {
   if (!locations || locations.length === 0) return {};
@@ -65,64 +130,82 @@ async function findClosestSafetyMetricsBatch(locations: Location[]): Promise<Rec
   minLng -= SAFETY_RADIUS;
   maxLng += SAFETY_RADIUS;
 
-  // Fetch all metrics within the expanded bounding box
-  const { data: allMetrics, error } = await supabaseServer
-    .from('safety_metrics')
-    .select('*')
-    .gte('latitude', minLat)
-    .lte('latitude', maxLat)
-    .gte('longitude', minLng)
-    .lte('longitude', maxLng);
+  try {
+        // Fetch all metrics within the expanded bounding box
+    const { data: allMetrics, error } = await supabaseServer // Assuming supabaseServer is correctly configured for this context
+        .from('safety_metrics')
+        .select('*')
+        .gte('latitude', minLat)
+        .lte('latitude', maxLat)
+        .gte('longitude', minLng)
+        .lte('longitude', maxLng);
 
-  if (error) {
-    console.error('Error fetching safety metrics batch:', error);
-    return {};
-  }
-
-  if (!allMetrics || allMetrics.length === 0) {
-    return {};
-  }
-
-  // Process metrics (ensure numeric coords/score)
-  const processedMetrics = allMetrics.map(metric => ({
-    ...metric,
-    latitude: typeof metric.latitude === 'string' ? parseFloat(metric.latitude) : metric.latitude,
-    longitude: typeof metric.longitude === 'string' ? parseFloat(metric.longitude) : metric.longitude,
-    score: typeof metric.score === 'string' ? parseFloat(metric.score) : metric.score
-  })).filter(m => isValidCoordinates(m.latitude, m.longitude)); // Filter invalid metrics early
-
-  // Group metrics by location
-  const results: Record<string, SafetyMetric[] | null> = {};
-  locations.forEach(location => {
-    const locationKey = `${location.lat},${location.lng}`;
-    if (!isValidCoordinates(location.lat, location.lng)) {
-        results[locationKey] = null;
-        return;
+    if (error) {
+        console.error('Error fetching safety metrics batch:', error);
+        // Return an object where each location maps to null on error
+        return locations.reduce((acc, loc) => {
+        acc[`${loc.lat},${loc.lng}`] = null;
+        return acc;
+        }, {} as Record<string, SafetyMetric[] | null>);
     }
 
-    const metricsForLocation: Record<string, { metric: SafetyMetric; distance: number }> = {};
+    if (!allMetrics || allMetrics.length === 0) {
+        // Return an object where each location maps to null if no metrics found
+        return locations.reduce((acc, loc) => {
+        acc[`${loc.lat},${loc.lng}`] = null;
+        return acc;
+        }, {} as Record<string, SafetyMetric[] | null>);
+    }
 
-    processedMetrics.forEach(metric => {
-      const distance = calculateDistance(location, { lat: metric.latitude, lng: metric.longitude });
-      const existing = metricsForLocation[metric.metric_type];
+    // Process metrics (ensure numeric coords/score)
+    const processedMetrics = allMetrics.map(metric => ({
+        ...metric,
+        latitude: typeof metric.latitude === 'string' ? parseFloat(metric.latitude) : metric.latitude,
+        longitude: typeof metric.longitude === 'string' ? parseFloat(metric.longitude) : metric.longitude,
+        score: typeof metric.score === 'string' ? parseFloat(metric.score) : metric.score
+    })).filter(m => isValidCoordinates(m.latitude, m.longitude)); // Filter invalid metrics early
 
-      if (!existing || distance < existing.distance) {
-        metricsForLocation[metric.metric_type] = { metric, distance };
-      }
+    // Group metrics by location
+    const results: Record<string, SafetyMetric[] | null> = {};
+    locations.forEach(location => {
+        const locationKey = `${location.lat},${location.lng}`;
+        if (!isValidCoordinates(location.lat, location.lng)) {
+            results[locationKey] = null;
+            return;
+        }
+
+        const metricsForLocation: Record<string, { metric: SafetyMetric; distance: number }> = {};
+
+        processedMetrics.forEach(metric => {
+        const distance = calculateDistance(location, { lat: metric.latitude, lng: metric.longitude });
+        const existing = metricsForLocation[metric.metric_type];
+
+        if (!existing || distance < existing.distance) {
+            metricsForLocation[metric.metric_type] = { metric, distance };
+        }
+        });
+
+        const closestMetrics = Object.values(metricsForLocation).map(item => item.metric);
+        results[locationKey] = closestMetrics.length > 0 ? closestMetrics : null;
     });
 
-    const closestMetrics = Object.values(metricsForLocation).map(item => item.metric);
-    results[locationKey] = closestMetrics.length > 0 ? closestMetrics : null;
-  });
-
-  return results;
+    return results;
+  } catch(err) {
+      console.error('[findClosestSafetyMetricsBatch] Unexpected error during fetch/processing:', err);
+      // Return null for all locations on unexpected error
+       return locations.reduce((acc, loc) => {
+        acc[`${loc.lat},${loc.lng}`] = null;
+        return acc;
+        }, {} as Record<string, SafetyMetric[] | null>);
+  }
 }
 
 // Constants for filtering similar accommodations
-const SIMILARITY_PRICE_RANGE = { MIN: 0.5, MAX: 1.2 }; // e.g., 70% to 130% of current price
-const SAFER_SCORE_THRESHOLD = 5; // Alternative must be at least 5 points higher
-const MIN_METRIC_TYPES_FOR_RELIABLE_SCORE = 4; // Require at least 4 metric types for reliable comparison
+const SIMILARITY_PRICE_RANGE = { MIN: 0.4, MAX: 1.8 }; // Widen price range
+const SAFER_SCORE_THRESHOLD = 3; // Reduced threshold for 'safer'
+const MIN_METRIC_TYPES_FOR_RELIABLE_SCORE = 3; // Reduced reliability requirement
 const MAX_SIMILAR_RESULTS = 8; // Show top 8 results (Changed from 5)
+const SIMILAR_ACCOMMODATION_RADIUS = 0.4; // NEW: Increased radius for finding similar accommodations (~44km)
 
 // Function to fetch similar accommodations (REVISED to include metrics)
 async function findSimilarAccommodations(
@@ -147,33 +230,25 @@ async function findSimilarAccommodations(
 
   try {
     // 1. Fetch candidate accommodations based on location, score, and basic similarity
-    let query = supabaseServer
+    let query = supabaseServer // Assuming supabaseServer is correctly configured
       .from('accommodations')
       // Select necessary fields + the pre-calculated score and metric count
       .select('id, name, price_per_night, latitude, longitude, source, overall_safety_score, safety_metric_types_found, property_type, room_type, bedrooms, image_url')
       .neq('id', excludeId)
-      // --- Geographic Filter --- (Use PostGIS for accurate radius)
-      // Note: You'll need to create a PostGIS index on 'location' column if you don't have one
-      // Example using ST_DWithin (replace 'location' with your geometry column name if different)
-      // .rpc('find_accommodations_within_radius', {
-      //   target_lat: location.lat,
-      //   target_lon: location.lng,
-      //   radius_meters: LOCATION_RADIUS * 111320 // Approx meters per degree latitude
-      // })
-      // --- Fallback to BBox (less accurate but easier) ---
-      .gte('latitude', location.lat - LOCATION_RADIUS)
-      .lte('latitude', location.lat + LOCATION_RADIUS)
-      .gte('longitude', location.lng - LOCATION_RADIUS)
-      .lte('longitude', location.lng + LOCATION_RADIUS)
+      // --- Geographic Filter (Bounding Box with Increased Radius) ---
+      .gte('latitude', location.lat - SIMILAR_ACCOMMODATION_RADIUS)
+      .lte('latitude', location.lat + SIMILAR_ACCOMMODATION_RADIUS)
+      .gte('longitude', location.lng - SIMILAR_ACCOMMODATION_RADIUS)
+      .lte('longitude', location.lng + SIMILAR_ACCOMMODATION_RADIUS)
       // --- Safety Filter --- (Using pre-calculated scores)
       .gt('overall_safety_score', currentScore + SAFER_SCORE_THRESHOLD)
       // --- Reliability Filter --- (Using pre-calculated metric count)
       .gte('safety_metric_types_found', MIN_METRIC_TYPES_FOR_RELIABLE_SCORE)
-      // --- Basic Similarity Filters (Add more as needed) ---
+      // --- Basic Similarity Filters ---
       .eq('property_type', property_type) // Match property type
       .eq('room_type', room_type); // Match room type
 
-    // Optional: Filter by bedrooms (e.g., same number or +/- 1)
+    // Optional: Filter by bedrooms
     if (bedrooms != null && typeof bedrooms === 'number') {
       query = query.gte('bedrooms', Math.max(0, bedrooms - 1))
                    .lte('bedrooms', bedrooms + 1);
@@ -275,7 +350,7 @@ async function fetchAllNearbyAccommodations(
   console.log(`[fetchAllNearbyAccommodations] Fetching up to ${MAX_MAP_MARKERS} accommodations near (${currentLocation.lat.toFixed(4)}, ${currentLocation.lng.toFixed(4)}) excluding ${excludeId}`);
 
   try {
-    const { data: nearby, error } = await supabaseServer
+    const { data: nearby, error } = await supabaseServer // Assuming supabaseServer is correctly configured
       .from('accommodations')
       .select('id, name, price_per_night, latitude, longitude, source, overall_safety_score, safety_metric_types_found, image_url')
       .neq('id', excludeId)
@@ -327,9 +402,6 @@ async function fetchAllNearbyAccommodations(
       })
       .filter((acc): acc is NonNullable<typeof acc> => acc !== null);
 
-    // Optional: Sort by distance if needed, though map doesn't strictly require it
-    // resultsWithDistance.sort((a, b) => a.distance - b.distance);
-
     console.log(`[fetchAllNearbyAccommodations] Returning ${resultsWithDistance.length} formatted nearby accommodations for map.`);
     return resultsWithDistance;
 
@@ -339,112 +411,120 @@ async function fetchAllNearbyAccommodations(
   }
 }
 
-// --- REVISED getReportData --- (Only change is how findSimilarAccommodations is called)
+// --- REVISED getReportData ---
 async function getReportData(id: string): Promise<AccommodationData | null> {
   console.log('[getReportData] Fetching report data for accommodation ID:', id);
 
-  const { data: accommodation, error } = await supabaseServer
-    .from('accommodations')
-    // Select the new metric count column
-    .select('*, overall_safety_score, safety_metric_types_found')
-    .eq('id', id)
-    .single()
+  try {
+    const { data: accommodation, error } = await supabaseServer // Assuming supabaseServer is correctly configured
+        .from('accommodations')
+        // Select the new metric count column
+        .select('*, overall_safety_score, safety_metric_types_found, description, city_id')
+        .eq('id', id)
+        .single()
 
-  if (error) {
-    console.error(`[getReportData] Error fetching accommodation ${id}:`, error.message);
-    return null
-  }
-  if (!accommodation) {
-    console.warn(`[getReportData] Accommodation not found for ID: ${id}`);
-    return null
-  }
+    if (error) {
+        console.error(`[getReportData] Error fetching accommodation ${id}:`, error.message);
+        return null
+    }
+    if (!accommodation) {
+        console.warn(`[getReportData] Accommodation not found for ID: ${id}`);
+        return null
+    }
 
-  // Parse coordinates safely (unchanged)
-  const latString = accommodation.latitude || accommodation.location?.lat || '';
-  const lngString = accommodation.longitude || accommodation.location?.lng || '';
-  const latitude = typeof latString === 'string' ? parseFloat(latString) : latString;
-  const longitude = typeof lngString === 'string' ? parseFloat(lngString) : lngString;
-  const location = isValidCoordinates(latitude, longitude) ? { lat: latitude, lng: longitude } : null;
+    // Parse coordinates safely
+    const latString = accommodation.latitude || accommodation.location?.lat || '';
+    const lngString = accommodation.longitude || accommodation.location?.lng || '';
+    const latitude = typeof latString === 'string' ? parseFloat(latString) : latString;
+    const longitude = typeof lngString === 'string' ? parseFloat(lngString) : lngString;
+    const location = isValidCoordinates(latitude, longitude) ? { lat: latitude, lng: longitude } : null;
 
-  // Ensure image_url is valid (unchanged)
-  const image_url = accommodation.image_url?.startsWith('http') ? accommodation.image_url : null
+    // Ensure image_url is valid
+    const image_url = accommodation.image_url?.startsWith('http') ? accommodation.image_url : null
 
-  // Use the score from the table (unchanged)
-  const overall_score = accommodation.overall_safety_score ?? 0;
-  console.log('[getReportData] Using pre-calculated overall safety score:', overall_score);
+    // Use the score from the table
+    const overall_score = accommodation.overall_safety_score ?? 0;
+    console.log('[getReportData] Using pre-calculated overall safety score:', overall_score);
 
-  // --- Fetch individual metrics for detailed display (unchanged) ---
-  let metricsForLocation: SafetyMetric[] | null = null;
-  if (location) {
-      console.log('[getReportData] Fetching individual metrics for detailed display...');
-      const safetyMetricsResult = await findClosestSafetyMetricsBatch([location]);
-      const locationKey = `${location.lat},${location.lng}`;
-      metricsForLocation = (safetyMetricsResult && safetyMetricsResult[locationKey]) ? safetyMetricsResult[locationKey] : null;
-      console.log(`[getReportData] Found ${metricsForLocation?.length ?? 0} individual metrics.`);
-  }
-  // ---
+    // --- Fetch individual metrics for detailed display ---
+    let metricsForLocation: SafetyMetric[] | null = null;
+    if (location) {
+        console.log('[getReportData] Fetching individual metrics for detailed display...');
+        const safetyMetricsResult = await findClosestSafetyMetricsBatch([location]);
+        const locationKey = `${location.lat},${location.lng}`;
+        metricsForLocation = (safetyMetricsResult && safetyMetricsResult[locationKey]) ? safetyMetricsResult[locationKey] : null;
+        console.log(`[getReportData] Found ${metricsForLocation?.length ?? 0} individual metrics.`);
+    }
+    // ---
 
-  // --- Determine hasCompleteData using the metric count ---
-  const metricTypesFound = accommodation.safety_metric_types_found ?? 0;
-  const hasCompleteData = metricTypesFound >= MIN_METRIC_TYPES_FOR_RELIABLE_SCORE;
-  console.log(`[getReportData] Score reliability: Found ${metricTypesFound} metric types (Threshold: ${MIN_METRIC_TYPES_FOR_RELIABLE_SCORE}), hasCompleteData: ${hasCompleteData}`);
-  // ---
+    // --- Determine hasCompleteData using the metric count ---
+    const metricTypesFound = accommodation.safety_metric_types_found ?? 0;
+    const hasCompleteData = metricTypesFound >= MIN_METRIC_TYPES_FOR_RELIABLE_SCORE;
+    console.log(`[getReportData] Score reliability: Found ${metricTypesFound} metric types (Threshold: ${MIN_METRIC_TYPES_FOR_RELIABLE_SCORE}), hasCompleteData: ${hasCompleteData}`);
+    // ---
 
-  // --- Fetch Accommodation Takeaways (unchanged) ---
-  let accommodationTakeaways: string[] | null = null;
-  const { data: takeawayData, error: takeawayError } = await supabaseServer
-    .from('accommodation_takeaways')
-    .select('takeaways')
-    .eq('accommodation_id', id)
-    .maybeSingle();
+    // --- Fetch Accommodation Takeaways ---
+    let accommodationTakeaways: string[] | null = null;
+    const { data: takeawayData, error: takeawayError } = await supabaseServer // Assuming supabaseServer is correctly configured
+        .from('accommodation_takeaways')
+        .select('takeaways')
+        .eq('accommodation_id', id)
+        .maybeSingle();
 
-  if (takeawayError) {
-    console.error(`Error fetching accommodation takeaways for ${id}:`, takeawayError.message);
-  } else if (takeawayData && takeawayData.takeaways) {
-    accommodationTakeaways = takeawayData.takeaways;
-  }
-  // ---
+    if (takeawayError) {
+        console.error(`Error fetching accommodation takeaways for ${id}:`, takeawayError.message);
+    } else if (takeawayData && takeawayData.takeaways) {
+        accommodationTakeaways = takeawayData.takeaways;
+    }
+    // ---
 
-  // --- Fetch similar accommodations (Pass relevant parts of current accommodation) ---
-  let similar_accommodations: SimilarAccommodation[] = [];
-  if (location && overall_score > 0) { // Only search if current location is valid and has a score
-    console.log('[getReportData] Calling findSimilarAccommodations...');
-    similar_accommodations = await findSimilarAccommodations({
-      id: accommodation.id,
-      location: location, // Pass the validated location object
-      price_per_night: accommodation.price_per_night,
-      overall_score: overall_score,
-      property_type: accommodation.property_type, // Pass for filtering
-      room_type: accommodation.room_type, // Pass for filtering
-      bedrooms: accommodation.bedrooms // Pass for filtering
-    });
-  } else {
-    console.log('[getReportData] Skipping similar accommodations search due to missing location or zero score.');
-  }
-  // ---
+    // --- Fetch similar accommodations ---
+    let similar_accommodations: SimilarAccommodation[] = [];
+    if (location && overall_score > 0) { // Only search if current location is valid and has a score
+        console.log('[getReportData] Calling findSimilarAccommodations...');
+        similar_accommodations = await findSimilarAccommodations({
+        id: accommodation.id,
+        location: location, // Pass the validated location object
+        price_per_night: accommodation.price_per_night,
+        overall_score: overall_score,
+        property_type: accommodation.property_type, // Pass for filtering
+        room_type: accommodation.room_type, // Pass for filtering
+        bedrooms: accommodation.bedrooms // Pass for filtering
+        });
+    } else {
+        console.log('[getReportData] Skipping similar accommodations search due to missing location or zero score.');
+    }
+    // ---
 
-  console.log('[getReportData] Successfully processed data for:', accommodation.name);
-  return {
-    id: accommodation.id,
-    url: accommodation.url,
-    name: accommodation.name,
-    image_url,
-    price_per_night: accommodation.price_per_night || null,
-    rating: accommodation.rating || null,
-    total_reviews: accommodation.total_reviews || null,
-    property_type: accommodation.property_type || accommodation.type || null,
-    neighborhood: accommodation.neighborhood || (accommodation.address?.full || null),
-    source: accommodation.source,
-    location,
-    safety_metrics: metricsForLocation,
-    overall_score,
-    similar_accommodations,
-    hasCompleteData, // Use the reliability-based flag
-    metricTypesFound: metricTypesFound, // Pass the count
-    accommodation_takeaways: accommodationTakeaways,
-    room_type: accommodation.room_type
+    console.log('[getReportData] Successfully processed data for:', accommodation.name);
+    return {
+        id: accommodation.id,
+        url: accommodation.url,
+        name: accommodation.name,
+        image_url,
+        price_per_night: accommodation.price_per_night || null,
+        rating: accommodation.rating || null,
+        total_reviews: accommodation.total_reviews || null,
+        property_type: accommodation.property_type || accommodation.type || null,
+        neighborhood: accommodation.neighborhood || (accommodation.address?.full || null),
+        source: accommodation.source,
+        location,
+        safety_metrics: metricsForLocation,
+        overall_score,
+        similar_accommodations,
+        hasCompleteData, // Use the reliability-based flag
+        metricTypesFound: metricTypesFound, // Pass the count
+        accommodation_takeaways: accommodationTakeaways,
+        room_type: accommodation.room_type,
+        description: accommodation.description, // Add description
+        city_id: accommodation.city_id // Add city_id
+    }
+  } catch (err) {
+      console.error('[getReportData] Unexpected error fetching or processing report data for ID', id, err);
+      return null;
   }
 }
+
 
 export default function SafetyReportPage({ params }: SafetyReportProps) {
   const [reportData, setReportData] = useState<AccommodationData | null>(null)
@@ -465,12 +545,13 @@ export default function SafetyReportPage({ params }: SafetyReportProps) {
   const [communityOpinionsCount, setCommunityOpinionsCount] = useState<number>(0);
   // --- End State for Community Opinions ---
 
-  const { supabase } = useAuth()
+  const { supabase } = useAuth() // Use the client-side Supabase instance from context for auth checks and RPCs
 
   // Validate ID early
   if (!params.id) {
     console.error("[SafetyReportPage] No ID provided in params.");
-    notFound()
+    // We can't call notFound() directly here (outside render/effect),
+    // but the effect will handle the error state.
   }
 
   // Fetch data and check authentication
@@ -503,12 +584,21 @@ export default function SafetyReportPage({ params }: SafetyReportProps) {
 
       try {
         if (!supabase) {
+           // Wait a cycle if supabase client isn't ready yet from context
+           console.warn("[SafetyReportPage Effect] Supabase client not available yet, will retry shortly.");
+           // Optional: Add a small delay and retry logic, or rely on re-render when context updates
+           // For simplicity, throwing error for now. A better approach might be to disable fetches until ready.
            throw new Error("Supabase client not available from Auth context");
         }
         console.log("[SafetyReportPage Effect] Fetching report data and session concurrently...");
+
+        // **Important:** getReportData uses supabaseServer. If this component is 'use client',
+        // this implies getReportData is either being called incorrectly here, OR it's actually
+        // making API calls internally, OR it was intended for server-side rendering.
+        // Assuming it works as intended in your setup for now.
         const [data, { data: { session } }] = await Promise.all([
-          getReportData(params.id),
-          supabase.auth.getSession()
+          getReportData(params.id), // This might need refactoring if it relies purely on server context
+          supabase.auth.getSession() // Use client Supabase for session check
         ])
         console.log("[SafetyReportPage Effect] Promise.all resolved.");
 
@@ -535,12 +625,15 @@ export default function SafetyReportPage({ params }: SafetyReportProps) {
           // --- Trigger Secondary Fetches --- //
           const secondaryFetches: Promise<any>[] = [];
 
-          // OSM Fetch
+          // OSM Fetch (Using client-side fetch to an API route)
           if (data.location) {
             setLoadingOSM(true);
             secondaryFetches.push(
               fetch(`/api/osm-insights?lat=${data.location.lat}&lng=${data.location.lng}`)
-                .then(res => res.ok ? res.json() : Promise.reject(`OSM API fetch failed: ${res.statusText}`))
+                .then(res => {
+                    if (!res.ok) throw new Error(`OSM API fetch failed: ${res.status} ${res.statusText}`);
+                    return res.json();
+                })
                 .then(osmData => { if (isMounted) setOsmInsights(osmData); })
                 .catch(err => console.error("[SafetyReportPage Effect] Error fetching OSM insights:", err))
                 .finally(() => { if (isMounted) setLoadingOSM(false); })
@@ -550,12 +643,13 @@ export default function SafetyReportPage({ params }: SafetyReportProps) {
              if (isMounted) setLoadingOSM(false);
           }
 
-          // Nearby Accommodations Fetch (for Map)
+          // Nearby Accommodations Fetch (for Map - assuming fetchAllNearbyAccommodations is okay to run here)
+          // Again, consider if this should be an API route.
           if (data.location) {
              console.log("[SafetyReportPage Effect] Fetching all nearby accommodations for map...");
              setLoadingNearbyMapData(true); // Ensure loading state is true before fetch
              secondaryFetches.push(
-                fetchAllNearbyAccommodations(data.location, data.id)
+                fetchAllNearbyAccommodations(data.location, data.id) // Needs supabaseServer context potentially
                  .then(nearbyData => {
                     if (isMounted) {
                        console.log(`[SafetyReportPage Effect] Received ${nearbyData.length} nearby accommodations for map.`);
@@ -570,8 +664,8 @@ export default function SafetyReportPage({ params }: SafetyReportProps) {
              if (isMounted) setLoadingNearbyMapData(false); // Set loading false if skipped
           }
 
-          // Community Opinions Fetch (if authenticated and location available)
-          if (authenticated && data.location) {
+          // Community Opinions Fetch (Using client-side Supabase RPC)
+          if (authenticated && data.location && supabase) {
             console.log("[SafetyReportPage Effect] Fetching safety-related community opinions...");
             setLoadingCommunityOpinions(true); // Ensure loading is true
             const { lat, lng } = data.location;
@@ -607,10 +701,11 @@ export default function SafetyReportPage({ params }: SafetyReportProps) {
                     // Handle Count Data
                     if (countResult.error) {
                         console.error("[SafetyReportPage Effect] Error fetching community opinions count:", countResult.error.message);
-                        setCommunityOpinionsCount(0); // Set count to 0 on error
+                        // Use the length of fetched opinions as a fallback count if count fails? Or 0?
+                        setCommunityOpinionsCount(opinionsResult.data?.length ?? 0);
                     } else {
-                        // Assuming count is returned in a `count` property or directly in `data`
-                        const count = countResult.count ?? (typeof countResult.data === 'number' ? countResult.data : 0);
+                        // Supabase RPC count often returns just the number in `data` or a `count` property
+                        const count = typeof countResult.data === 'number' ? countResult.data : (countResult.data as any)?.count ?? 0;
                         console.log(`[SafetyReportPage Effect] Fetched community opinions count: ${count}`);
                         setCommunityOpinionsCount(count);
                     }
@@ -627,7 +722,7 @@ export default function SafetyReportPage({ params }: SafetyReportProps) {
                 })
             );
           } else {
-              console.log("[SafetyReportPage Effect] Skipping community opinions fetch (not authenticated or missing location).");
+              console.log("[SafetyReportPage Effect] Skipping community opinions fetch (not authenticated, missing location, or supabase client unavailable).");
               if (isMounted) setLoadingCommunityOpinions(false); // Set loading false if skipped
           }
           // --- End Community Opinions Fetch ---
@@ -671,37 +766,43 @@ export default function SafetyReportPage({ params }: SafetyReportProps) {
       console.log(`[SafetyReportPage Effect] Cleanup for ID: ${params.id}`);
       isMounted = false
     }
-  }, [params.id, supabase]) // Added supabase dependency
+  }, [params.id, supabase]) // Dependency array includes params.id and the supabase client instance
 
   const handleSectionChange = (section: ExtendedReportSection) => {
     setActiveSection(section)
   }
 
-  // Check error state *after* loading is false
-  if (!loading && errorOccurred) {
-    console.log("[SafetyReportPage Render] Error occurred, rendering notFound.");
-    notFound()
-  }
+  // Trigger notFound navigation if an error occurred during data fetching
+  useEffect(() => {
+    if (!loading && errorOccurred) {
+        console.log("[SafetyReportPage Render Effect] Error occurred, navigating to notFound.");
+        notFound();
+    }
+  }, [loading, errorOccurred]);
 
-  // Updated loading condition: Show loading only while actively loading OR if auth hasn't been checked yet.
-  // Once loading is false and auth is checked, we should either have data or have triggered notFound.
+
+  // Loading state
   if (loading || !authChecked) {
      console.log(`[SafetyReportPage Render] Rendering Loading component (loading: ${loading}, authChecked: ${authChecked})`);
     return <Loading />
   }
 
-  // If loading is false, auth is checked, and no error occurred, but reportData is still null,
-  // this indicates an unexpected state. Log it, but maybe render notFound.
+  // If loading finished, auth checked, no error, but still no data (edge case, potentially handled by errorOccurred)
   if (!reportData) {
-      console.error("[SafetyReportPage Render] Unexpected state: Loading finished, auth checked, no error, but no report data. Rendering notFound.");
-      notFound();
-      // return null; // Or return null / a specific error component
+      console.error("[SafetyReportPage Render] Unexpected state: Loading finished, auth checked, no error, but no report data. Rendering fallback.");
+      // Avoid calling notFound() directly in render. Error state should handle navigation.
+      // Render minimal fallback or null. Loading component might still be visible briefly if error occurs late.
+      return null; // Or a minimal error message component if preferred
   }
 
   console.log("[SafetyReportPage Render] Rendering main content for:", reportData.name);
+
+  // Get the gradient style based on the score
+  const backgroundStyle = getGradientBackgroundStyle(reportData.overall_score);
+
   // Helper to render section content
   const renderSectionContent = () => {
-    if (!reportData) return null;
+    if (!reportData) return null; // Guard against null reportData
 
     switch (activeSection) {
       case 'overview':
@@ -730,7 +831,7 @@ export default function SafetyReportPage({ params }: SafetyReportProps) {
             <div className="border-b border-gray-200 bg-white px-4 py-5 sm:px-6 rounded-t-xl shadow-sm">
               <div className="-ml-4 -mt-4 flex flex-wrap items-center justify-between sm:flex-nowrap">
                 <div className="ml-4 mt-4">
-                  <h3 className="text-base font-semibold text-gray-900">Safety</h3>
+                  <h3 className="text-base font-semibold leading-6 text-gray-900">Safety</h3>
                   <p className="mt-1 text-sm text-gray-500">
                     Detailed safety metrics for this location.
                   </p>
@@ -746,7 +847,7 @@ export default function SafetyReportPage({ params }: SafetyReportProps) {
             <div className="border-b border-gray-200 bg-white px-4 py-5 sm:px-6 rounded-t-xl shadow-sm">
               <div className="-ml-4 -mt-4 flex flex-wrap items-center justify-between sm:flex-nowrap">
                 <div className="ml-4 mt-4">
-                  <h3 className="text-base font-semibold text-gray-900">Neighborhood Insights</h3>
+                  <h3 className="text-base font-semibold leading-6 text-gray-900">Neighborhood Insights</h3>
                   <p className="mt-1 text-sm text-gray-500">
                     Insights about the immediate surroundings based on OpenStreetMap data.
                   </p>
@@ -762,56 +863,100 @@ export default function SafetyReportPage({ params }: SafetyReportProps) {
                 <div className="border-b border-gray-200 bg-white px-4 py-5 sm:px-6 rounded-t-xl shadow-sm">
                   <div className="-ml-4 -mt-4 flex flex-wrap items-center justify-between sm:flex-nowrap">
                     <div className="ml-4 mt-4">
-                      <h3 className="text-base font-semibold text-gray-900 flex items-center gap-2">
+                      <h3 className="text-base font-semibold leading-6 text-gray-900 flex items-center gap-2">
                          <MessageSquare className="size-5 text-gray-500" /> Raw Community Comments
                       </h3>
                       <p className="mt-1 text-sm text-gray-500">
-                        Safety-related comments from local discussions near this location.
+                        Safety-related comments from local discussions near this location. Restricted access.
                       </p>
                     </div>
                   </div>
                 </div>
-                <CommunityOpinions
-                  isAuthenticated={isAuthenticated}
-                  opinions={communityOpinions}
-                  isLoading={loadingCommunityOpinions}
-                  error={communityOpinionsError}
-                />
+                {/* Wrap CommunityOpinions in RestrictedContent */}
+                <RestrictedContent
+                    fallback={<div className="bg-white p-6 rounded-b-xl shadow-sm text-sm text-gray-600">Please log in to view community comments.</div>}
+                >
+                    <CommunityOpinions
+                      isAuthenticated={isAuthenticated} // Pass auth status if needed internally by CommunityOpinions
+                      opinions={communityOpinions}
+                      isLoading={loadingCommunityOpinions}
+                      error={communityOpinionsError}
+                    />
+                </RestrictedContent>
               </div>
             );
       case 'activities':
         // --- Dynamic Location Logic ---
-        const { location, neighborhood } = reportData;
+        const { location, neighborhood, city_id } = reportData;
         let gygLocationId = '179'; // Default to Los Angeles ID
         let gygLocationName = 'Los Angeles'; // Default name
         let gygLocationLink = 'https://www.getyourguide.com/los-angeles-l179/'; // Default link
 
-        // TODO: Implement actual GetYourGuide Location ID lookup
+        // --- Dynamic GetYourGuide Location based on city_id ---
+        if (city_id === 1) {
+           // Already defaulted to LA
+        } else if (city_id === 2) {
+          gygLocationId = '59'; // New York City ID
+          gygLocationName = 'New York City';
+          gygLocationLink = 'https://www.getyourguide.com/new-york-city-l59/';
+        } else {
+           // Log warning or keep default if city_id is unknown/null
+           console.warn(`[Activities Section] Unknown city_id: ${city_id}. Defaulting to Los Angeles for GetYourGuide.`);
+        }
+        // --- End Dynamic GetYourGuide Location ---
+
+        // --- Load GetYourGuide Script ---
+        // Ensure the script is loaded (e.g., in _app.js, _document.js, or via useEffect here)
+        // Example using useEffect for simplicity:
+        useEffect(() => {
+            const scriptId = 'gyg-widget-script';
+            if (!document.getElementById(scriptId)) {
+                const script = document.createElement('script');
+                script.id = scriptId;
+                script.async = true;
+                script.defer = true;
+                script.src = "https://widget.getyourguide.com/v2/core.js";
+                document.body.appendChild(script);
+
+                // Cleanup script on component unmount
+                return () => {
+                    const existingScript = document.getElementById(scriptId);
+                    if (existingScript) {
+                       // document.body.removeChild(existingScript); // Be careful removing shared scripts
+                    }
+                };
+            }
+        }, []); // Run only once on mount
 
         return (
           <div key="activities">
             <div className="border-b border-gray-200 bg-white px-4 py-5 sm:px-6 rounded-t-xl shadow-sm">
               <div className="-ml-4 -mt-4 flex flex-wrap items-center justify-between sm:flex-nowrap">
                 <div className="ml-4 mt-4">
-                  <h3 className="text-base font-semibold text-gray-900">What to Do</h3>
+                  <h3 className="text-base font-semibold leading-6 text-gray-900">What to Do</h3>
                   <p className="mt-1 text-sm text-gray-500">
-                    Explore tours and activities near {neighborhood || 'this location'}, powered by GetYourGuide.
+                    Explore tours and activities in {gygLocationName}, powered by GetYourGuide.
                   </p>
                 </div>
               </div>
             </div>
             <div className="bg-white rounded-b-xl shadow-sm p-4 sm:p-6">
+              {/* GetYourGuide Widget Placeholder */}
               <div
                 data-gyg-href="https://widget.getyourguide.com/default/activities.frame"
                 data-gyg-location-id={gygLocationId}
                 data-gyg-locale-code="en-US"
                 data-gyg-widget="activities"
-                data-gyg-number-of-items="21"
-                data-gyg-cmp="safety-report-widget"
-                data-gyg-partner-id="PLGSROV"
+                data-gyg-number-of-items="9" // Adjust number of items as needed
+                data-gyg-cmp="safety-report-widget" // Your campaign parameter
+                data-gyg-partner-id="PLGSROV" // Your partner ID
               >
+                {/* Optional: Fallback content or link */}
                 <span className="text-xs text-gray-500">
-                  Powered by <a target="_blank" rel="sponsored" href={gygLocationLink} className="text-blue-600 hover:underline">GetYourGuide</a>
+                  Loading activities... If content doesn't appear, check{' '}
+                  <a target="_blank" rel="noopener noreferrer sponsored" href={gygLocationLink} className="text-blue-600 hover:underline">
+                    GetYourGuide for {gygLocationName}
+                  </a>.
                 </span>
               </div>
             </div>
@@ -823,13 +968,13 @@ export default function SafetyReportPage({ params }: SafetyReportProps) {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    // Apply the fixed background style here
+    <div className="min-h-screen bg-gray-50" style={backgroundStyle}>
       <AppNavbar />
 
       <div className="pt-6 sm:pt-8">
-        {reportData && (
-          <>
-            <div className="bg-gray-50">
+          <> {/* Use fragment as reportData is guaranteed non-null here */}
+            <div className="">
               <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
                 <div className="mx-auto max-w-5xl">
                   <PropertyHeader
@@ -848,6 +993,8 @@ export default function SafetyReportPage({ params }: SafetyReportProps) {
                     onSectionChange={handleSectionChange}
                     hasCompleteData={reportData.hasCompleteData}
                     commentsCount={communityOpinionsCount}
+                    description={reportData.description}
+                    city_id={reportData.city_id}
                   />
                 </div>
               </div>
@@ -856,12 +1003,14 @@ export default function SafetyReportPage({ params }: SafetyReportProps) {
             <div className="mt-6 sm:mt-8 pb-10">
               <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
                 <div className="mx-auto max-w-5xl">
-                  {renderSectionContent()}
+                  {/* Use Suspense for lazy loaded components if needed, although MapView seems integrated into OverviewSection now */}
+                   {/* <Suspense fallback={<div className="h-64 bg-gray-100 rounded-xl flex items-center justify-center">Loading Section...</div>}> */}
+                      {renderSectionContent()}
+                   {/* </Suspense> */}
                 </div>
               </div>
             </div>
           </>
-        )}
       </div>
     </div>
   )

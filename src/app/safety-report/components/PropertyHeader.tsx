@@ -1,15 +1,28 @@
 import { memo, useState, useEffect } from 'react'
 import { CircularProgressbar, buildStyles } from 'react-circular-progressbar';
 import 'react-circular-progressbar/dist/styles.css';
-import { ImageOff, ExternalLink, Shield } from 'lucide-react'
+import { 
+  ImageOff, 
+  ExternalLink, 
+  Shield, 
+  DollarSign, 
+  MapPin, 
+  Home, 
+  BedDouble 
+} from 'lucide-react'
 import { PropertyMetrics } from './PropertyMetrics'
 import { getValidImageUrl, getRiskLevel } from '../utils'
 import type { PropertyHeaderProps, Location } from '@/types/safety-report'
 import { ReportNavMenu, type ExtendedReportSection } from '../[id]/components/ReportNavMenu'
 
 // Add commentsCount to the props interface definition
+// Add description and city_id
 interface ExtendedPropertyHeaderProps extends PropertyHeaderProps {
   commentsCount?: number;
+  description?: string | null;
+  city_id?: number | null;
+  property_type?: string | null;
+  room_type?: string | null;
 }
 
 export const PropertyHeader = memo(({
@@ -27,6 +40,9 @@ export const PropertyHeader = memo(({
   activeSection,
   onSectionChange,
   commentsCount, // Destructure commentsCount
+  description, // Destructure description
+  city_id, // Destructure city_id
+  room_type,
 }: ExtendedPropertyHeaderProps) => { // Use the extended interface
   // State to manage the score value for animation
   const [animatedScore, setAnimatedScore] = useState(0);
@@ -82,6 +98,17 @@ export const PropertyHeader = memo(({
     return () => clearTimeout(timer); // Cleanup timeout on unmount or score change
   }, [overall_score]); // Dependency array includes overall_score
 
+  // --- Get City Name from ID ---
+  const getCityName = (id: number | null | undefined): string => {
+     switch (id) {
+       case 1: return 'Los Angeles';
+       case 2: return 'New York City';
+       default: return 'Unknown City'; // Fallback
+     }
+  };
+  const cityName = getCityName(city_id);
+  // ----------------------------
+
   return (
     <div className="shadow-sm rounded-xl bg-white">
       <div className="rounded-t-xl overflow-hidden">
@@ -101,7 +128,7 @@ export const PropertyHeader = memo(({
         )}
       </div>
       
-      <div className="mx-auto px-4 pt-6 pb-4 sm:px-6 lg:px-8">
+      <div className="mx-auto px-4 pt-20 pb-4 sm:px-6 lg:px-8">
         <div className="-mt-12 sm:-mt-16 sm:flex sm:items-end sm:space-x-5">
           <div className="flex">
             <div className={`relative size-24 rounded-full bg-white ring-4 ring-white sm:size-32 flex items-center justify-center p-2 ${overallRisk.border}`}>
@@ -130,13 +157,37 @@ export const PropertyHeader = memo(({
             </div>
           </div>
           
-          <div className="mt-6 sm:mt-0 sm:flex sm:min-w-0 sm:flex-1 sm:items-center sm:justify-end sm:space-x-6 sm:pb-1">
+          <div className="mt-8 sm:mt-0 sm:flex sm:min-w-0 sm:flex-1 sm:items-center sm:justify-end sm:space-x-6 sm:pb-1">
             <div className="min-w-0 flex-1 sm:hidden md:block">
               <h1 className="truncate text-2xl font-bold text-gray-900">{name}</h1>
-              <PropertyMetrics
-                price_per_night={price_per_night}
-                source={source ?? 'Unknown Source'}
-              />
+              <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-gray-500">
+                  {price_per_night && (
+                     <span className="inline-flex items-center">
+                          <DollarSign className="mr-1 size-4 flex-shrink-0" /> ${price_per_night}/night
+                     </span>
+                  )}
+                  {price_per_night && cityName && <span className="text-gray-300">&bull;</span>}
+                  {cityName && cityName !== 'Unknown City' && (
+                      <span className="inline-flex items-center">
+                          <MapPin className="mr-1 size-4 flex-shrink-0" /> {cityName}
+                      </span>
+                  )}
+                  {cityName && property_type && <span className="text-gray-300">&bull;</span>}
+                  {property_type && (
+                      <span className="inline-flex items-center">
+                          <Home className="mr-1 size-4 flex-shrink-0" /> {property_type}
+                      </span>
+                  )}
+                  {property_type && room_type && <span className="text-gray-300">&bull;</span>}
+                  {room_type && (
+                      <span className="inline-flex items-center">
+                          <BedDouble className="mr-1 size-4 flex-shrink-0" /> {room_type}
+                      </span>
+                  )}
+              </div>
+              <div className="mt-2 flex flex-col space-y-1">
+                  {description && <p className="text-sm text-gray-600 mt-1 line-clamp-2" title={description}>{description}</p>}
+              </div>
             </div>
             
             <div className="mt-6 flex flex-col justify-stretch space-y-3 sm:mt-0 sm:flex-row sm:space-y-0 sm:space-x-4">
@@ -156,12 +207,36 @@ export const PropertyHeader = memo(({
           </div>
         </div>
         
-        <div className="mt-6 hidden min-w-0 flex-1 sm:block md:hidden">
+        <div className="mt-8 hidden min-w-0 flex-1 sm:block md:hidden">
           <h1 className="truncate text-2xl font-bold text-gray-900">{name}</h1>
-          <PropertyMetrics
-            price_per_night={price_per_night}
-            source={source ?? 'Unknown Source'}
-          />
+          <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-gray-500">
+              {price_per_night && (
+                 <span className="inline-flex items-center">
+                      <DollarSign className="mr-1 size-4 flex-shrink-0" /> ${price_per_night}/night
+                 </span>
+              )}
+              {price_per_night && cityName && <span className="text-gray-300">&bull;</span>}
+              {cityName && cityName !== 'Unknown City' && (
+                  <span className="inline-flex items-center">
+                      <MapPin className="mr-1 size-4 flex-shrink-0" /> {cityName}
+                  </span>
+              )}
+              {cityName && property_type && <span className="text-gray-300">&bull;</span>}
+              {property_type && (
+                  <span className="inline-flex items-center">
+                      <Home className="mr-1 size-4 flex-shrink-0" /> {property_type}
+                  </span>
+              )}
+              {property_type && room_type && <span className="text-gray-300">&bull;</span>}
+              {room_type && (
+                  <span className="inline-flex items-center">
+                      <BedDouble className="mr-1 size-4 flex-shrink-0" /> {room_type}
+                  </span>
+              )}
+          </div>
+          <div className="mt-2 flex flex-col space-y-1">
+              {description && <p className="text-sm text-gray-600 mt-1 line-clamp-2" title={description}>{description}</p>}
+          </div>
         </div>
       </div>
 
