@@ -1,11 +1,28 @@
-import { Info, CheckCircle, AlertTriangle } from 'lucide-react'
-import { Suspense, lazy } from 'react';
+// src/app/safety-report/[id]/components/OverviewSection.tsx
+import React, { Suspense, lazy } from 'react'; // Import React
+import { Info, CheckCircle, AlertTriangle } from 'lucide-react';
 import type { SimilarAccommodation, SafetyMetric, Location, AccommodationData } from '@/types/safety-report';
 import { SaferAlternativesSection } from './SaferAlternativesSection';
-import { MapLoadingPlaceholder } from '../page';
+// REMOVED: import { MapLoadingPlaceholder } from '../page'; // This was causing the error
 
 // Lazily import MapView
 const LazyMapView = lazy(() => import('../../components/MapView').then(module => ({ default: module.MapView })));
+
+// --- ADDED MapLoadingPlaceholder Definition ---
+// Simple placeholder for map loading - defined locally now
+const MapLoadingPlaceholder = () => (
+  <div className="h-full bg-gray-100 flex items-center justify-center rounded-xl">
+    <div className="text-center">
+      <svg className="animate-spin h-8 w-8 text-gray-400 mx-auto mb-2" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+      </svg>
+      <p className="text-sm text-gray-500">Loading map...</p>
+    </div>
+  </div>
+);
+// --- End ADDED MapLoadingPlaceholder Definition ---
+
 
 type OverviewSectionProps = {
   takeaways: string[] | null;
@@ -19,6 +36,8 @@ type OverviewSectionProps = {
 }
 
 // Helper to determine icon based on takeaway text (copied from PropertyHeader)
+// Note: This helper is defined but not currently used in the OverviewSection JSX below.
+// It might be intended for the takeaway items, but they currently have a dark background.
 const getTakeawayIcon = (text: string) => {
     const lowerText = text.toLowerCase();
     if (lowerText.includes('safe') || lowerText.includes('good') || lowerText.includes('quiet') || lowerText.includes('well-lit') || lowerText.includes('positive')) {
@@ -63,12 +82,14 @@ export const OverviewSection = ({
                 key={index}
                 className="relative flex-shrink-0 w-64 sm:w-72 overflow-hidden rounded-xl border border-gray-100"
                 style={{
-                  background: 'rgb(70, 70, 70)'
+                  background: 'rgb(70, 70, 70)' // Consider using Tailwind bg-gray-800 or similar for consistency
                 }}
               >
-                {/* Gradient overlay */}
-                <div className="absolute inset-0" />
+                {/* Gradient overlay (optional, currently empty) */}
+                {/* <div className="absolute inset-0" /> */}
                 <div className="relative p-4 flex items-start gap-3 h-full">
+                  {/* If you intended to use the icon helper: */}
+                  {/* {getTakeawayIcon(takeaway)} */}
                   <p className="text-sm text-white leading-relaxed flex-grow">{takeaway}</p>
                 </div>
               </div>
@@ -95,7 +116,7 @@ export const OverviewSection = ({
                 </div>
               </div>
             </div>
-            {/* Note: SaferAlternativesSection needs internal horizontal scrolling */}
+            {/* SaferAlternativesSection likely needs internal handling for layout/scrolling */}
             <div className="bg-gray-50 p-4 sm:p-6 rounded-b-xl shadow-sm">
                 <SaferAlternativesSection
                   alternatives={alternatives}
@@ -119,9 +140,9 @@ export const OverviewSection = ({
         </div>
         <div
           className="h-[500px] bg-white rounded-b-xl shadow-sm overflow-hidden relative"
-          style={{ height: '500px' }}
+          // Removed inline style for height as className="h-[500px]" achieves the same
         >
-          {/* Loading Overlay */}
+          {/* Loading Overlay - This handles the loadingNearbyMapData state */}
           {loadingNearbyMapData && (
              <div className="absolute inset-0 z-10 flex items-center justify-center bg-gray-50/80 backdrop-blur-sm">
                 <div className="text-center">
@@ -133,23 +154,27 @@ export const OverviewSection = ({
                 </div>
              </div>
           )}
+
           {/* Map Rendering Logic */}
-          {location ? (
+          {/* Show map or fallback message based on location */}
+          {!loadingNearbyMapData && location ? ( // Check location is available *and* map data is not loading
               <Suspense fallback={<MapLoadingPlaceholder />}>
                 <LazyMapView
+                  // Pass necessary props to your MapView component
                   location={location}
                   currentAccommodation={currentAccommodation}
                   similarAccommodations={allNearbyAccommodations}
+                  // Add any other props your MapView needs e.g., zoom level
                 />
               </Suspense>
-          ) : (
+          ) : !loadingNearbyMapData && !location ? ( // If not loading, but location is missing
              <div className="h-full bg-gray-100 flex items-center justify-center">
                 <p className="text-gray-500">Location coordinates not available for map.</p>
              </div>
-          )}
+          ) : null /* Don't show location error if still loading map data */ }
         </div>
       </div>
 
     </div>
   );
-}; 
+};

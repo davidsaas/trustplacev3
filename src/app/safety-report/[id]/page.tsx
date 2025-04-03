@@ -1,3 +1,4 @@
+// src/app/safety-report/[id]/page.tsx
 'use client'
 
 import React, { useState, useEffect, Suspense, lazy } from 'react'
@@ -5,13 +6,13 @@ import { notFound } from 'next/navigation'
 import { SafetyMetrics } from '../components/SafetyMetrics'
 import { CommunityOpinions, type CommunityOpinion } from './components/CommunityOpinions'
 import { RestrictedContent } from '@/app/auth/components/restricted-content'
-import { supabaseServer } from '@/lib/supabase/server' // Note: Using supabaseServer in 'use client' is generally not recommended directly for auth, relying on Auth context is better. This looks like it might be from server-side props originally, ensure correct usage.
+import { supabaseServer } from '@/lib/supabase/server' // Be mindful of using server client in client component fetches
 import { PropertyHeader } from '../components/PropertyHeader'
 import { LOCATION_RADIUS, SAFETY_RADIUS } from '../constants'
 import { isValidCoordinates, calculateDistance } from '../utils'
 import Loading from './loading'
 import { AppNavbar } from '@/app/components/navbar'
-import { OverviewSection } from './components/OverviewSection'
+import { OverviewSection } from './components/OverviewSection' // OverviewSection is imported here
 import type { ReportSection, ExtendedReportSection } from './components/ReportNavMenu'
 import { useAuth } from '@/components/shared/providers/auth-provider'
 import { OSMInsights } from '../components/OSMInsights'
@@ -29,20 +30,16 @@ import type {
 } from '@/types/safety-report'
 
 // Lazily import MapView
+// Note: MapView import moved here from OverviewSection in the original paste, assuming it was intended here or doesn't matter.
+// If OverviewSection was the only place using LazyMapView, it could be defined there instead.
 const LazyMapView = lazy(() => import('../components/MapView').then(module => ({ default: module.MapView })));
 
-// Simple placeholder for map loading
-const MapLoadingPlaceholder = () => (
-  <div className="h-full bg-gray-100 flex items-center justify-center rounded-xl">
-    <div className="text-center">
-      <svg className="animate-spin h-8 w-8 text-gray-400 mx-auto mb-2" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-      </svg>
-      <p className="text-sm text-gray-500">Loading map...</p>
-    </div>
-  </div>
-);
+// -------------------------------------------------------------
+// REMOVED MapLoadingPlaceholder definition from here.
+// It should be defined in the component that uses it,
+// likely src/app/safety-report/[id]/components/OverviewSection.tsx
+// -------------------------------------------------------------
+
 
 // --- Helper Function for Background Gradient (FIXED) ---
 const getGradientBackgroundStyle = (score: number): React.CSSProperties => {
@@ -99,15 +96,10 @@ const getGradientBackgroundStyle = (score: number): React.CSSProperties => {
 // ----------------------------------------------
 
 
-// NOTE: The following async functions (findClosestSafetyMetricsBatch, findSimilarAccommodations, etc.)
-// are typically run on the server or in API routes in Next.js.
-// Calling them directly within a 'use client' component like this is unusual and might imply
-// they were originally intended for Server Components or `getServerSideProps`/`getStaticProps`.
-// If these need to run *on the client*, consider moving them to API routes and fetching
-// the results using `fetch`. If they *can* run on the server, this component structure
-// might need rethinking (e.g., fetching data in a parent Server Component and passing it down).
-// For this example, I'm leaving them as defined, assuming they work in your current setup,
-// but be aware of this potential architecture issue.
+// NOTE: Usage of supabaseServer in async functions called from useEffect in a 'use client' component.
+// This setup relies on supabaseServer being correctly configured to work in this client-side fetch context,
+// or these functions internally making API calls. Be cautious about server-client context mixing.
+// Ideally, data fetching requiring server context should happen in Server Components or API routes.
 
 // Function to find closest safety metrics for MULTIPLE locations
 async function findClosestSafetyMetricsBatch(locations: Location[]): Promise<Record<string, SafetyMetric[] | null>> {
@@ -831,6 +823,7 @@ export default function SafetyReportPage({ params }: SafetyReportProps) {
       case 'overview':
         return (
           <div key="overview" className="space-y-6">
+            {/* OverviewSection now needs to define MapLoadingPlaceholder internally or import it from a shared location */}
             <OverviewSection
               takeaways={reportData.accommodation_takeaways}
               alternatives={reportData.similar_accommodations}
@@ -1001,10 +994,10 @@ export default function SafetyReportPage({ params }: SafetyReportProps) {
             <div className="mt-6 sm:mt-8 pb-10">
               <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
                 <div className="mx-auto max-w-5xl">
-                  {/* Use Suspense for lazy loaded components if needed, although MapView seems integrated into OverviewSection now */}
-                   {/* <Suspense fallback={<div className="h-64 bg-gray-100 rounded-xl flex items-center justify-center">Loading Section...</div>}> */}
+                  {/* You might still want Suspense around renderSectionContent if any section internally uses lazy loading */}
+                  {/* <Suspense fallback={<div className="h-64 bg-gray-100 rounded-xl flex items-center justify-center">Loading Section...</div>}> */}
                       {renderSectionContent()}
-                   {/* </Suspense> */}
+                  {/* </Suspense> */}
                 </div>
               </div>
             </div>
