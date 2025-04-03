@@ -618,7 +618,7 @@ def get_risk_description(
                 "Very Low": "This area is very safe for walking at night, with minimal risk. While a few incidents have been reported nearby, they are rare, and the overall environment remains low-risk.",
                 "Low": "The area is generally safe at night, though occasional incidents have been reported. Staying aware of your surroundings is usually enough.",
                 "Moderate": "Exercise caution after dark. Stick to well-lit areas and avoid walking alone, as there is some risk of nighttime incidents.",
-                "High": "Be cautious at night, as incidents are more frequent. It’s safer to use taxis or ride-shares instead of walking alone.",
+                "High": "Be cautious at night, as incidents are more frequent. Its safer to use taxis or ride-shares instead of walking alone.",
                 "Very High": "High nighttime incident rates have been reported nearby. Avoid walking alone after dark and use secure transportation whenever possible."
             },
             "daytime": { 
@@ -630,9 +630,9 @@ def get_risk_description(
             },
             "vehicle": { 
                 "Very Low": "Vehicle break-ins and theft are rare in this area. Parking is generally safe.",
-                "Low": "Car-related crime is infrequent, but it’s still wise to lock doors and keep valuables out of sight.",
+                "Low": "Car-related crime is infrequent, but its still wise to lock doors and keep valuables out of sight.",
                 "Moderate": "Some risk of vehicle break-ins exists. Avoid leaving valuables visible and consider parking in well-lit areas.",
-                "High": "There’s a notable risk of car theft or break-ins. Secure parking is recommended if available.",
+                "High": "Theres a notable risk of car theft or break-ins. Secure parking is recommended if available.",
                 "Very High": "High rates of vehicle crime have been reported nearby. Prioritize secure, monitored parking and remove all valuables."
             },
             "transit": { 

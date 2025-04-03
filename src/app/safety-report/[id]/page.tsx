@@ -669,7 +669,7 @@ export default function SafetyReportPage({ params }: SafetyReportProps) {
           }
 
           // Community Opinions Fetch (Using client-side Supabase RPC)
-          if (authenticated && data.location && supabase) {
+          if (data.location && supabase) {
             console.log("[SafetyReportPage Effect] Fetching safety-related community opinions...");
             setLoadingCommunityOpinions(true); // Ensure loading is true
             const { lat, lng } = data.location;
@@ -726,7 +726,7 @@ export default function SafetyReportPage({ params }: SafetyReportProps) {
                 })
             );
           } else {
-              console.log("[SafetyReportPage Effect] Skipping community opinions fetch (not authenticated, missing location, or supabase client unavailable).");
+              console.log("[SafetyReportPage Effect] Skipping community opinions fetch (missing location or supabase client unavailable).");
               if (isMounted) setLoadingCommunityOpinions(false); // Set loading false if skipped
           }
           // --- End Community Opinions Fetch ---
