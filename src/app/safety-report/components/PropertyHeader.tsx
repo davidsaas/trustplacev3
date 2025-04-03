@@ -78,14 +78,14 @@ export const PropertyHeader = memo(({
   
   // Get overall risk level based on score
   const hasScore = overall_score > 0;
-  const overallRisk = hasScore 
-    ? getRiskLevel(overall_score / 10) 
-    : { 
-        label: 'N/A', 
-        fill: '#e5e7eb', // Default gray fill
-        textColor: 'text-gray-500', 
-        bgColor: 'bg-gray-100', 
-        border: 'border-gray-200' 
+  const overallRisk = hasScore
+    ? getRiskLevel(overall_score / 10)
+    : {
+        label: 'N/A',
+        fill: '#9ca3af', // Use gray-400 for fill
+        textColor: 'text-gray-500',
+        bgColor: 'bg-gray-100',
+        border: 'border-gray-200'
       };
 
   // Effect to trigger the animation after mount or when overall_score changes
@@ -113,10 +113,10 @@ export const PropertyHeader = memo(({
     <div className="shadow-sm rounded-xl bg-white">
       <div className="rounded-t-xl overflow-hidden">
         {getValidImageUrl(image_url) ? (
-          <img 
+          <img
             alt={`${name} - Property View`}
             src={image_url!}
-            className="h-48 w-full object-cover lg:h-64" 
+            className="h-48 w-full object-cover lg:h-64"
           />
         ) : (
           <div className="h-48 w-full lg:h-64 bg-gray-100 flex items-center justify-center">
@@ -127,10 +127,12 @@ export const PropertyHeader = memo(({
           </div>
         )}
       </div>
-      
-      <div className="mx-auto px-4 pt-20 pb-4 sm:px-6 lg:px-8">
-        <div className="-mt-12 sm:-mt-16 sm:flex sm:items-end sm:space-x-5">
-          <div className="flex">
+
+      {/* Adjusted margin: -mt-16 only on mobile, sm:mt-4 for spacing on larger screens */}
+      <div className="mx-auto px-4 pb-4 sm:px-6 lg:px-8 -mt-16 sm:mt-6">
+        <div className="sm:flex sm:items-end sm:space-x-5">
+          {/* Container for score circle and label */}
+          <div className="flex flex-col items-center">
             <div className={`relative size-24 rounded-full bg-white ring-4 ring-white sm:size-32 flex items-center justify-center p-2 ${overallRisk.border}`}>
               {hasScore ? (
                 <CircularProgressbar
@@ -142,7 +144,7 @@ export const PropertyHeader = memo(({
                     textSize: '30px',
                     pathTransitionDuration: 1.5,
                     pathColor: overallRisk.fill,
-                    textColor: overallRisk.fill,
+                    textColor: overallRisk.fill, // Use fill color for text too
                     trailColor: '#e5e7eb',
                     backgroundColor: 'transparent',
                   })}
@@ -155,9 +157,24 @@ export const PropertyHeader = memo(({
                 </div>
               )}
             </div>
+            {/* Risk Level Tag - Added Below Circle */}
+            {hasScore && (
+              <span
+                className={`mt-2 text-xs font-semibold px-2.5 py-0.5 rounded-full ${overallRisk.bgColor} ${overallRisk.textColor}`}
+              >
+                {overallRisk.label}
+              </span>
+            )}
+            {/* If no score, maybe show a placeholder tag or nothing */}
+             {!hasScore && (
+                <span className="mt-2 text-xs font-semibold px-2.5 py-0.5 rounded-full bg-gray-100 text-gray-500">
+                    N/A
+                </span>
+             )}
           </div>
-          
-          <div className="mt-8 sm:mt-0 sm:flex sm:min-w-0 sm:flex-1 sm:items-center sm:justify-end sm:space-x-6 sm:pb-1">
+
+          {/* Rest of the content (name, details, buttons) */}
+          <div className="mt-6 sm:mt-0 sm:flex sm:min-w-0 sm:flex-1 sm:items-center sm:justify-end sm:space-x-6 sm:pb-1">
             <div className="min-w-0 flex-1 sm:hidden md:block">
               <h1 className="truncate text-2xl font-bold text-gray-900">{name}</h1>
               <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-gray-500">
