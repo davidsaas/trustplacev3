@@ -614,55 +614,48 @@ def get_risk_description(
         # --- User-Friendly Descriptions based on Risk Level and Metric Type ---
         # Structure: { metric_type: { risk_level: description_string } }
         descriptions = {
-            "night_safety": {
-                "Very Low": "Feel confident exploring this area after dark; nighttime incidents are rare.",
-                "Low": "Generally safe at night, though basic awareness is always recommended.",
-                "Moderate": "Exercise caution after dark; stick to well-lit streets and avoid walking alone.",
-                "High": "Increased caution needed at night. Consider using taxis or ride-shares.",
-                "Very High": "High nighttime incident rates reported. Avoid walking alone after dark."
+            "night": { 
+                "Very Low": "This area is very safe for walking at night, with minimal risk. While a few incidents have been reported nearby, they are rare, and the overall environment remains low-risk.",
+                "Low": "The area is generally safe at night, though occasional incidents have been reported. Staying aware of your surroundings is usually enough.",
+                "Moderate": "Exercise caution after dark. Stick to well-lit areas and avoid walking alone, as there is some risk of nighttime incidents.",
+                "High": "Be cautious at night, as incidents are more frequent. It’s safer to use taxis or ride-shares instead of walking alone.",
+                "Very High": "High nighttime incident rates have been reported nearby. Avoid walking alone after dark and use secure transportation whenever possible."
             },
-            "day_safety": {
-                 "Very Low": "Excellent daytime safety. Enjoy peace of mind while out and about.",
-                 "Low": "Daytime incidents are uncommon. Standard precautions are sufficient.",
-                 "Moderate": "Be mindful of your surroundings during the day, especially in crowded areas.",
-                 "High": "Pay close attention during the day; reports indicate a noticeable level of incidents.",
-                 "Very High": "Daytime safety requires vigilance. Be aware of potential risks."
+            "daytime": { 
+                "Very Low": "This area is very safe during the day, allowing you to move around with peace of mind.",
+                "Low": "Daytime incidents are uncommon, and standard precautions are typically enough to stay safe.",
+                "Moderate": "Be mindful of your surroundings during the day, especially in busy areas, as some incidents have been reported.",
+                "High": "Stay alert during daylight hours, as there is a noticeable level of reported incidents in this area.",
+                "Very High": "Daytime safety requires extra caution. Be aware of potential risks, as incidents occur relatively frequently."
             },
-            "parking_safety": {
-                "Very Low": "Low risk of vehicle break-ins or theft. Parking here is generally secure.",
-                "Low": "Vehicle-related crime is infrequent. Standard precautions like locking doors are advised.",
-                "Moderate": "Some risk of car break-ins. Avoid leaving valuables visible in your vehicle.",
-                "High": "Notable risk of vehicle theft or break-ins. Use secure parking if possible.",
-                "Very High": "High rates of vehicle crime reported. Prioritize secure, well-lit parking."
+            "vehicle": { 
+                "Very Low": "Vehicle break-ins and theft are rare in this area. Parking is generally safe.",
+                "Low": "Car-related crime is infrequent, but it’s still wise to lock doors and keep valuables out of sight.",
+                "Moderate": "Some risk of vehicle break-ins exists. Avoid leaving valuables visible and consider parking in well-lit areas.",
+                "High": "There’s a notable risk of car theft or break-ins. Secure parking is recommended if available.",
+                "Very High": "High rates of vehicle crime have been reported nearby. Prioritize secure, monitored parking and remove all valuables."
             },
-            "transport_safety": {
-                "Very Low": "Public transport in this area is considered very safe, day and night.",
-                "Low": "Using public transport is generally safe; incidents are infrequent.",
-                "Moderate": "Be aware of your surroundings on public transport, especially during off-peak hours.",
-                "High": "Exercise caution using public transport; stay alert to potential issues.",
-                "Very High": "Reports indicate safety concerns on nearby public transport. Stay vigilant."
+            "transit": { 
+                "Very Low": "Public transport near this location is very safe, both day and night.",
+                "Low": "Using public transport here is generally safe, with only occasional incidents affecting commuters.",
+                "Moderate": "Stay aware of your surroundings when using public transport, especially during off-peak hours, as some safety concerns have been reported.",
+                "High": "Use caution when traveling on public transport in this area. Remain alert to potential risks.",
+                "Very High": "Reports indicate notable safety concerns on public transport near this area. Be vigilant, especially at night."
             },
-            "women_safety": {
-                 "Very Low": "Area considered very safe for solo women travelers, day and night.",
-                 "Low": "Generally comfortable for solo women, standard awareness is sufficient.",
-                 "Moderate": "Solo women should exercise increased awareness, particularly after dark.",
-                 "High": "Concerns reported regarding solo women's safety. Take extra precautions.",
-                 "Very High": "Significant safety concerns for solo women reported. Avoid traveling alone if possible."
+            "women": { 
+                "Very Low": "This area is very safe and comfortable for solo women travelers, both day and night.",
+                "Low": "Generally safe for solo women. Staying aware of your surroundings is usually enough.",
+                "Moderate": "Solo women should take extra caution, especially after dark, as some safety concerns have been reported.",
+                "High": "Women traveling alone should take extra precautions. There are safety concerns, particularly at night.",
+                "Very High": "Significant safety concerns have been reported for solo women in this area. Avoid traveling alone if possible, especially at night."
             },
-             "lgbtq_safety": {
-                 "Very Low": "Considered a very welcoming and safe area for LGBTQ+ individuals.",
-                 "Low": "Generally safe and inclusive for the LGBTQ+ community.",
-                 "Moderate": "Exercise standard awareness; while generally safe, isolated incidents may occur.",
-                 "High": "Some concerns reported regarding LGBTQ+ safety. Be mindful of your surroundings.",
-                 "Very High": "Reports indicate potential safety risks for LGBTQ+ individuals. Exercise caution."
-             },
-             "tourist_safety": {
-                 "Very Low": "Excellent safety record for tourists. Enjoy exploring with confidence.",
-                 "Low": "Generally safe for tourists. Basic precautions against petty theft are advisable.",
-                 "Moderate": "Be mindful of potential tourist scams or pickpocketing, especially in busy areas.",
-                 "High": "Increased vigilance required for tourists due to reported incidents.",
-                 "Very High": "Tourists should be highly cautious due to significant safety concerns reported."
-             },
+            "property": { 
+                "Very Low": "Property crime (theft, burglary, vandalism) is very rare in this area.",
+                "Low": "Property crime is infrequent. Standard security measures, such as locking doors, are generally effective.",
+                "Moderate": "Some risk of property crime exists. Lock doors and windows, and avoid leaving valuables in plain sight.",
+                "High": "Property crime is a concern in this area. Consider additional security measures to protect your belongings.",
+                "Very High": "High rates of property crime have been reported. Stay vigilant and use strong security measures where possible."
+            }
             # Add more specific descriptions for other metric types as needed
         }
 

@@ -2,38 +2,38 @@
   "metrics": [
     {
       "id": "night",
-      "question": "Can I go outside after dark?",
+      "question": "Is it safe at night?",
       "description": "Safety for pedestrians during evening/night hours",
       "iconName": "Clock",
       "time_filter": [19, 20, 21, 22, 23, 0, 1, 2, 3, 4, 5]
     },
     {
       "id": "vehicle",
-      "question": "Can I park here safely?",
+      "question": "Is my car safe here?",
       "description": "Risk of vehicle theft and break-ins",
       "iconName": "Car"
     },
     {
       "id": "transit",
-      "question": "Is it safe to use public transport?",
+      "question": "Is public transport safe?",
       "description": "Safety at and around transit locations",
       "iconName": "Bus"
     },
     {
       "id": "women",
-      "question": "Would I be harassed here?",
+      "question": "Is harassment a concern?",
       "description": "Assessment of crimes that disproportionately affect women",
       "iconName": "UserRound"
     },
     {
       "id": "property",
-      "question": "How likely is a break-in or theft?",
+      "question": "Is theft or break-in likely?",
       "description": "Risk of residential burglary, non-vehicle theft, and vandalism",
       "iconName": "Home"
     },
     {
       "id": "daytime",
-      "question": "Is it safe to walk around during the day?",
+      "question": "Is it safe during the day?",
       "description": "Safety for pedestrians and general activity during daytime hours (9 AM - 5 PM)",
       "iconName": "Sun",
       "time_filter": [9, 10, 11, 12, 13, 14, 15, 16]
