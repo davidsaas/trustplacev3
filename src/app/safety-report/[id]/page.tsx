@@ -186,10 +186,10 @@ async function findClosestSafetyMetricsBatch(locations: Location[]): Promise<Rec
 }
 
 // Constants for filtering similar accommodations
-const SIMILARITY_PRICE_RANGE = { MIN: 0.4, MAX: 1.8 }; // Widen price range
-const SAFER_SCORE_THRESHOLD = 3; // Reduced threshold for 'safer'
+const SIMILARITY_PRICE_RANGE = { MIN: 0.4, MAX: 1.2 }; // Widen price range
+const SAFER_SCORE_THRESHOLD = 5; // Reduced threshold for 'safer'
 const MIN_METRIC_TYPES_FOR_RELIABLE_SCORE = 3; // Reduced reliability requirement
-const MAX_SIMILAR_RESULTS = 8; // Show top 8 results (Changed from 5)
+const MAX_SIMILAR_RESULTS = 10; // Show top 8 results (Changed from 5)
 const SIMILAR_ACCOMMODATION_RADIUS = 0.4; // NEW: Increased radius for finding similar accommodations (~44km)
 
 // Function to fetch similar accommodations (REVISED to include metrics)
@@ -673,7 +673,7 @@ export default function SafetyReportPage({ params }: SafetyReportProps) {
             console.log("[SafetyReportPage Effect] Fetching safety-related community opinions...");
             setLoadingCommunityOpinions(true); // Ensure loading is true
             const { lat, lng } = data.location;
-            const radiusMeters = 2000; // Define radius
+            const radiusMeters = 4000; // Define radius
             const opinionLimit = 50; // Define limit
 
             secondaryFetches.push(
