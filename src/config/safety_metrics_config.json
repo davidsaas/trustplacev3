@@ -27,13 +27,13 @@
     },
     {
       "id": "property",
-      "question": "How likely is a break-in or theft at my rental/home?",
+      "question": "How likely is a break-in or theft?",
       "description": "Risk of residential burglary, non-vehicle theft, and vandalism",
       "iconName": "Home"
     },
     {
       "id": "daytime",
-      "question": "How safe is it to walk around during the day?",
+      "question": "Is it safe to walk around during the day?",
       "description": "Safety for pedestrians and general activity during daytime hours (9 AM - 5 PM)",
       "iconName": "Sun",
       "time_filter": [9, 10, 11, 12, 13, 14, 15, 16]

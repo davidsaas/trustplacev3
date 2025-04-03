@@ -554,6 +554,29 @@ export default function SafetyReportPage({ params }: SafetyReportProps) {
     // but the effect will handle the error state.
   }
 
+  // --- NEW: useEffect for GetYourGuide Script ---
+  useEffect(() => {
+      const scriptId = 'gyg-widget-script';
+      if (!document.getElementById(scriptId)) {
+          const script = document.createElement('script');
+          script.id = scriptId;
+          script.async = true;
+          script.defer = true;
+          script.src = "https://widget.getyourguide.com/v2/core.js";
+          document.body.appendChild(script);
+
+          // Optional: Cleanup script on component unmount if necessary
+          // Be cautious removing scripts potentially shared by other components
+          // return () => {
+          //     const existingScript = document.getElementById(scriptId);
+          //     if (existingScript && document.body.contains(existingScript)) {
+          //        document.body.removeChild(existingScript);
+          //     }
+          // };
+      }
+  }, []); // Run only once on mount
+  // --- End GetYourGuide Script useEffect ---
+
   // Fetch data and check authentication
   useEffect(() => {
     if (!params.id) {
@@ -872,10 +895,8 @@ export default function SafetyReportPage({ params }: SafetyReportProps) {
                     </div>
                   </div>
                 </div>
-                {/* Wrap CommunityOpinions in RestrictedContent */}
-                <RestrictedContent
-                    fallback={<div className="bg-white p-6 rounded-b-xl shadow-sm text-sm text-gray-600">Please log in to view community comments.</div>}
-                >
+                {/* Wrap CommunityOpinions in RestrictedContent - Removed fallback prop */}
+                <RestrictedContent>
                     <CommunityOpinions
                       isAuthenticated={isAuthenticated} // Pass auth status if needed internally by CommunityOpinions
                       opinions={communityOpinions}
@@ -904,29 +925,6 @@ export default function SafetyReportPage({ params }: SafetyReportProps) {
            console.warn(`[Activities Section] Unknown city_id: ${city_id}. Defaulting to Los Angeles for GetYourGuide.`);
         }
         // --- End Dynamic GetYourGuide Location ---
-
-        // --- Load GetYourGuide Script ---
-        // Ensure the script is loaded (e.g., in _app.js, _document.js, or via useEffect here)
-        // Example using useEffect for simplicity:
-        useEffect(() => {
-            const scriptId = 'gyg-widget-script';
-            if (!document.getElementById(scriptId)) {
-                const script = document.createElement('script');
-                script.id = scriptId;
-                script.async = true;
-                script.defer = true;
-                script.src = "https://widget.getyourguide.com/v2/core.js";
-                document.body.appendChild(script);
-
-                // Cleanup script on component unmount
-                return () => {
-                    const existingScript = document.getElementById(scriptId);
-                    if (existingScript) {
-                       // document.body.removeChild(existingScript); // Be careful removing shared scripts
-                    }
-                };
-            }
-        }, []); // Run only once on mount
 
         return (
           <div key="activities">
