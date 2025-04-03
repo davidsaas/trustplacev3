@@ -32,7 +32,7 @@ import type {
 const LazyMapView = lazy(() => import('../components/MapView').then(module => ({ default: module.MapView })));
 
 // Simple placeholder for map loading
-export const MapLoadingPlaceholder = () => (
+const MapLoadingPlaceholder = () => (
   <div className="h-full bg-gray-100 flex items-center justify-center rounded-xl">
     <div className="text-center">
       <svg className="animate-spin h-8 w-8 text-gray-400 mx-auto mb-2" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
