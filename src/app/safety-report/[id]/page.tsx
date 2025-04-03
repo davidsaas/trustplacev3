@@ -58,22 +58,22 @@ const getGradientBackgroundStyle = (score: number): React.CSSProperties => {
     hue = 0;       // Red
     saturation = 90; // High saturation
     lightness = 50;  // Standard lightness
-    startOpacity = 0.30; // Higher contrast for red
-    midOpacity = 0.10;
+    startOpacity = 0.40; // Higher contrast for red
+    midOpacity = 0.0;
   } else if (normalizedScore < 0.7) {
     // Orange Range (40-69)
     hue = 35;      // Orange
     saturation = 95; // Very high saturation
     lightness = 50;  // Standard lightness
-    startOpacity = 0.25;
-    midOpacity = 0.08;
+    startOpacity = 0.40;
+    midOpacity = 0.00;
   } else {
     // Green Range (70-100)
     hue = 120;     // Green
     saturation = 70; // Good saturation
     lightness = 40;  // Slightly darker green
-    startOpacity = 0.20;
-    midOpacity = 0.05;
+    startOpacity = 0.40;
+    midOpacity = 0.0;
   }
 
   const startColor = `hsla(${hue.toFixed(0)}, ${saturation.toFixed(0)}%, ${lightness.toFixed(0)}%, ${startOpacity})`; 
