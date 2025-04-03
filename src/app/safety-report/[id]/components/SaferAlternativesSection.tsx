@@ -33,6 +33,7 @@ interface SaferAlternativesSectionProps {
   alternatives: SimilarAccommodation[] | null | undefined;
   currentScore: number | null | undefined;
   currentMetrics: SafetyMetric[] | null | undefined;
+  currentPrice: number | null | undefined;
 }
 
 // Helper function to generate user-friendly metric message
@@ -212,6 +213,7 @@ export const SaferAlternativesSection = ({
   alternatives,
   currentScore,
   currentMetrics,
+  currentPrice,
 }: SaferAlternativesSectionProps) => {
   // Handle null or empty alternatives array
   if (!alternatives || alternatives.length === 0) {
@@ -223,7 +225,38 @@ export const SaferAlternativesSection = ({
   }
 
   const safeCurrentScore = currentScore ?? 0;
-  const displayedAlternatives = alternatives.slice(0, 8); // Limit to 8 alternatives
+  const priceLimit = currentPrice ? currentPrice * 1.1 : null;
+
+  // --- ADDED: Filter by price and Sort by score ---
+  const filteredAndSortedAlternatives = alternatives
+    // 1. Filter by price (if currentPrice and alternative price exist)
+    .filter(alt => {
+      if (priceLimit === null || typeof alt.price_per_night !== 'number' || alt.price_per_night <= 0) {
+        // If no current price limit, or alternative has no valid price, include it for now
+        // (Maybe adjust this logic if alternatives without price should be excluded)
+        return true; 
+      }
+      return alt.price_per_night <= priceLimit;
+    })
+    // 2. Sort by overall_score descending (highest first), handle null/undefined scores
+    .sort((a, b) => {
+      const scoreA = a.overall_score ?? -Infinity; // Treat null/undefined as lowest score
+      const scoreB = b.overall_score ?? -Infinity;
+      return scoreB - scoreA; // Descending order
+    });
+  // --- END ADDED ---
+
+  const displayedAlternatives = filteredAndSortedAlternatives.slice(0, 8); // Limit to 8 AFTER sorting
+
+  // --- Check if any alternatives remain after filtering/sorting ---
+  if (displayedAlternatives.length === 0) {
+      return (
+        <div className="bg-gray-50 rounded-lg p-6 text-center min-h-[150px] flex items-center justify-center">
+          <p className="text-gray-500">No suitable safer alternatives found nearby matching the criteria.</p>
+        </div>
+      );
+  }
+  // --- End Check ---
 
   return (
     <div className="flex space-x-4 overflow-x-auto py-2 -my-2 scrollbar-thin scrollbar-thumb-gray-300 scrollbar-track-gray-100">

@@ -318,7 +318,7 @@ async function findSimilarAccommodations(
 }
 
 // --- NEW: Function to fetch ALL nearby accommodations for Map Debugging ---
-const MAX_MAP_MARKERS = 300; // Limit markers on map for performance
+const MAX_MAP_MARKERS = 100; // Limit markers on map for performance
 
 async function fetchAllNearbyAccommodations(
   currentLocation: Location,
@@ -824,6 +824,7 @@ export default function SafetyReportPage({ params }: SafetyReportProps) {
               }}
               currentMetrics={reportData.safety_metrics}
               currentScore={reportData.overall_score}
+              currentPrice={reportData.price_per_night}
               allNearbyAccommodations={allNearbyAccommodations}
               location={reportData.location}
               loadingNearbyMapData={loadingNearbyMapData}
@@ -863,31 +864,23 @@ export default function SafetyReportPage({ params }: SafetyReportProps) {
           </div>
         );
       case 'comments':
-            return (
-              <div key="comments">
-                <div className="border-b border-gray-200 bg-white px-4 py-5 sm:px-6 rounded-t-xl shadow-sm">
-                  <div className="-ml-4 -mt-4 flex flex-wrap items-center justify-between sm:flex-nowrap">
-                    <div className="ml-4 mt-4">
-                      <h3 className="text-base font-semibold leading-6 text-gray-900 flex items-center gap-2">
-                         <MessageSquare className="size-5 text-gray-500" /> Raw Community Comments
-                      </h3>
-                      <p className="mt-1 text-sm text-gray-500">
-                        Safety-related comments from local discussions near this location. Restricted access.
-                      </p>
-                    </div>
-                  </div>
+        return (
+          <div key="comments">
+            <div className="border-b border-gray-200 bg-white px-4 py-5 sm:px-6 rounded-t-xl shadow-sm">
+              <div className="-ml-4 -mt-4 flex flex-wrap items-center justify-between sm:flex-nowrap">
+                <div className="ml-4 mt-4">
+                  <h3 className="text-base font-semibold leading-6 text-gray-900">Community Comments</h3>
+                  <p className="mt-1 text-sm text-gray-500">Raw, unfiltered comments from local online discussions.</p>
                 </div>
-                {/* Wrap CommunityOpinions in RestrictedContent - Removed fallback prop */}
-                <RestrictedContent>
-                    <CommunityOpinions
-                      isAuthenticated={isAuthenticated} // Pass auth status if needed internally by CommunityOpinions
-                      opinions={communityOpinions}
-                      isLoading={loadingCommunityOpinions}
-                      error={communityOpinionsError}
-                    />
-                </RestrictedContent>
               </div>
-            );
+            </div>
+            <CommunityOpinions
+              opinions={communityOpinions}
+              isLoading={false}
+              error={null}
+            />
+          </div>
+        );
       case 'activities':
         // --- Dynamic Location Logic ---
         const { location, neighborhood, city_id } = reportData;

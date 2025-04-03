@@ -218,7 +218,7 @@ export const MapView = ({
         markersRef.current.clear();
         popupsRef.current.clear();
 
-        // 2. Combine Data (keep existing)
+        // 2. Combine Data
         const currentWithCoords = {
              ...currentAccommodation,
              isCurrent: true,
@@ -227,26 +227,36 @@ export const MapView = ({
              hasCompleteData: currentAccommodation.hasCompleteData ?? true
         };
         const allAccommodations = [
-             currentWithCoords,
-             ...similarAccommodations.map(acc => ({
-                  ...acc,
-                  isCurrent: false,
-                  lat: acc.latitude,
-                  lng: acc.longitude,
-                  hasCompleteData: acc.hasCompleteData ?? true
-             }))
+             // Only include current if its location is valid
+             ...(isValidCurrentLocation ? [currentWithCoords] : []),
+             // Filter similar accommodations: MUST have valid coords AND a valid score
+             ...similarAccommodations
+                .filter(acc => 
+                    isValidCoordinate(acc.latitude, 'lat') && 
+                    isValidCoordinate(acc.longitude, 'lng') &&
+                    typeof acc.overall_score === 'number' && !isNaN(acc.overall_score) && acc.overall_score >= 0 // ADDED score check
+                )
+                .map(acc => ({
+                    ...acc,
+                    isCurrent: false,
+                    lat: acc.latitude,
+                    lng: acc.longitude,
+                    hasCompleteData: acc.hasCompleteData ?? true
+                }))
         ];
 
         // 3. Create and add markers/popups
         allAccommodations.forEach(acc => {
+            // Coordinates are already validated in the filter step above, 
+            // but keep check just in case currentAccommodation was added with invalid coords (though unlikely now)
             if (!isValidCoordinate(acc.lat, 'lat') || !isValidCoordinate(acc.lng, 'lng')) return;
 
             const hasCompleteData = acc.hasCompleteData;
             const isCurrent = acc.isCurrent;
-            // const isHovered = !isCurrent && hoveredAlternativeId === acc.id; // REMOVED
+            // Score is guaranteed to be a number here due to the filter, default to 0 if somehow still invalid
+            const overallScore = typeof acc.overall_score === 'number' ? acc.overall_score : 0; 
 
             try {
-                const overallScore = acc.overall_score ?? 0;
                 // --- isHovered parameter removed from icon creation ---
                 const iconHtml = createCustomMarkerHTML(overallScore, isCurrent, hasCompleteData);
                 const icon = L.divIcon({
@@ -328,7 +338,7 @@ export const MapView = ({
             } catch (error) { console.error("Error creating Leaflet marker/popup:", acc.name, error); }
         });
 
-    }, [ // Removed hoverAlternativeId and onMarkerHover from dependencies
+    }, [
         location,
         currentAccommodation,
         similarAccommodations,

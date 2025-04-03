@@ -20,7 +20,6 @@ export interface CommunityOpinion {
 }
 
 interface CommunityOpinionsProps {
-  isAuthenticated: boolean;
   opinions: CommunityOpinion[] | null;
   isLoading: boolean;
   error: string | null;
@@ -35,46 +34,6 @@ const OpinionsLoadingSkeleton = () => (
     </div>
 );
 
-const SignUpPrompt = () => (
-     <div className="relative bg-white rounded-xl p-6 shadow-sm overflow-hidden border border-gray-200">
-        {/* Overlay */}
-        <div className="absolute inset-0 bg-gradient-to-b from-white/60 to-gray-100/90 backdrop-blur-md z-10 flex items-center justify-center p-4">
-            <div className="text-center p-6 bg-white rounded-lg shadow-xl border border-gray-200 max-w-md">
-                 <MessageSquare className="h-10 w-10 text-blue-500 mx-auto mb-3" />
-                 <h3 className="text-lg font-semibold text-gray-800 mb-2">Unlock Community Comments</h3>
-                 <p className="text-sm text-gray-600 mb-4">Sign up or log in to see raw comments from local discussions near this location.</p>
-                 <Link href="/auth/login" passHref>
-                     <Button className="w-full py-2">
-                        Sign Up / Log In
-                     </Button>
-                 </Link>
-            </div>
-        </div>
-        {/* Blurred background content (Placeholder UI) */}
-        <div className="blur-sm pointer-events-none select-none opacity-60">
-             <h3 className="text-lg font-semibold text-gray-500 mb-4">Community Feedback</h3>
-             <div className="space-y-3">
-                 <div className="p-3 bg-white rounded-lg border border-gray-200 shadow-sm">
-                     <div className="h-3 w-full bg-gray-300 rounded mb-2"></div>
-                     <div className="h-3 w-5/6 bg-gray-300 rounded"></div>
-                     <div className="mt-2 pt-2 border-t border-gray-100 flex items-center justify-between">
-                        <div className="h-2 w-1/4 bg-gray-200 rounded"></div>
-                        <div className="h-2 w-1/6 bg-gray-200 rounded"></div>
-                     </div>
-                </div>
-                 <div className="p-3 bg-white rounded-lg border border-gray-200 shadow-sm">
-                     <div className="h-3 w-full bg-gray-300 rounded mb-2"></div>
-                     <div className="h-3 w-3/4 bg-gray-300 rounded"></div>
-                     <div className="mt-2 pt-2 border-t border-gray-100 flex items-center justify-between">
-                        <div className="h-2 w-1/3 bg-gray-200 rounded"></div>
-                        <div className="h-2 w-1/5 bg-gray-200 rounded"></div>
-                     </div>
-                </div>
-             </div>
-        </div>
-    </div>
-);
-
 // Add Reddit logo SVG component
 const RedditLogo = () => (
   <svg className="size-10 rounded-full bg-gray-100 p-2" viewBox="0 0 20 20" fill="#FF4500">
@@ -84,15 +43,10 @@ const RedditLogo = () => (
 
 // --- Main Component ---
 export const CommunityOpinions = ({
-    isAuthenticated,
     opinions,
     isLoading,
     error
 }: CommunityOpinionsProps) => {
-
-  if (!isAuthenticated) {
-      return <SignUpPrompt />;
-  }
 
   const hasOpinions = opinions && opinions.length > 0;
   const noDataFound = !isLoading && !error && !hasOpinions;

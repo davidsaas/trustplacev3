@@ -30,6 +30,7 @@ type OverviewSectionProps = {
   currentAccommodation: Pick<AccommodationData, 'id' | 'name' | 'overall_score' | 'hasCompleteData'>;
   currentMetrics: SafetyMetric[] | null | undefined;
   currentScore: number | null | undefined;
+  currentPrice: number | null | undefined;
   allNearbyAccommodations: SimilarAccommodation[];
   location: Location | null;
   loadingNearbyMapData: boolean;
@@ -55,6 +56,7 @@ export const OverviewSection = ({
   currentAccommodation,
   currentMetrics,
   currentScore,
+  currentPrice,
   allNearbyAccommodations,
   location,
   loadingNearbyMapData,
@@ -82,6 +84,7 @@ export const OverviewSection = ({
                   alternatives={alternatives}
                   currentScore={currentScore}
                   currentMetrics={currentMetrics}
+                  currentPrice={currentPrice}
                 />
             </div>
       </div>
