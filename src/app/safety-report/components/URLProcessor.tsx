@@ -1,12 +1,11 @@
 'use client'
 
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { toast } from 'sonner'
 import { parseAccommodationURL } from '@/lib/utils/url'
-import { ExclamationTriangleIcon } from '@heroicons/react/24/outline'
 
 // Define or Import LoadingState component
 const LoadingState = () => {
@@ -22,11 +21,16 @@ const LoadingState = () => {
   )
 }
 
-// Read the base URL from environment variables
-// Fallback to trustplace.app, but ensure this is set in your environment!
+// Read the base URL for the Next.js app (for redirects *within* the app if needed, like from localhost)
 const appBaseUrl = process.env.NEXT_PUBLIC_APP_BASE_URL || 'https://trustplacev3-one.vercel.app';
 if (!process.env.NEXT_PUBLIC_APP_BASE_URL) {
     console.warn("NEXT_PUBLIC_APP_BASE_URL environment variable is not set. Falling back to 'https://trustplacev3-one.vercel.app'.");
+}
+
+// Read the base URL for the WordPress site (for external redirects on error)
+const wordpressUrl = process.env.NEXT_PUBLIC_WORDPRESS_URL || 'https://trustplace.app';
+if (!process.env.NEXT_PUBLIC_WORDPRESS_URL) {
+    console.warn("NEXT_PUBLIC_WORDPRESS_URL environment variable is not set. Falling back to 'https://trustplace.app'.");
 }
 
 export const URLProcessor = () => {
@@ -53,32 +57,17 @@ export const URLProcessor = () => {
   const [isLoading, setIsLoading] = useState(!!initialUrlParam)
   // isProcessingParam specifically tracks if we are auto-processing the URL param
   const [isProcessingParam, setIsProcessingParam] = useState(!!initialUrlParam);
-  // --- New State ---
-  const [showNotFoundError, setShowNotFoundError] = useState(false);
-  const [countdown, setCountdown] = useState(10);
-  const timerRef = useRef<NodeJS.Timeout | null>(null); // Ref to store timer ID
-  // --- End New State ---
-
-  // Function to redirect to WordPress home
-  const redirectToWordPressHome = () => {
-     if (timerRef.current) {
-       clearInterval(timerRef.current); // Clear timer if manually navigating
-       timerRef.current = null;
-     }
-     window.location.href = appBaseUrl; // Use window.location for external redirect
-  }
 
   const handleUrlProcessing = async (urlToProcess: string) => {
     if (!urlToProcess.trim()) {
-      toast.error('Please enter a URL')
-      setIsLoading(false); // Ensure loading stops if URL is empty
-      setIsProcessingParam(false); // Reset param processing state
-      return
+      // Redirect immediately if URL is empty on manual submit (unlikely if triggered by param)
+      window.location.href = `${wordpressUrl}?error=empty_input`;
+      return;
     }
 
     // Ensure loading states are true when processing starts
+    // No need to reset error state as we redirect externally
     setIsLoading(true)
-    setShowNotFoundError(false); // Reset error state on new processing
     let navigated = false; // Flag to track if navigation is initiated
 
     try {
@@ -94,13 +83,15 @@ export const URLProcessor = () => {
       console.log('Parsed URL:', parsedUrl)
 
       if (!parsedUrl) {
-        toast.error('Invalid URL', {
-          description: 'Please enter a valid Airbnb or Booking.com URL'
-        })
+        // --- Redirect on Invalid URL --- //
+        console.error('Invalid URL format:', urlToProcess);
+        window.location.href = `${wordpressUrl}?error=invalid_url`;
+        return; // Stop execution
+        // --- End Redirect --- //
       } else {
         console.log('Sending to API:', parsedUrl)
         const controller = new AbortController()
-        const timeoutId = setTimeout(() => controller.abort(), 10000)
+        const timeoutId = setTimeout(() => controller.abort(), 10000) // Keep timeout
 
         try {
           const response = await fetch('/api/process-url', {
@@ -114,40 +105,59 @@ export const URLProcessor = () => {
           if (!response.ok) {
             const data = await response.json().catch(() => ({ error: 'Unknown error' }))
             if (response.status === 404) {
-              console.log('Accommodation not found, showing custom error.');
-              setShowNotFoundError(true); // Set state to show custom error page
+              // --- Redirect on 404 Not Found --- //
+              console.log('Accommodation not found, redirecting.');
+              window.location.href = `${wordpressUrl}?error=not_found`;
+              return; // Stop execution
+              // --- End Redirect --- //
             } else {
-              toast.error(data.error || 'Failed to process URL')
+              // --- Redirect on other API errors --- //
+              console.error('API Error:', response.status, data.error);
+              window.location.href = `${wordpressUrl}?error=processing_failed&status=${response.status}`;
+              return; // Stop execution
+              // --- End Redirect --- //
             }
           } else {
             const data = await response.json()
             console.log('API Response:', data)
             if (data.reportId) {
               navigated = true;
-              // Redirect to the production domain using the base URL
+              // Redirect to the production safety report page using appBaseUrl
               const redirectUrl = `${appBaseUrl}/safety-report/${data.reportId}`;
-              console.log('Redirecting to:', redirectUrl);
+              console.log('Redirecting to safety report:', redirectUrl);
               window.location.href = redirectUrl;
             } else {
-              toast.error('Could not generate report', {
-                description: 'No valid report ID was returned'
-              })
+              // --- Redirect if API succeeds but no reportId --- //
+              console.error('API success, but no reportId returned.');
+              window.location.href = `${wordpressUrl}?error=no_report_id`;
+              return; // Stop execution
+              // --- End Redirect --- //
             }
           }
         } catch (fetchError: unknown) {
           clearTimeout(timeoutId)
+          let errorCode = 'network_error';
           if (fetchError instanceof Error && fetchError.name === 'AbortError') {
-            toast.error('Request timed out', { description: 'The server took too long to respond. Please try again later.' })
+            console.error('Request timed out');
+            errorCode = 'timeout';
           } else {
             console.error('Fetch error:', fetchError)
-            toast.error('Network error', { description: 'Please check your connection and try again' })
           }
+          // --- Redirect on Fetch Error --- //
+          window.location.href = `${wordpressUrl}?error=${errorCode}`;
+          return; // Stop execution
+          // --- End Redirect --- //
         }
       }
     } catch (error) {
       console.error('Error in handleUrlProcessing:', error)
-      toast.error('An unexpected error occurred while processing the URL.')
+      // --- Redirect on Unexpected Error --- //
+      window.location.href = `${wordpressUrl}?error=unknown`;
+      return; // Stop execution
+      // --- End Redirect --- //
     } finally {
+      // Only stop loading if we didn't navigate/redirect away
+      // This might be redundant now as most paths redirect, but keep for safety
       if (!navigated) {
         setIsLoading(false)
         setIsProcessingParam(false);
@@ -166,71 +176,13 @@ export const URLProcessor = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isProcessingParam, initialUrlParam]); // Depends on the initial state
 
-  // --- Countdown Timer Effect ---
-  useEffect(() => {
-    // Start timer only when the not found error should be shown
-    if (showNotFoundError) {
-      setCountdown(10); // Reset countdown to 10
-      timerRef.current = setInterval(() => {
-        setCountdown((prevCount) => {
-          if (prevCount <= 1) {
-            clearInterval(timerRef.current!); // Use non-null assertion as it's checked
-            timerRef.current = null;
-            redirectToWordPressHome(); // Redirect when timer hits 0
-            return 0;
-          }
-          return prevCount - 1;
-        });
-      }, 1000); // Update every second
-    }
-
-    // Cleanup function: Clear interval if component unmounts or error state changes
-    return () => {
-      if (timerRef.current) {
-        clearInterval(timerRef.current);
-        timerRef.current = null;
-      }
-    };
-    // Rerun effect when showNotFoundError changes
-  }, [showNotFoundError]);
-  // --- End Countdown Timer Effect ---
-
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault()
     if (isProcessingParam || isLoading) return; // Prevent submit if already processing
     handleUrlProcessing(url)
   }
 
-  // --- Updated Conditional Rendering ---
-  // 1. Show Not Found Error Page if state is true
-  if (showNotFoundError) {
-    return (
-      <div className="text-center py-10 px-4">
-        <ExclamationTriangleIcon
-            className="mx-auto size-12 text-yellow-500"
-            aria-hidden="true"
-        />
-        <h3 className="mt-2 text-lg font-semibold text-gray-900">Accommodation Not Found</h3>
-        <p className="mt-1 text-sm text-gray-500">
-            We only have data for certain accommodations in Los Angeles at the moment.
-        </p>
-        <div className="mt-6">
-          <button
-            onClick={redirectToWordPressHome}
-            type="button"
-            className="solid"
-          >
-            Back to Home
-          </button>
-        </div>
-        <p className="mt-4 text-sm text-gray-500">
-          Redirecting automatically in {countdown} second{countdown !== 1 ? 's' : ''}...
-        </p>
-      </div>
-    );
-  }
-
-  // 2. Show Loading State if processing parameter or form submission
+  // Show Loading State if processing parameter or form submission
   if (isLoading || isProcessingParam) {
       return <LoadingState />;
   }
