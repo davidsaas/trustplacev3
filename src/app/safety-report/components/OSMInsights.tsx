@@ -177,7 +177,7 @@ export const OSMInsights = ({ data, isLoading }: OSMInsightsProps) => {
               backgroundClass = 'bg-green-500/5'; // Subtle green
               break;
             case 'Medium':
-              backgroundClass = 'bg-yellow-500/5'; // Subtle yellow
+              backgroundClass = 'bg-orange-500/5'; // Subtle yellow
               break;
             case 'Low':
               backgroundClass = 'bg-orange-500/5'; // Subtle orange
@@ -208,15 +208,15 @@ export const OSMInsights = ({ data, isLoading }: OSMInsightsProps) => {
                 </span>
               </div>
               <div className="mt-4">
-                <h3 className="text-base font-semibold text-gray-900 flex items-center justify-between">
+                <h3 className="text-lg font-semibold text-gray-900 flex items-center justify-between">
                   {action.title}
                   {action.label && (
-                    <span className={`text-sm px-2 py-1 rounded-full ${action.iconBackground} ${action.iconForeground}`}>
+                    <span className={`text-base px-2 py-1 rounded-full ${action.iconBackground} ${action.iconForeground}`}>
                       {action.label}
                     </span>
                   )}
                 </h3>
-                <p className="mt-2 text-sm text-gray-500">
+                <p className="mt-2 text-base text-gray-500">
                   {action.description}
                 </p>
               </div>

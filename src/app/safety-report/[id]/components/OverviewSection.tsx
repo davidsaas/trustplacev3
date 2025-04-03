@@ -63,46 +63,6 @@ export const OverviewSection = ({
 
   return (
     <div>
-      {/* Takeaways Section (Now Horizontally Scrollable) */}
-      <div className="border-b border-gray-200 bg-white px-4 py-5 sm:px-6 rounded-t-xl shadow-sm">
-        <div className="-ml-4 -mt-4 flex flex-wrap items-center justify-between sm:flex-nowrap">
-          <div className="ml-4 mt-4">
-            <h3 className="text-base font-semibold text-gray-900">Overview</h3>
-            <p className="mt-1 text-sm text-gray-500">
-              Key safety takeaways for this property.
-            </p>
-          </div>
-        </div>
-      </div>
-      <div className="bg-white pt-4 pb-6 px-6 shadow-sm rounded-b-xl mb-6">
-        {hasTakeaways ? (
-          <div className="flex space-x-4 overflow-x-auto pb-2 -mb-2 scrollbar-thin scrollbar-thumb-gray-300 scrollbar-track-gray-100">
-            {takeaways.map((takeaway, index) => (
-              <div
-                key={index}
-                className="relative flex-shrink-0 w-64 sm:w-72 overflow-hidden rounded-xl border border-gray-100"
-                style={{
-                  background: 'rgb(70, 70, 70)' // Consider using Tailwind bg-gray-800 or similar for consistency
-                }}
-              >
-                {/* Gradient overlay (optional, currently empty) */}
-                {/* <div className="absolute inset-0" /> */}
-                <div className="relative p-4 flex items-start gap-3 h-full">
-                  {/* If you intended to use the icon helper: */}
-                  {/* {getTakeawayIcon(takeaway)} */}
-                  <p className="text-sm text-white leading-relaxed flex-grow">{takeaway}</p>
-                </div>
-              </div>
-            ))}
-            {/* Add padding element for better scroll appearance */}
-            <div className="flex-shrink-0 w-2"></div>
-          </div>
-        ) : (
-          <div className="py-8 px-4 rounded-lg bg-gray-50 flex items-center justify-center">
-            <p className="text-gray-500">No specific takeaways available for this property.</p>
-          </div>
-        )}
-      </div>
 
       {/* Safer Alternatives Section (Horizontally Scrollable) */}
       <div className="mb-6">

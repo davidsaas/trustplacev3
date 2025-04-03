@@ -233,23 +233,13 @@ export const SaferAlternativesSection = ({
         return (
           <div
             key={alt.id}
-            className={`relative flex-shrink-0 w-[300px] bg-white rounded-lg shadow-sm overflow-hidden border border-gray-200 hover:border-gray-300 hover:shadow-md group transition-all duration-200 ease-in-out`}
+            className={`relative flex-shrink-0 w-64 bg-white rounded-lg shadow-sm overflow-hidden border border-gray-200 hover:border-gray-300 hover:shadow-md group transition-all duration-200 ease-in-out`}
           >
             {/* Property Card Header */}
             <div className="flex items-start p-4">
-              {/* Thumbnail */}
-              <div className="flex-shrink-0 mr-3">
-                 {alt.image_url ? (
-                   <img src={alt.image_url} alt={alt.name} className="size-10 object-cover rounded-md bg-gray-100" />
-                 ) : (
-                   <div className="size-10 rounded-md bg-gray-100 flex items-center justify-center" aria-label="Placeholder image">
-                     <ImageOff className="size-6 text-gray-300" aria-hidden="true" />
-                   </div>
-                 )}
-              </div>
 
               {/* Mini Score Indicator */}
-              <div className="flex-shrink-0 mr-3">
+              <div className="flex-shrink-0 mr-3 pr-4">
                  <MiniScoreIndicator score={alt.overall_score} />
               </div>
 
@@ -276,43 +266,6 @@ export const SaferAlternativesSection = ({
               </div>
             </div>
             
-            {/* Safety Insights Section */}
-            {(improvements.length > 0 || concerns.length > 0) && (
-              <div className="px-4 py-3 bg-gray-50 border-t border-gray-100">
-                <h5 className="text-xs uppercase tracking-wider font-semibold text-gray-500 mb-2">SAFETY INSIGHTS</h5>
-                <div className="space-y-1.5">
-                  {/* Improvements */}
-                  {improvements.map(comp => {
-                    const Icon = SAFETY_METRIC_DETAILS[comp.metric_type]?.Icon || ShieldCheck;
-                    return (
-                      <div
-                        key={`${alt.id}-improve-${comp.metric_type}`}
-                        className="flex items-center text-xs"
-                      >
-                        <ArrowUpIcon className="size-3.5 text-green-600 mr-1.5 flex-shrink-0" />
-                        <Icon className="size-3.5 text-gray-500 mr-1.5 flex-shrink-0" />
-                        <span className="text-gray-700 truncate" title={comp.message}>{comp.message}</span>
-                      </div>
-                    );
-                  })}
-                  
-                  {/* Concerns */}
-                  {concerns.map(comp => {
-                    const Icon = SAFETY_METRIC_DETAILS[comp.metric_type]?.Icon || ShieldCheck;
-                    return (
-                      <div
-                        key={`${alt.id}-concern-${comp.metric_type}`}
-                        className="flex items-center text-xs"
-                      >
-                        <ArrowDownIcon className="size-3.5 text-red-600 mr-1.5 flex-shrink-0" />
-                        <Icon className="size-3.5 text-gray-500 mr-1.5 flex-shrink-0" />
-                        <span className="text-gray-700 truncate" title={comp.message}>{comp.message}</span>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
 
              {/* View Button (Absolute positioned at bottom right) */}
              <Link

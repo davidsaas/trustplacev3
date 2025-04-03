@@ -203,10 +203,10 @@ const SIMILAR_ACCOMMODATION_RADIUS = 0.4; // NEW: Increased radius for finding s
 async function findSimilarAccommodations(
   currentAccommodation: Pick<
     AccommodationData,
-    'id' | 'location' | 'price_per_night' | 'overall_score' | 'property_type' | 'room_type' | 'bedrooms'
+    'id' | 'location' | 'price_per_night' | 'overall_score' | 'property_type' | 'room_type'
   >
 ): Promise<SimilarAccommodation[]> {
-  const { id: excludeId, location, price_per_night, overall_score: currentScore, property_type, room_type, bedrooms } = currentAccommodation;
+  const { id: excludeId, location, price_per_night, overall_score: currentScore, property_type, room_type } = currentAccommodation;
 
   // Validate inputs
   if (!location || !isValidCoordinates(location.lat, location.lng)) {
@@ -225,7 +225,7 @@ async function findSimilarAccommodations(
     let query = supabaseServer // Assuming supabaseServer is correctly configured
       .from('accommodations')
       // Select necessary fields + the pre-calculated score and metric count
-      .select('id, name, price_per_night, latitude, longitude, source, overall_safety_score, safety_metric_types_found, property_type, room_type, bedrooms, image_url')
+      .select('id, name, price_per_night, latitude, longitude, source, overall_safety_score, safety_metric_types_found, property_type, room_type, image_url')
       .neq('id', excludeId)
       // --- Geographic Filter (Bounding Box with Increased Radius) ---
       .gte('latitude', location.lat - SIMILAR_ACCOMMODATION_RADIUS)
@@ -240,11 +240,6 @@ async function findSimilarAccommodations(
       .eq('property_type', property_type) // Match property type
       .eq('room_type', room_type); // Match room type
 
-    // Optional: Filter by bedrooms
-    if (bedrooms != null && typeof bedrooms === 'number') {
-      query = query.gte('bedrooms', Math.max(0, bedrooms - 1))
-                   .lte('bedrooms', bedrooms + 1);
-    }
 
     // Optional: Price Filter
     if (price_per_night !== null && price_per_night > 0) {
@@ -481,7 +476,6 @@ async function getReportData(id: string): Promise<AccommodationData | null> {
         overall_score: overall_score,
         property_type: accommodation.property_type, // Pass for filtering
         room_type: accommodation.room_type, // Pass for filtering
-        bedrooms: accommodation.bedrooms // Pass for filtering
         });
     } else {
         console.log('[getReportData] Skipping similar accommodations search due to missing location or zero score.');
