@@ -237,6 +237,17 @@ export const SaferAlternativesSection = ({
           >
             {/* Property Card Header */}
             <div className="flex items-start p-4">
+              {/* Thumbnail */}
+              <div className="flex-shrink-0 mr-3">
+                 {alt.image_url ? (
+                   <img src={alt.image_url} alt={alt.name} className="size-10 object-cover rounded-md bg-gray-100" />
+                 ) : (
+                   <div className="size-10 rounded-md bg-gray-100 flex items-center justify-center" aria-label="Placeholder image">
+                     <ImageOff className="size-6 text-gray-300" aria-hidden="true" />
+                   </div>
+                 )}
+              </div>
+
               {/* Mini Score Indicator */}
               <div className="flex-shrink-0 mr-3">
                  <MiniScoreIndicator score={alt.overall_score} />
@@ -244,15 +255,16 @@ export const SaferAlternativesSection = ({
 
               {/* Name and Basic Details */}
               <div className="flex-grow min-w-0">
+                 {/* Ensure title truncation */}
                 <h4 className="font-semibold text-gray-800 truncate max-w-[25ch]" title={alt.name}>{alt.name}</h4>
-                
+
                 <div className="mt-1.5 flex flex-col space-y-1">
                   {/* Distance */}
                   <div className="inline-flex items-center text-gray-500">
                     <MapPin className="size-4 mr-1.5 flex-shrink-0" />
                     <span className="text-sm">{(alt.distance ?? 0).toFixed(1)} km away</span>
                   </div>
-                  
+
                   {/* Price */}
                   {alt.price_per_night && (
                     <div className="inline-flex items-center text-gray-500">

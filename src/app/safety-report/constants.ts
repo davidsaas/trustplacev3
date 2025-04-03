@@ -2,8 +2,8 @@ export const LOCATION_RADIUS = 0.2 // ~11km - Used for finding similar accommoda
 export const SAFETY_RADIUS = 0.01 // ~1.1km - Used for finding safety metrics near a location
 export const EARTH_RADIUS = 6371 // km
 export const PRICE_RANGE = {
-  MIN: 0.7, // -30%
-  MAX: 1.5  // +50%
+  MIN: 0.9, // 
+  MAX: 1.4  // 
 } as const
 
 export const IMAGE_CONFIG = {

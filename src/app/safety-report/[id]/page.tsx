@@ -119,10 +119,10 @@ async function findClosestSafetyMetricsBatch(locations: Location[]): Promise<Rec
 }
 
 // Constants for filtering similar accommodations
-const SIMILARITY_PRICE_RANGE = { MIN: 0.7, MAX: 1.3 }; // e.g., 70% to 130% of current price
+const SIMILARITY_PRICE_RANGE = { MIN: 0.5, MAX: 1.2 }; // e.g., 70% to 130% of current price
 const SAFER_SCORE_THRESHOLD = 5; // Alternative must be at least 5 points higher
 const MIN_METRIC_TYPES_FOR_RELIABLE_SCORE = 4; // Require at least 4 metric types for reliable comparison
-const MAX_SIMILAR_RESULTS = 5; // Show top 5 results
+const MAX_SIMILAR_RESULTS = 8; // Show top 8 results (Changed from 5)
 
 // Function to fetch similar accommodations (REVISED to include metrics)
 async function findSimilarAccommodations(
@@ -261,7 +261,7 @@ async function findSimilarAccommodations(
 }
 
 // --- NEW: Function to fetch ALL nearby accommodations for Map Debugging ---
-const MAX_MAP_MARKERS = 200; // Limit markers on map for performance
+const MAX_MAP_MARKERS = 300; // Limit markers on map for performance
 
 async function fetchAllNearbyAccommodations(
   currentLocation: Location,
