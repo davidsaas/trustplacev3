@@ -39,6 +39,8 @@ export interface SimilarAccommodation {
   metricTypesFound: number
   distance: number
   image_url?: string | null
+  property_type?: string | null
+  room_type?: string | null
   safety_metrics: SafetyMetric[] | null
 }
 

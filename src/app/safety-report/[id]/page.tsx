@@ -46,50 +46,43 @@ const getGradientBackgroundStyle = (score: number): React.CSSProperties => {
   // Normalize score to 0-1 range
   const normalizedScore = Math.max(0, Math.min(100, score)) / 100;
 
-  // Define HSL color stops roughly matching getRiskLevel:
-  // Very High Risk (0-39): Rose/Red (Hue ~0, Sat 80%, Light 50%)
-  // High Risk (40-59): Orange (Hue ~30, Sat 95%, Light 50%)
-  // Medium Risk (60-79): Amber (Hue ~40, Sat 90%, Light 50%)
-  // Low Risk (80-100): Green (Hue ~120, Sat 60%, Light 45%)
   let hue: number;
   let saturation: number;
   let lightness: number;
+  let startOpacity: number = 0.25; // Increased starting opacity for contrast
+  let midOpacity: number = 0.08;   // Mid opacity
 
+  // Determine HSL based on distinct ranges
   if (normalizedScore < 0.4) {
-    // Very High Risk Range (Rose/Red)
-    hue = 0; // Keep hue at red
-    saturation = 80;
-    lightness = 50;
-  } else if (normalizedScore < 0.6) {
-    // High Risk Range (Interpolate Red -> Orange)
-    const t = (normalizedScore - 0.4) / 0.2; // Scale 0.4-0.6 to 0-1
-    hue = 0 + (30 - 0) * t;
-    saturation = 80 + (95 - 80) * t;
-    lightness = 50;
-  } else if (normalizedScore < 0.8) {
-     // Medium Risk Range (Interpolate Orange -> Amber)
-    const t = (normalizedScore - 0.6) / 0.2; // Scale 0.6-0.8 to 0-1
-    hue = 30 + (40 - 30) * t;
-    saturation = 95 + (90 - 95) * t;
-    lightness = 50;
+    // Red Range (0-39)
+    hue = 0;       // Red
+    saturation = 90; // High saturation
+    lightness = 50;  // Standard lightness
+    startOpacity = 0.30; // Higher contrast for red
+    midOpacity = 0.10;
+  } else if (normalizedScore < 0.7) {
+    // Orange Range (40-69)
+    hue = 35;      // Orange
+    saturation = 95; // Very high saturation
+    lightness = 50;  // Standard lightness
+    startOpacity = 0.25;
+    midOpacity = 0.08;
   } else {
-    // Low Risk Range (Interpolate Amber -> Green)
-    const t = (normalizedScore - 0.8) / 0.2; // Scale 0.8-1.0 to 0-1
-    hue = 40 + (120 - 40) * t; // Go towards green
-    saturation = 90 + (60 - 90) * t; // Decrease saturation towards green
-    lightness = 50 + (45 - 50) * t; // Slightly darken towards green
+    // Green Range (70-100)
+    hue = 120;     // Green
+    saturation = 70; // Good saturation
+    lightness = 40;  // Slightly darker green
+    startOpacity = 0.20;
+    midOpacity = 0.05;
   }
 
-  const startColor = `hsla(${hue.toFixed(0)}, ${saturation.toFixed(0)}%, ${lightness.toFixed(0)}%, 0.15)`; // Start with 15% opacity
-  const midColor = `hsla(${hue.toFixed(0)}, ${saturation.toFixed(0)}%, ${lightness.toFixed(0)}%, 0.05)`; // Fade to 5% opacity
-  const endColor = 'transparent'; // End transparent (will show bg-gray-50 underneath)
+  const startColor = `hsla(${hue.toFixed(0)}, ${saturation.toFixed(0)}%, ${lightness.toFixed(0)}%, ${startOpacity})`; 
+  const midColor = `hsla(${hue.toFixed(0)}, ${saturation.toFixed(0)}%, ${lightness.toFixed(0)}%, ${midOpacity})`; 
+  const endColor = 'transparent'; 
 
   return {
-    // Define the gradient image
     backgroundImage: `linear-gradient(to bottom, ${startColor} 0%, ${midColor} 50%, ${endColor} 100%)`,
-    // Fix the background relative to the viewport
     backgroundAttachment: 'fixed',
-    // Prevent the gradient from repeating
     backgroundRepeat: 'no-repeat',
   };
 };
@@ -302,6 +295,8 @@ async function findSimilarAccommodations(
           metricTypesFound: acc.safety_metric_types_found ?? 0,
           distance: distance,
           image_url: acc.image_url,
+          property_type: acc.property_type,
+          room_type: acc.room_type,
           safety_metrics: safety_metrics // Attach the fetched metrics
         };
       })

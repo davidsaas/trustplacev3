@@ -7,14 +7,16 @@ import {
   ArrowDownIcon, 
   ShieldCheck,
   MapPin, 
-  DollarSign
+  DollarSign,
+  Home,
+  BedDouble
 } from 'lucide-react';
 import type { SimilarAccommodation, SafetyMetric } from '@/types/safety-report';
 import Link from 'next/link';
 import { SAFETY_METRIC_DETAILS } from '@/lib/constants';
 import { CircularProgressbar, buildStyles } from 'react-circular-progressbar';
 import 'react-circular-progressbar/dist/styles.css';
-import { getRiskLevel } from '../../utils';
+import { getRiskLevel, getValidImageUrl } from '../../utils';
 
 // Define type for metric comparison results
 type MetricComparison = {
@@ -229,59 +231,71 @@ export const SaferAlternativesSection = ({
         const metricComparisons = compareMetrics(currentMetrics, alt.safety_metrics);
         const improvements = metricComparisons.filter(c => c.sentiment === 'positive').slice(0, 3);
         const concerns = metricComparisons.filter(c => c.sentiment === 'negative').slice(0, 1);
+        const isValidImage = getValidImageUrl(alt.image_url ?? null);
 
         return (
-          <div
+          <Link
             key={alt.id}
-            className={`relative flex-shrink-0 w-64 bg-white rounded-lg shadow-sm overflow-hidden border border-gray-200 hover:border-gray-300 hover:shadow-md group transition-all duration-200 ease-in-out`}
+            href={`/safety-report/${alt.id}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="block flex-shrink-0 w-64 bg-white rounded-lg shadow-sm overflow-hidden border border-gray-200 hover:border-gray-300 hover:shadow-md group transition-all duration-200 ease-in-out"
+            aria-label={`View safety report for ${alt.name}`}
           >
-            {/* Property Card Header */}
-            <div className="flex items-start p-4">
-
-              {/* Mini Score Indicator */}
-              <div className="flex-shrink-0 mr-3 pr-4">
-                 <MiniScoreIndicator score={alt.overall_score} />
-              </div>
-
-              {/* Name and Basic Details */}
-              <div className="flex-grow min-w-0">
-                 {/* Ensure title truncation */}
-                <h4 className="font-semibold text-gray-800 truncate max-w-[25ch]" title={alt.name}>{alt.name}</h4>
-
-                <div className="mt-1.5 flex flex-col space-y-1">
-                  {/* Distance */}
-                  <div className="inline-flex items-center text-gray-500">
-                    <MapPin className="size-4 mr-1.5 flex-shrink-0" />
-                    <span className="text-sm">{(alt.distance ?? 0).toFixed(1)} km away</span>
+            <div className="h-32 w-full bg-gray-100"> 
+              {isValidImage ? (
+                <img 
+                  alt={`${alt.name} - Property View`}
+                  src={alt.image_url!}
+                  className="h-full w-full object-cover" 
+                />
+              ) : (
+                <div className="h-full w-full flex items-center justify-center">
+                  <div className="text-gray-400 text-center">
+                    <ImageOff className="mx-auto h-8 w-8 text-gray-300" />
+                    <p className="mt-1 text-xs">No image</p>
                   </div>
+                </div>
+              )}
+            </div>
 
-                  {/* Price */}
-                  {alt.price_per_night && (
+            <div className="p-4">
+              <div className="flex items-start mb-3"> 
+                <div className="flex-shrink-0 mr-3 pr-4">
+                   <MiniScoreIndicator score={alt.overall_score} />
+                </div>
+
+                <div className="flex-grow min-w-0">
+                   <h4 className="font-semibold text-gray-800 truncate max-w-[20ch]" title={alt.name}>{alt.name}</h4>
+
+                  <div className="mt-1.5 flex flex-col space-y-1">
                     <div className="inline-flex items-center text-gray-500">
-                      <DollarSign className="size-4 mr-1.5 flex-shrink-0" />
-                      <span className="text-sm">${alt.price_per_night}/night</span>
+                      <MapPin className="size-4 mr-1.5 flex-shrink-0" />
+                      <span className="text-sm">{(alt.distance ?? 0).toFixed(1)} km away</span>
                     </div>
-                  )}
+
+                    {alt.price_per_night && (
+                      <div className="inline-flex items-center text-gray-500">
+                        <DollarSign className="size-4 mr-1.5 flex-shrink-0" />
+                        <span className="text-sm">${alt.price_per_night}/night</span>
+                      </div>
+                    )}
+
+                    {alt.property_type && (
+                      <div className="inline-flex items-center text-gray-500">
+                        <Home className="size-4 mr-1.5 flex-shrink-0" />
+                        <span className="text-sm">{alt.property_type}</span>
+                      </div>
+                    )}
+
+                    
+                  </div>
                 </div>
               </div>
-            </div>
-            
-
-             {/* View Button (Absolute positioned at bottom right) */}
-             <Link
-                 href={`/safety-report/${alt.id}`}
-                 className="absolute bottom-3 right-3 inline-flex items-center justify-center px-3 py-1.5 text-xs font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 shadow-sm focus:ring-2 focus:ring-blue-500 focus:ring-offset-1 opacity-0 group-hover:opacity-100 transition-opacity duration-150"
-                 target="_blank"
-                 rel="noopener noreferrer"
-                 aria-label={`View safety report for ${alt.name}`}
-             >
-                 View
-             </Link>
-
-          </div>
+            </div> 
+          </Link>
         );
       })}
-      {/* Add padding element for better scroll appearance */}
       <div className="flex-shrink-0 w-2"></div>
     </div>
   );
