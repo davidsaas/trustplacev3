@@ -870,7 +870,7 @@ export default function SafetyReportPage({ params }: SafetyReportProps) {
               <div className="-ml-4 -mt-4 flex flex-wrap items-center justify-between sm:flex-nowrap">
                 <div className="ml-4 mt-4">
                   <h3 className="text-base font-semibold leading-6 text-gray-900">Community Comments</h3>
-                  <p className="mt-1 text-sm text-gray-500">Raw, unfiltered comments from local online discussions.</p>
+                  <p className="mt-1 text-sm text-gray-500">Raw, unfiltered comments from local online discussions like Reddit.</p>
                 </div>
               </div>
             </div>

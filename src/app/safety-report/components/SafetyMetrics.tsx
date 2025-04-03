@@ -151,12 +151,12 @@ export const SafetyMetrics = ({ data }: SafetyMetricsProps) => {
                 <h3 className="text-lg font-semibold text-gray-900 flex items-center justify-between">
                   {action.title}
                   {action.label && (
-                    <span className={`text-base px-2 py-1 rounded-full ${action.iconBackground} ${action.iconForeground}`}>
+                    <span className={`text-sm px-2 py-1 rounded-full ${action.iconBackground} ${action.iconForeground}`}>
                       {action.label}
                     </span>
                   )}
                 </h3>
-                <p className="mt-2 text-sm text-gray-500">
+                <p className="mt-2 text-base text-gray-500">
                   {action.description}
                 </p>
               </div>

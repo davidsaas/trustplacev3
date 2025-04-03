@@ -71,9 +71,9 @@ export const OverviewSection = ({
           <div className="border-b border-gray-200 bg-white px-4 py-5 sm:px-6 rounded-t-xl shadow-sm">
               <div className="-ml-4 -mt-4 flex flex-wrap items-center justify-between sm:flex-nowrap">
                 <div className="ml-4 mt-4">
-                  <h3 className="text-base font-semibold text-gray-900">Safer Nearby Alternatives</h3>
+                  <h3 className="text-base font-semibold text-gray-900">Safer Alternatives for same or better price</h3>
                   <p className="mt-1 text-sm text-gray-500">
-                    Similar properties nearby with significantly better safety scores.
+                    Same type of accommodations with better safety scores for the same or better price.
                   </p>
                 </div>
               </div>

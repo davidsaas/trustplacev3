@@ -55,58 +55,58 @@ const LEVEL_INFO: Record<OSMInsight['level'], {
     // Descriptions are now an object keyed by metric type
     descriptions: Record<keyof OSMInsightsResponse, string>;
 }> = {
-  'Not Found': {
-    label: 'Not Found',
-    textColor: 'text-gray-500',
-    bgColor: 'bg-gray-100',
-    descriptions: {
-        pedestrian: "We couldn't find data on sidewalks or crossings . The map might be incomplete, so explore with awareness.",
-        transport: "No public transport stops appear on the map. Plan for alternative ways to get around or longer walks to the nearest stop.",
-        convenience: "Essential shops like supermarkets or pharmacies aren't mapped. You'll likely need to travel a bit further for supplies.",
-        dining: "Restaurants or cafes aren't mapped. Prepare to venture outside the immediate area for meals or coffee.",
-        nightlife: "No bars or clubs are mapped. Expect a quiet evening atmosphere right outside your door.",
-        greenSpace: "Parks or playgrounds aren't mapped. You might need to travel a short distance to find green spaces for relaxation or play."
+    'Not Found': {
+      label: 'Not Found', // Consider 'No Data Shown' or 'Not Mapped'
+      textColor: 'text-gray-500',
+      bgColor: 'bg-gray-100',
+      descriptions: {
+          pedestrian: "Map shows no sidewalks or crossings in the immediate area. Data may be incomplete, so please walk with caution.",
+          transport: "No public transport stops shown nearby. Plan for alternative travel or longer walks to the nearest stop.",
+          convenience: "No essential shops (like supermarkets) shown nearby. Expect to travel further for supplies.",
+          dining: "No restaurants or cafes shown nearby. You'll likely need to explore other areas for meals.",
+          nightlife: "No bars or clubs shown nearby. Expect quiet evenings in the immediate vicinity.",
+          greenSpace: "No parks or playgrounds shown nearby. Finding green space will likely require a short trip."
+      }
+    },
+    Low: {
+      label: 'Low',
+      textColor: 'text-orange-700',
+      bgColor: 'bg-orange-100',
+      descriptions: {
+          pedestrian: "Limited sidewalks and crossings in the area. Be mindful when walking.",
+          transport: "Few public transport stops are close by. Check schedules and expect some walking or potential waits.",
+          convenience: "A few essential shops are close by. Basic needs might be covered, but options are limited.",
+          dining: "A few restaurants or cafes are nearby. Suitable for quick meals; explore further for more variety.",
+          nightlife: "Limited bars or pubs are close by. It's generally a quieter area with few evening options.",
+          greenSpace: "Limited parks or playgrounds are nearby. You may need to travel a bit for larger green spaces."
+      }
+    },
+    Medium: {
+      label: 'Medium',
+      textColor: 'text-yellow-700',
+      bgColor: 'bg-yellow-100',
+      descriptions: {
+          pedestrian: "Good sidewalk and crossing coverage locally. Walking should be reasonably easy.",
+          transport: "A fair number of public transport stops are available nearby, offering decent travel options.",
+          convenience: "A moderate selection of essential shops are close by. Finding daily necessities should be convenient.",
+          dining: "A good mix of restaurants and cafes are available nearby. Plenty of choice for meals close at hand.",
+          nightlife: "A moderate number of bars and pubs are close by, offering some local evening entertainment options.",
+          greenSpace: "Some parks or playgrounds are readily accessible, providing nearby spots for fresh air and recreation."
+      }
+    },
+    High: {
+      label: 'High',
+      textColor: 'text-green-700',
+      bgColor: 'bg-green-100',
+      descriptions: {
+          pedestrian: "Excellent sidewalk and crossing coverage locally. Expect a highly walkable area.",
+          transport: "Numerous public transport stops are readily available. Getting around is easy and convenient.",
+          convenience: "Plenty of essential shops are close by. Daily necessities are very convenient to get.",
+          dining: "Wide variety of restaurants and cafes right nearby. You'll be spoiled for choice!",
+          nightlife: "Lots of bars, pubs, and clubs close by. Expect a lively atmosphere with many evening options.",
+          greenSpace: "Good availability of parks and playgrounds nearby. Easy access to green space for recreation."
+      }
     }
-  },
-  Low: {
-    label: 'Low',
-    textColor: 'text-orange-700',
-    bgColor: 'bg-orange-100',
-    descriptions: {
-        pedestrian: "There's limited mapped pedestrian infrastructure (like sidewalks) within 500m. Be mindful of your surroundings when walking.",
-        transport: "A few public transport options are mapped within 500m. Check schedules, as you might need to walk a bit or wait longer.",
-        convenience: "A small number of essential shops are mapped within 500m. Basic needs might be covered, but options could be limited.",
-        dining: "You'll find a few restaurants or cafes mapped within 500m. Good for a quick bite, but explore further for more variety.",
-        nightlife: "A couple of bars or pubs are mapped within 500m. Offers a touch of nightlife, but it's generally a quieter area.",
-        greenSpace: "Limited parks or playgrounds are mapped within 500m. A short trip might be needed to find a good spot to relax outdoors."
-    }
-  },
-  Medium: {
-    label: 'Medium',
-    textColor: 'text-yellow-700',
-    bgColor: 'bg-yellow-100',
-    descriptions: {
-        pedestrian: "The map shows a decent amount of sidewalks and crossings within 500m. Getting around on foot should be reasonably comfortable.",
-        transport: "You'll find a fair number of public transport stops mapped within 500m, offering decent options for getting around the city.",
-        convenience: "A moderate selection of essential shops are mapped within 500m. You should be able to find most daily necessities nearby.",
-        dining: "There's a good mix of restaurants and cafes mapped within 500m. You'll likely find several appealing options close by.",
-        nightlife: "A moderate number of bars and pubs are mapped within 500m, suggesting some options for evening entertainment nearby.",
-        greenSpace: "Some parks or playgrounds are mapped within 500m, providing reasonable access to nearby spots for fresh air and recreation."
-    }
-  },
-  High: {
-    label: 'High',
-    textColor: 'text-green-700',
-    bgColor: 'bg-green-100',
-    descriptions: {
-        pedestrian: "Excellent pedestrian infrastructure is mapped within 500m. Expect a very walkable area with good sidewalks and crossings.",
-        transport: "Numerous public transport options are mapped within 500m. Getting around the city should be easy and convenient.",
-        convenience: "Plenty of essential shops are mapped within 500m. Grabbing groceries or necessities should be very convenient.",
-        dining: "A wide variety of restaurants and cafes are mapped within 500m. You'll be spoiled for choice right outside your door!",
-        nightlife: "Lots of bars, pubs, and clubs are mapped within 500m. Expect a lively atmosphere with plenty of evening entertainment options.",
-        greenSpace: "Good availability of parks and playgrounds mapped within 500m. Enjoy easy access to nearby green spaces for relaxation or activity."
-    }
-  },
 }
 
 function classNames(...classes: (string | boolean | undefined)[]) {
@@ -211,7 +211,7 @@ export const OSMInsights = ({ data, isLoading }: OSMInsightsProps) => {
                 <h3 className="text-lg font-semibold text-gray-900 flex items-center justify-between">
                   {action.title}
                   {action.label && (
-                    <span className={`text-base px-2 py-1 rounded-full ${action.iconBackground} ${action.iconForeground}`}>
+                    <span className={`text-sm px-2 py-1 rounded-full ${action.iconBackground} ${action.iconForeground}`}>
                       {action.label}
                     </span>
                   )}
