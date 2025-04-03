@@ -839,7 +839,7 @@ export default function SafetyReportPage({ params }: SafetyReportProps) {
                 <div className="ml-4 mt-4">
                   <h3 className="text-base font-semibold leading-6 text-gray-900">Safety</h3>
                   <p className="mt-1 text-sm text-gray-500">
-                    Detailed safety metrics for this location.
+                    Detailed safety metrics for this location based on official crime data.
                   </p>
                 </div>
               </div>
@@ -855,7 +855,7 @@ export default function SafetyReportPage({ params }: SafetyReportProps) {
                 <div className="ml-4 mt-4">
                   <h3 className="text-base font-semibold leading-6 text-gray-900">Neighborhood Insights</h3>
                   <p className="mt-1 text-sm text-gray-500">
-                    Insights about the immediate surroundings based on OpenStreetMap data.
+                    Insights about the immediate surroundings.
                   </p>
                 </div>
               </div>

@@ -79,7 +79,7 @@ export const OverviewSection = ({
               </div>
             </div>
             {/* SaferAlternativesSection likely needs internal handling for layout/scrolling */}
-            <div className="bg-gray-50 p-4 sm:p-6 rounded-b-xl shadow-sm">
+            <div className="bg-white p-4 sm:p-6 rounded-b-xl shadow-sm">
                 <SaferAlternativesSection
                   alternatives={alternatives}
                   currentScore={currentScore}
