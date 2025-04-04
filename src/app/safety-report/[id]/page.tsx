@@ -423,7 +423,7 @@ export default function SafetyReportPage({ params }: SafetyReportProps) {
                     total_reviews={reportData.total_reviews}
                     source={reportData.source}
                     image_url={reportData.image_url}
-                    url={reportData.url ?? null} {/* Ensure url is not undefined */}
+                    url={reportData.url ?? null}
                     overall_score={reportData.overall_score}
                     property_type={reportData.property_type}
                     neighborhood={reportData.neighborhood}
