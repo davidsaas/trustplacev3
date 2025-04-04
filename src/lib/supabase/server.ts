@@ -1,5 +1,5 @@
 import { createServerClient } from '@supabase/ssr'
-import { Database } from '../supabase'
+import type { Database } from './database.types' // Import from the generated types file
 
 if (!process.env.NEXT_PUBLIC_SUPABASE_URL) {
   throw new Error('Missing env.NEXT_PUBLIC_SUPABASE_URL')

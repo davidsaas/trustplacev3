@@ -18,7 +18,8 @@ import { useAuth } from '@/components/shared/providers/auth-provider'
 import { OSMInsights } from '../components/OSMInsights'
 import type { OSMInsightsResponse } from '@/app/api/osm-insights/route'
 import { ImageOff, MessageSquare } from 'lucide-react'
-import { SaferAlternativesSection } from './components/SaferAlternativesSection'
+import { SaferAlternativesSection } from './components/SaferAlternativesSection';
+import { PaidContentGuard } from '@/app/components/billing/PaidContentGuard'; // Import the guard
 
 import type {
   SafetyReportProps,
@@ -161,13 +162,23 @@ async function findClosestSafetyMetricsBatch(locations: Location[]): Promise<Rec
 
         const metricsForLocation: Record<string, { metric: SafetyMetric; distance: number }> = {};
 
-        processedMetrics.forEach(metric => {
-        const distance = calculateDistance(location, { lat: metric.latitude, lng: metric.longitude });
-        const existing = metricsForLocation[metric.metric_type];
+        processedMetrics.forEach(rawMetric => {
+          // Ensure the metric being assigned matches the SafetyMetric type expectation
+          // We need to cast rawMetric to 'any' temporarily if its type from DB doesn't match SafetyMetric exactly
+          const metric: SafetyMetric = {
+              ...(rawMetric as any), // Cast to handle potential intermediate mismatches
+              // Explicitly handle potential type mismatch for city_id
+              city_id: String((rawMetric as any).city_id ?? ''), // Convert number|null to string
+              // Ensure other fields match SafetyMetric if necessary (e.g., score to number)
+              score: Number((rawMetric as any).score ?? 0),
+          };
+          const distance = calculateDistance(location, { lat: metric.latitude, lng: metric.longitude });
+          const existing = metricsForLocation[metric.metric_type];
 
-        if (!existing || distance < existing.distance) {
-            metricsForLocation[metric.metric_type] = { metric, distance };
-        }
+          if (!existing || distance < existing.distance) {
+              // Assign the *processed* metric that matches the SafetyMetric type
+              metricsForLocation[metric.metric_type] = { metric, distance };
+          }
         });
 
         const closestMetrics = Object.values(metricsForLocation).map(item => item.metric);
@@ -229,9 +240,15 @@ async function findSimilarAccommodations(
       .gt('overall_safety_score', currentScore + SAFER_SCORE_THRESHOLD)
       // --- Reliability Filter --- (Using pre-calculated metric count)
       .gte('safety_metric_types_found', MIN_METRIC_TYPES_FOR_RELIABLE_SCORE)
-      // --- Basic Similarity Filters ---
-      .eq('property_type', property_type) // Match property type
-      .eq('room_type', room_type); // Match room type
+      // --- Basic Similarity Filters (with null/undefined checks) ---
+      // Note: Ensure 'query' is mutable (let query = ...)
+      if (property_type) {
+          query = query.eq('property_type', property_type); // Match property type only if not null
+      }
+      if (room_type) {
+          // Cast room_type to the expected enum type if necessary, or ensure it matches DB enum
+          query = query.eq('room_type', room_type as any); // Using 'as any' for now if enum type is complex
+      }
 
 
     // Optional: Price Filter
@@ -415,10 +432,21 @@ async function getReportData(id: string): Promise<AccommodationData | null> {
     }
 
     // Parse coordinates safely
-    const latString = accommodation.latitude || accommodation.location?.lat || '';
-    const lngString = accommodation.longitude || accommodation.location?.lng || '';
-    const latitude = typeof latString === 'string' ? parseFloat(latString) : latString;
-    const longitude = typeof lngString === 'string' ? parseFloat(lngString) : lngString;
+    // Safely parse coordinates, checking if location is an object with lat/lng
+    let latString = String(accommodation.latitude ?? ''); // Ensure string type
+    let lngString = String(accommodation.longitude ?? ''); // Ensure string type
+
+    // Check if accommodation.location is a structured object (adjust based on actual JSONB structure)
+    if (typeof accommodation.location === 'object' && accommodation.location !== null && 'lat' in accommodation.location && 'lng' in accommodation.location) {
+        // Ensure lat/lng from location object are treated as numbers before converting to string
+        const locLat = accommodation.location.lat;
+        const locLng = accommodation.location.lng;
+        if (!latString && typeof locLat === 'number') latString = String(locLat);
+        if (!lngString && typeof locLng === 'number') lngString = String(locLng);
+    }
+
+    const latitude = latString ? parseFloat(latString) : NaN;
+    const longitude = lngString ? parseFloat(lngString) : NaN;
     const location = isValidCoordinates(latitude, longitude) ? { lat: latitude, lng: longitude } : null;
 
     // Ensure image_url is valid
@@ -486,8 +514,10 @@ async function getReportData(id: string): Promise<AccommodationData | null> {
         price_per_night: accommodation.price_per_night || null,
         rating: accommodation.rating || null,
         total_reviews: accommodation.total_reviews || null,
-        property_type: accommodation.property_type || accommodation.type || null,
-        neighborhood: accommodation.neighborhood || (accommodation.address?.full || null),
+        property_type: accommodation.property_type || null, // Remove fallback to accommodation.type
+        // Adjust neighborhood/address based on actual schema.
+        // Assuming 'address' column holds the full address string directly based on previous errors.
+        neighborhood: typeof accommodation.address === 'string' ? accommodation.address : null,
         source: accommodation.source,
         location,
         safety_metrics: metricsForLocation,
@@ -709,7 +739,8 @@ export default function SafetyReportPage({ params }: SafetyReportProps) {
                         setCommunityOpinionsCount(opinionsResult.data?.length ?? 0);
                     } else {
                         // Supabase RPC count often returns just the number in `data` or a `count` property
-                        const count = typeof countResult.data === 'number' ? countResult.data : (countResult.data as any)?.count ?? 0;
+                        // Correctly access the count from the Supabase response
+                        const count = countResult.count ?? 0;
                         console.log(`[SafetyReportPage Effect] Fetched community opinions count: ${count}`);
                         setCommunityOpinionsCount(count);
                     }
@@ -874,11 +905,13 @@ export default function SafetyReportPage({ params }: SafetyReportProps) {
                 </div>
               </div>
             </div>
-            <CommunityOpinions
-              opinions={communityOpinions}
-              isLoading={false}
-              error={null}
-            />
+            <PaidContentGuard featureName="Community Comments">
+              <CommunityOpinions
+                opinions={communityOpinions}
+                isLoading={false} // Keep existing props
+                error={null}      // Keep existing props
+              />
+            </PaidContentGuard>
           </div>
         );
       case 'activities':
@@ -935,6 +968,52 @@ export default function SafetyReportPage({ params }: SafetyReportProps) {
             </div>
           </div>
         );
+      // --- ADDED: Alternatives Case ---
+      case 'alternatives':
+        if (!reportData) { // Check if reportData itself is loaded
+             return <p>Loading report data...</p>; // Or a skeleton
+        }
+        // Now check for specific alternatives data
+        if (loading || !reportData.similar_accommodations) { // Use 'loading' state variable
+            // Use a skeleton or loading indicator matching other sections
+            return (
+                <div className="bg-white rounded-xl p-4 sm:p-6 shadow-sm border border-gray-100 min-h-[200px]">
+                    <div className="space-y-3">
+                        <div className="flex space-x-4">
+                            <div className="h-32 w-64 bg-gray-200 rounded-lg animate-pulse"></div>
+                            <div className="h-32 w-64 bg-gray-200 rounded-lg animate-pulse"></div>
+                            <div className="h-32 w-64 bg-gray-200 rounded-lg animate-pulse"></div>
+                        </div>
+                    </div>
+                </div>
+            );
+        }
+        return (
+           <div key="alternatives">
+             {/* Section Header (Optional - Add if desired) */}
+             <div className="border-b border-gray-200 bg-white px-4 py-5 sm:px-6 rounded-t-xl shadow-sm mb-[-1px]">
+               <div className="-ml-4 -mt-4 flex flex-wrap items-center justify-between sm:flex-nowrap">
+                 <div className="ml-4 mt-4">
+                   <h3 className="text-base font-semibold leading-6 text-gray-900">Safer Alternatives Nearby</h3>
+                   <p className="mt-1 text-sm text-gray-500">Similar properties with better safety scores in the vicinity.</p>
+                 </div>
+               </div>
+             </div>
+             {/* Guarded Content */}
+             <div className="bg-white rounded-b-xl shadow-sm p-4 sm:p-6">
+                 <PaidContentGuard featureName="Safer Alternatives">
+                    <SaferAlternativesSection
+                        alternatives={reportData.similar_accommodations}
+                        currentScore={reportData.overall_score}
+                        currentMetrics={reportData.safety_metrics}
+                        currentPrice={reportData.price_per_night}
+                    />
+                 </PaidContentGuard>
+             </div>
+           </div>
+        );
+      // --- END ADDED ---
+
       default:
         return null;
     }
