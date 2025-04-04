@@ -41,7 +41,7 @@ export const ReportNavMenu = ({ activeSection, onSectionChange, commentsCount = 
               isActive
                 ? 'border-blue-500 text-blue-600'
                 : 'border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700',
-              'group inline-flex items-center shrink-0 whitespace-nowrap border-b-2 px-1 py-4 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-inset focus:ring-blue-500'
+              'group inline-flex items-center shrink-0 whitespace-nowrap border-b-2 px-1 py-4 text-sm font-medium'
             )}
             aria-current={isActive ? 'page' : undefined}
             role="tab"

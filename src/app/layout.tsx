@@ -8,6 +8,7 @@ import { ThemeProvider } from "@/components/shared/providers/theme-provider";
 import { Toaster } from 'sonner';
 import 'leaflet/dist/leaflet.css';
 import Script from 'next/script';
+import { Analytics } from "@vercel/analytics/react"
 
 const inter = Inter({ subsets: ["latin"] });
 
@@ -47,6 +48,7 @@ export default function RootLayout({
           data-gyg-partner-id="PLGSROV"
           strategy="afterInteractive"
         />
+        
       </head>
       <body className={cn(
         "h-full font-sans antialiased",
