@@ -27,7 +27,8 @@ const PaidContentGuard: React.FC<PaidContentGuardProps> = ({
   const router = useRouter();
   const [isRedirecting, setIsRedirecting] = useState(false);
 
-  const isLoading = loadingAuth || loadingProfile || isRedirecting;
+  // isLoading depends only on the provider's state now
+  const isLoading = loadingAuth || loadingProfile;
   // Ensure profile exists before checking status
   const isActiveSubscriber = profile ? (profile.subscription_status === 'active' || profile.subscription_status === 'trialing') : false;
 

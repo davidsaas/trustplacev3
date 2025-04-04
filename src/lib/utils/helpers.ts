@@ -4,8 +4,9 @@
  */
 export const getURL = () => {
   let url =
-    process?.env?.NEXT_PUBLIC_SITE_URL ?? // Set this to your site URL in production env.
-    process?.env?.NEXT_PUBLIC_VERCEL_URL ?? // Automatically set by Vercel.
+    process?.env?.NEXT_PUBLIC_APP_URL ?? // Use the variable defined in .env
+    process?.env?.NEXT_PUBLIC_SITE_URL ?? // Fallback for production env.
+    process?.env?.NEXT_PUBLIC_VERCEL_URL ?? // Fallback for Vercel.
     'http://localhost:3000/'; // Default to localhost for development
 
   // Make sure to include `https://` when not localhost.

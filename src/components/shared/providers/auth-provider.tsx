@@ -3,7 +3,7 @@
 import React, { createContext, useContext, useEffect, useState, useCallback, useMemo } from 'react' // Import useMemo
 import { useRouter, usePathname } from 'next/navigation'
 import { User, Session, AuthChangeEvent, SupabaseClient } from '@supabase/supabase-js'
-import { createClient } from '@/lib/supabase/client' // Assuming this correctly creates a client-side Supabase instance
+import { supabase } from '@/lib/supabase/client' // Import the singleton instance
 import type { Database } from '@/lib/supabase/database.types' // Import generated types
 import { AUTH_REDIRECT_URLS } from '@/lib/constants'
 import { getBaseUrl } from '@/lib/utils'
@@ -40,7 +40,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [profile, setProfile] = useState<Profile | null>(null);
   const [isSubscribed, setIsSubscribed] = useState(false);
   const [initialAuthCheckComplete, setInitialAuthCheckComplete] = useState(false); // Track initial check
-  const supabase = createClient(); // Assuming this returns SupabaseClient<Database>
+  // Use the imported singleton instance directly
+  // const supabase = createClient(); // Remove this line
 
   // Initialize session and listen for auth changes
   useEffect(() => {
@@ -79,9 +80,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             setProfile(null);
             setIsSubscribed(false);
             setLoadingProfile(false); // No profile to load if no user
-        } else {
-            setLoadingProfile(true); // Start loading profile for the new user
         }
+        // Let the useEffect handle setting loadingProfile based on the user state change
 
         // --- Modified Redirect Logic ---
         // Redirect *only* if:
@@ -175,6 +175,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         if (isMounted) {
             setProfile(null);
             setIsSubscribed(false);
+            // console.log("[AuthProvider Profile Fetch] No user detected in effect. Setting loadingProfile: false");
             setLoadingProfile(false);
         }
       }

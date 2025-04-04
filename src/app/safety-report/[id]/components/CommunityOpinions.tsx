@@ -8,7 +8,6 @@ import { MessageSquare, ExternalLink } from 'lucide-react';
 import Link from 'next/link';
 import { formatDistanceToNow } from 'date-fns';
 import { StarIcon } from '@heroicons/react/20/solid';
-
 // --- Types ---
 export interface CommunityOpinion {
   id: string;
@@ -72,47 +71,48 @@ export const CommunityOpinions = ({
              </div>
         )}
 
-        {!isLoading && !error && hasOpinions && (
-          <div className="-my-10">
-            {opinions?.map((opinion, index) => (
-              <div key={opinion.id || `opinion-${index}`} className="flex space-x-4 text-sm text-gray-500">
-                <div className="flex-none py-10">
-                  <RedditLogo />
-                </div>
-                <div className={`flex-1 py-10 ${index !== 0 ? 'border-t border-gray-200' : ''}`}>
-                  <h3 className="font-medium text-gray-900">
-                    {opinion.username || 'Anonymous Redditor'}
-                  </h3>
-                  <p>
-                    <time dateTime={opinion.source_created_at || ''}>
-                      {opinion.source_created_at
-                        ? formatDistanceToNow(new Date(opinion.source_created_at), { addSuffix: true })
-                        : 'Recently'}
-                    </time>
-                  </p>
 
-                  <p className="sr-only">Community feedback</p>
+            {!isLoading && !error && hasOpinions && (
+              <div className="-my-10">
+                {opinions?.map((opinion, index) => (
+                  <div key={opinion.id || `opinion-${index}`} className="flex space-x-4 text-sm text-gray-500">
+                    <div className="flex-none py-10">
+                      <RedditLogo />
+                    </div>
+                    <div className={`flex-1 py-10 ${index !== 0 ? 'border-t border-gray-200' : ''}`}>
+                      <h3 className="font-medium text-gray-900">
+                        {opinion.username || 'Anonymous Redditor'}
+                      </h3>
+                      <p>
+                        <time dateTime={opinion.source_created_at || ''}>
+                          {opinion.source_created_at
+                            ? formatDistanceToNow(new Date(opinion.source_created_at), { addSuffix: true })
+                            : 'Recently'}
+                        </time>
+                      </p>
 
-                  <div className="mt-4 text-base text-gray-500 whitespace-pre-wrap break-words">
-                    {opinion.body}
+                      <p className="sr-only">Community feedback</p>
+
+                      <div className="mt-4 text-base text-gray-500 whitespace-pre-wrap break-words">
+                        {opinion.body}
+                      </div>
+
+                      {opinion.url && (
+                        <a
+                          href={opinion.url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="mt-2 inline-flex items-center gap-1 text-sm text-blue-600 hover:text-blue-800"
+                          aria-label={`View original comment by ${opinion.username || 'anonymous'}`}
+                        >
+                          View on Reddit <ExternalLink className="h-3 w-3" />
+                        </a>
+                      )}
+                    </div>
                   </div>
-
-                  {opinion.url && (
-                    <a
-                      href={opinion.url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="mt-2 inline-flex items-center gap-1 text-sm text-blue-600 hover:text-blue-800"
-                      aria-label={`View original comment by ${opinion.username || 'anonymous'}`}
-                    >
-                      View on Reddit <ExternalLink className="h-3 w-3" />
-                    </a>
-                  )}
-                </div>
+                ))}
               </div>
-            ))}
-          </div>
-        )}
-    </div>
+            )}
+        </div>
   );
 };
