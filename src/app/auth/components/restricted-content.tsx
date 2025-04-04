@@ -10,12 +10,12 @@ interface RestrictedContentProps {
 }
 
 export const RestrictedContent = ({ children }: RestrictedContentProps) => {
-  const { user, loading } = useSupabase()
+  const { user, loadingAuth } = useSupabase() // Use loadingAuth
   const pathname = usePathname()
   
   // If still loading authentication state, show a simplified version
   // to avoid content flashing between states
-  if (loading) {
+  if (loadingAuth) { // Use loadingAuth
     return (
       <div className="relative">
         <div className="filter blur-md pointer-events-none opacity-50">
