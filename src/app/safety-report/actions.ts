@@ -2,7 +2,7 @@
 'use server'
 
 import { cookies } from 'next/headers'
-import { createServerActionClient } from '@supabase/auth-helpers-nextjs'
+import { createServerClient } from '@supabase/ssr' // Use ssr client consistently
 // Use standard client for potentially broader queries if needed, ensure service role key is set
 // Removed incorrect import: import { createClient } from '@/lib/supabase/server';
 
@@ -35,12 +35,14 @@ const SAFER_SCORE_THRESHOLD = 5;
 const MIN_METRIC_TYPES_FOR_RELIABLE_SCORE = 3;
 const MAX_SIMILAR_RESULTS = 10;
 const SIMILAR_ACCOMMODATION_RADIUS = 0.4;
-const MAX_MAP_MARKERS = 100;
+const MAX_MAP_MARKERS = 25; // Reduced for map performance
+// Import the new constant
+import { OPINION_PROXIMITY_RADIUS } from './constants';
 
 // --- Helper: findClosestSafetyMetricsBatch (Server-Side) ---
 // This remains largely the same but uses the server client passed to it or created within
 async function findClosestSafetyMetricsBatch(
-    supabase: ReturnType<typeof createServerActionClient<Database>>, // Accept client as arg
+    supabase: ReturnType<typeof createServerClient<Database>>, // Update type hint
     locations: Location[]
 ): Promise<Record<string, SafetyMetric[] | null>> {
   if (!locations || locations.length === 0) return {};
@@ -122,7 +124,12 @@ export async function findSimilarAccommodationsAction(
   >
 ): Promise<SimilarAccommodation[]> {
     const cookieStore = cookies()
-    const supabase = createServerActionClient<Database>({ cookies: () => cookieStore })
+    // Use createServerClient from @supabase/ssr for actions
+    const supabase = createServerClient<Database>(
+        process.env.NEXT_PUBLIC_SUPABASE_URL!,
+        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+        { cookies: { get: (name) => cookieStore.get(name)?.value } } // Adapt cookie handling
+    );
     const { id: excludeId, location, price_per_night, overall_score: currentScore, property_type, room_type } = currentAccommodation;
 
     if (!location || !isValidCoordinates(location.lat, location.lng)) {
@@ -227,7 +234,12 @@ export async function findSimilarAccommodationsAction(
 // --- Server Action: getReportDataAction ---
 export async function getReportDataAction(id: string): Promise<AccommodationReportCoreData | null> {
     const cookieStore = cookies()
-    const supabase = createServerActionClient<Database>({ cookies: () => cookieStore })
+    // Use createServerClient from @supabase/ssr for actions
+    const supabase = createServerClient<Database>(
+        process.env.NEXT_PUBLIC_SUPABASE_URL!,
+        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+        { cookies: { get: (name) => cookieStore.get(name)?.value } } // Adapt cookie handling
+    );
     console.log('[Server Action getReportData] Fetching report data for ID:', id);
 
     try {
@@ -333,7 +345,12 @@ export async function fetchAllNearbyAccommodationsAction(
   excludeId: string
 ): Promise<SimilarAccommodation[]> {
     const cookieStore = cookies()
-    const supabase = createServerActionClient<Database>({ cookies: () => cookieStore })
+    // Use createServerClient from @supabase/ssr for actions
+    const supabase = createServerClient<Database>(
+        process.env.NEXT_PUBLIC_SUPABASE_URL!,
+        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+        { cookies: { get: (name) => cookieStore.get(name)?.value } } // Adapt cookie handling
+    );
 
     if (!currentLocation || !isValidCoordinates(currentLocation.lat, currentLocation.lng)) {
         console.warn('[Server Action fetchAllNearby] Invalid location.');
@@ -400,26 +417,40 @@ export async function fetchAllNearbyAccommodationsAction(
 
 // --- Server Action: getCommunityOpinionsAction ---
 export async function getCommunityOpinionsAction(
-    accommodationId: string,
+    location: Location | null, // Accept location instead of ID
     page: number = 1,
     limit: number = 5
 ): Promise<CommunityOpinion[]> {
+    if (!location || !isValidCoordinates(location.lat, location.lng)) {
+        console.warn('[Server Action getCommunityOpinions] Invalid location provided.');
+        return [];
+    }
     const cookieStore = cookies()
-    const supabase = createServerActionClient<Database>({ cookies: () => cookieStore })
+    // Use createServerClient from @supabase/ssr for actions
+    const supabase = createServerClient<Database>(
+        process.env.NEXT_PUBLIC_SUPABASE_URL!,
+        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+        { cookies: { get: (name) => cookieStore.get(name)?.value } } // Adapt cookie handling
+    );
     const offset = (page - 1) * limit;
 
-    console.log(`[Server Action getCommunityOpinions] Fetching page ${page} (limit ${limit}) for accommodation ${accommodationId}`);
+    console.log(`[Server Action getCommunityOpinions] Fetching page ${page} (limit ${limit}) near location (${location.lat}, ${location.lng})`);
 
     try {
         const { data, error } = await supabase
             .from('community_opinions')
             .select('*')
-            .eq('accommodation_id', accommodationId)
+            // Filter by geographic bounding box
+            .gte('latitude', location.lat - OPINION_PROXIMITY_RADIUS)
+            .lte('latitude', location.lat + OPINION_PROXIMITY_RADIUS)
+            .gte('longitude', location.lng - OPINION_PROXIMITY_RADIUS)
+            .lte('longitude', location.lng + OPINION_PROXIMITY_RADIUS)
+            // Optionally filter by relevance if needed: .eq('is_safety_relevant', true)
             .order('created_at', { ascending: false }) // Or order by relevance/upvotes if available
             .range(offset, offset + limit - 1);
 
         if (error) {
-            console.error(`[Server Action getCommunityOpinions] Error fetching opinions for ${accommodationId}:`, error);
+            console.error(`[Server Action getCommunityOpinions] Error fetching opinions near (${location.lat}, ${location.lng}):`, error);
             return [];
         }
 
@@ -438,21 +469,35 @@ export async function getCommunityOpinionsAction(
 
 // --- Server Action: getCommunityOpinionsCountAction ---
 export async function getCommunityOpinionsCountAction(
-    accommodationId: string
+    location: Location | null // Accept location instead of ID
 ): Promise<number> {
+    if (!location || !isValidCoordinates(location.lat, location.lng)) {
+        console.warn('[Server Action getCommunityOpinionsCount] Invalid location provided.');
+        return 0;
+    }
     const cookieStore = cookies()
-    const supabase = createServerActionClient<Database>({ cookies: () => cookieStore })
+    // Use createServerClient from @supabase/ssr for actions
+    const supabase = createServerClient<Database>(
+        process.env.NEXT_PUBLIC_SUPABASE_URL!,
+        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+        { cookies: { get: (name) => cookieStore.get(name)?.value } } // Adapt cookie handling
+    );
 
-    console.log(`[Server Action getCommunityOpinionsCount] Fetching count for accommodation ${accommodationId}`);
+    console.log(`[Server Action getCommunityOpinionsCount] Fetching count near location (${location.lat}, ${location.lng})`);
 
     try {
         const { count, error } = await supabase
             .from('community_opinions')
             .select('*', { count: 'exact', head: true }) // Use head: true for count only
-            .eq('accommodation_id', accommodationId);
+            // Filter by geographic bounding box
+            .gte('latitude', location.lat - OPINION_PROXIMITY_RADIUS)
+            .lte('latitude', location.lat + OPINION_PROXIMITY_RADIUS)
+            .gte('longitude', location.lng - OPINION_PROXIMITY_RADIUS)
+            .lte('longitude', location.lng + OPINION_PROXIMITY_RADIUS);
+            // Optionally filter by relevance if needed: .eq('is_safety_relevant', true)
 
         if (error) {
-            console.error(`[Server Action getCommunityOpinionsCount] Error fetching count for ${accommodationId}:`, error);
+            console.error(`[Server Action getCommunityOpinionsCount] Error fetching count near (${location.lat}, ${location.lng}):`, error);
             return 0;
         }
 

@@ -1,7 +1,7 @@
 // src/app/safety-report/[id]/page.tsx
 'use client'
 
-import React, { useState, useEffect, Suspense, lazy, useCallback } from 'react'
+import React, { useState, useEffect, Suspense, lazy, useCallback, useMemo } from 'react' // Import useMemo
 import { notFound } from 'next/navigation'
 import { SafetyMetrics } from '../components/SafetyMetrics'
 import { CommunityOpinions } from './components/CommunityOpinions'
@@ -81,6 +81,18 @@ export default function SafetyReportPage({ params }: SafetyReportProps) {
   const [isLoadingSimilar, setIsLoadingSimilar] = useState(false);
   const [isLoadingNearby, setIsLoadingNearby] = useState(false);
   const [isLoadingOsm, setIsLoadingOsm] = useState(false);
+
+  // Memoize the derived currentAccommodation object to prevent unnecessary re-renders of MapView
+  const currentAccommodationForMap = useMemo(() => {
+      if (!reportData) return null; // Handle null case
+      // Ensure the structure matches the 'Accommodation' type expected by MapView props
+      return {
+          id: reportData.id,
+          name: reportData.name,
+          overall_score: reportData.overall_score,
+          hasCompleteData: reportData.hasCompleteData
+      };
+  }, [reportData]); // Depends only on reportData
 
   // --- Data Fetching Effect ---
   useEffect(() => {
@@ -214,8 +226,8 @@ export default function SafetyReportPage({ params }: SafetyReportProps) {
       try {
         console.log(`[PageEffect Secondary] Fetching initial opinions and count for ${reportData.id}...`);
         const [opinionsData, countData] = await Promise.all([
-          getCommunityOpinionsAction(reportData.id, 1, 5), // Fetch page 1
-          getCommunityOpinionsCountAction(reportData.id)
+          getCommunityOpinionsAction(reportData.location, 1, 5), // Pass location
+          getCommunityOpinionsCountAction(reportData.location) // Pass location
         ]);
         if (isMounted) {
           setCommunityOpinions(opinionsData);
@@ -268,7 +280,13 @@ export default function SafetyReportPage({ params }: SafetyReportProps) {
     const nextPage = opinionsPage + 1;
     try {
       console.log(`[Page LoadMore] Fetching opinions page ${nextPage} for ${reportData.id}...`);
-      const moreOpinions = await getCommunityOpinionsAction(reportData.id, nextPage, 5);
+      // Ensure location exists before fetching more opinions
+      if (!reportData?.location) {
+          console.warn("[Page LoadMore] Cannot load more opinions: Location missing.");
+          setIsLoadingOpinions(false);
+          return;
+      }
+      const moreOpinions = await getCommunityOpinionsAction(reportData.location, nextPage, 5); // Pass location
       setCommunityOpinions(prev => [...prev, ...moreOpinions]);
       setOpinionsPage(nextPage);
       console.log(`[Page LoadMore] Added ${moreOpinions.length} opinions for ${reportData.id}.`);
@@ -325,26 +343,25 @@ export default function SafetyReportPage({ params }: SafetyReportProps) {
       case 'overview':
           return (
             <div key="overview" className="space-y-6">
-              {/* Pass correct props to OverviewSection */}
-              <OverviewSection
-                takeaways={reportData.accommodation_takeaways}
-                alternatives={similarAccommodations} // Pass similar for the alternatives part within overview
-                currentAccommodation={{ // Pass minimal current accommodation info
-                    id: reportData.id,
-                    name: reportData.name,
-                    overall_score: reportData.overall_score,
-                    hasCompleteData: reportData.hasCompleteData
-                }}
-                currentMetrics={reportData.safety_metrics} // Pass current metrics
-                currentScore={reportData.overall_score} // Pass current score
-                currentPrice={reportData.price_per_night} // Pass current price
-                allNearbyAccommodations={nearbyAccommodations} // Pass nearby for map markers
-                location={reportData.location}
-                loadingNearbyMapData={isLoadingNearby} // Pass correct loading prop name
-              />
+              {/* Add null check for currentAccommodationForMap before rendering */}
+              {currentAccommodationForMap && (
+                <OverviewSection
+                  takeaways={reportData.accommodation_takeaways}
+                  alternatives={similarAccommodations}
+                  currentAccommodation={currentAccommodationForMap} // Now guaranteed non-null here
+                  currentMetrics={reportData.safety_metrics}
+                  currentScore={reportData.overall_score}
+                  currentPrice={reportData.price_per_night}
+                  allNearbyAccommodations={nearbyAccommodations}
+                  location={reportData.location}
+                  loadingNearbyMapData={isLoadingNearby}
+                />
+              )}
             </div>
           );
       case 'safety':
+        // Ensure reportData exists here as well, although the outer check should cover it
+        if (!reportData) return null;
         return (
           <div key="safety">
             {/* Pass correct prop 'data' to SafetyMetrics */}

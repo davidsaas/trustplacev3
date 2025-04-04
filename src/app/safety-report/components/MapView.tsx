@@ -144,7 +144,7 @@ export const MapView = ({
     similarAccommodations,
     // hoveredAlternativeId, // REMOVED
     // onMarkerHover // REMOVED
-}: MapViewProps) => {
+}: MapViewProps): React.ReactNode => { // Ensure component returns ReactNode
     const mapContainer = useRef<HTMLDivElement>(null);
     const map = useRef<L.Map | null>(null);
     const markersRef = useRef<Map<string, L.Marker>>(new Map());
@@ -201,24 +201,16 @@ export const MapView = ({
     }, [currentAccommodation.id, currentAccommodation.hasCompleteData]);
 
 
-    // --- SIMPLIFIED Marker Update Logic --- (Hover logic removed)
+    // --- REVISED Marker Update Logic (Optimized) ---
     const updateMarkers = useCallback(() => {
         if (!map.current || !mapContainer.current) return;
+        // console.log("MapView: Running optimized updateMarkers");
 
-        // 1. Cleanup (keep existing)
-        if (markerHoverTimeoutRef.current) clearTimeout(markerHoverTimeoutRef.current);
-        markersRef.current.forEach((marker, id) => {
-             marker.off('mouseover mouseout click'); // Unbind events first!
-             const popup = popupsRef.current.get(id);
-             if (popup && map.current?.hasLayer(popup)) {
-                 map.current.closePopup(popup); // Close open popup before removing marker
-             }
-             map.current?.removeLayer(marker); // Remove marker from map
-         });
-        markersRef.current.clear();
-        popupsRef.current.clear();
+        const newMarkersData = new Map<string, any>(); // Use Map for efficient lookup
+        const currentMarkerIds = new Set(markersRef.current.keys());
+        const neededMarkerIds = new Set<string>();
 
-        // 2. Combine Data
+        // 1. Combine and prepare new data
         const currentWithCoords = {
              ...currentAccommodation,
              isCurrent: true,
@@ -226,117 +218,148 @@ export const MapView = ({
              lng: location.lng,
              hasCompleteData: currentAccommodation.hasCompleteData ?? true
         };
-        const allAccommodations = [
-             // Only include current if its location is valid
-             ...(isValidCurrentLocation ? [currentWithCoords] : []),
-             // Filter similar accommodations: MUST have valid coords AND a valid score
-             ...similarAccommodations
-                .filter(acc => 
-                    isValidCoordinate(acc.latitude, 'lat') && 
-                    isValidCoordinate(acc.longitude, 'lng') &&
-                    typeof acc.overall_score === 'number' && !isNaN(acc.overall_score) && acc.overall_score >= 0 // ADDED score check
-                )
-                .map(acc => ({
-                    ...acc,
-                    isCurrent: false,
-                    lat: acc.latitude,
-                    lng: acc.longitude,
-                    hasCompleteData: acc.hasCompleteData ?? true
-                }))
-        ];
+        if (isValidCurrentLocation) {
+            newMarkersData.set(currentWithCoords.id, currentWithCoords);
+        }
+        similarAccommodations
+            .filter(acc =>
+                isValidCoordinate(acc.latitude, 'lat') &&
+                isValidCoordinate(acc.longitude, 'lng') &&
+                typeof acc.overall_score === 'number' && !isNaN(acc.overall_score) && acc.overall_score >= 0
+            )
+            .forEach(acc => {
+                if (!newMarkersData.has(acc.id)) { // Avoid overwriting current if it's also in similar
+                    newMarkersData.set(acc.id, {
+                        ...acc,
+                        isCurrent: false,
+                        lat: acc.latitude,
+                        lng: acc.longitude,
+                        hasCompleteData: acc.hasCompleteData ?? true
+                    });
+                }
+            });
 
-        // 3. Create and add markers/popups
-        allAccommodations.forEach(acc => {
-            // Coordinates are already validated in the filter step above, 
-            // but keep check just in case currentAccommodation was added with invalid coords (though unlikely now)
+        // 2. Add or Update Markers
+        newMarkersData.forEach((acc, id) => {
+            neededMarkerIds.add(id); // Mark this ID as needed
+
+            // Coordinates are validated in the filter step
             if (!isValidCoordinate(acc.lat, 'lat') || !isValidCoordinate(acc.lng, 'lng')) return;
 
             const hasCompleteData = acc.hasCompleteData;
             const isCurrent = acc.isCurrent;
-            // Score is guaranteed to be a number here due to the filter, default to 0 if somehow still invalid
-            const overallScore = typeof acc.overall_score === 'number' ? acc.overall_score : 0; 
+            const overallScore = typeof acc.overall_score === 'number' ? acc.overall_score : 0;
+            let marker = markersRef.current.get(id);
+            let popup = popupsRef.current.get(id);
 
-            try {
-                // --- isHovered parameter removed from icon creation ---
-                const iconHtml = createCustomMarkerHTML(overallScore, isCurrent, hasCompleteData);
-                const icon = L.divIcon({
-                    html: iconHtml,
-                    className: 'custom-leaflet-icon',
-                    iconSize: [40, 40], // Reverted size
-                    iconAnchor: [20, 40], // Reverted anchor
-                    popupAnchor: [0, -35] // Reverted popup anchor
-                });
+            // --- Create Marker and Popup if they don't exist ---
+            if (!marker) {
+                // console.log(`MapView: Creating marker for ${id}`);
+                try {
+                    const iconHtml = createCustomMarkerHTML(overallScore, isCurrent, hasCompleteData);
+                    const icon = L.divIcon({
+                        html: iconHtml,
+                        className: 'custom-leaflet-icon',
+                        iconSize: [40, 40],
+                        iconAnchor: [20, 40],
+                        popupAnchor: [0, -35]
+                    });
 
-                const marker = L.marker([acc.lat, acc.lng], {
-                    icon: icon,
-                    zIndexOffset: isCurrent ? 1000 : 500, // Removed hover z-index
-                    riseOnHover: true
-                });
+                    marker = L.marker([acc.lat, acc.lng], {
+                        icon: icon,
+                        zIndexOffset: isCurrent ? 1000 : 500,
+                        riseOnHover: true // Leaflet handles hover visual cue
+                    });
 
-                // Popup creation (keep existing)
-                const popupContent = createPopupContent(acc);
-                const popup = L.popup({
-                    offset: L.point(0, -5),
-                    closeButton: false,
-                    className: 'custom-leaflet-popup',
-                    maxWidth: 280,
-                }).setContent(popupContent);
-                marker.bindPopup(popup);
-                popupsRef.current.set(acc.id, popup);
+                    // Create and bind popup
+                    const popupContent = createPopupContent(acc);
+                    popup = L.popup({
+                        offset: L.point(0, -5),
+                        closeButton: false,
+                        className: 'custom-leaflet-popup',
+                        maxWidth: 280,
+                    }).setContent(popupContent);
+                    marker.bindPopup(popup);
 
-                // --- SIMPLIFIED Event Listeners (No onMarkerHover calls) ---
-                marker.on('mouseover', (e) => {
-                    // Keep popup logic
-                    if (markerHoverTimeoutRef.current) clearTimeout(markerHoverTimeoutRef.current);
-                    closeAllPopups(); // Close others before opening this one
-                    marker.openPopup();
-                });
+                    // --- Add Event Listeners ---
+                    marker.on('mouseover', (e) => {
+                        if (markerHoverTimeoutRef.current) clearTimeout(markerHoverTimeoutRef.current);
+                        closeAllPopups();
+                        marker?.openPopup(); // Use optional chaining
+                    });
+                    marker.on('mouseout', (e) => {
+                        markerHoverTimeoutRef.current = setTimeout(() => {
+                            marker?.closePopup(); // Use optional chaining
+                            markerHoverTimeoutRef.current = null;
+                        }, 200);
+                    });
+                    popup.on('add', () => { // Popup hover logic
+                        const popupElement = popup?.getElement(); // Use optional chaining
+                        if (popupElement) {
+                            popupElement.addEventListener('mouseenter', () => {
+                                if (markerHoverTimeoutRef.current) {
+                                    clearTimeout(markerHoverTimeoutRef.current);
+                                    markerHoverTimeoutRef.current = null;
+                                }
+                            });
+                            popupElement.addEventListener('mouseleave', () => {
+                                markerHoverTimeoutRef.current = setTimeout(() => {
+                                    if (map.current) marker?.closePopup(); // Use optional chaining
+                                    markerHoverTimeoutRef.current = null;
+                                }, 200);
+                            });
+                        }
+                    });
+                    marker.on('click', (e) => {
+                        L.DomEvent.stopPropagation(e);
+                        if (isCurrent) {
+                            if (map.current) map.current.flyTo([acc.lat, acc.lng], map.current.getZoom());
+                        } else {
+                            handleMarkerClick(acc.id);
+                            if (map.current) map.current.flyTo([acc.lat, acc.lng], FLY_TO_ZOOM);
+                        }
+                    });
+                    // --- End Event Listeners ---
 
-                marker.on('mouseout', (e) => {
-                    // Keep popup close logic
-                    markerHoverTimeoutRef.current = setTimeout(() => {
-                         marker.closePopup(); // Simpler close logic
-                         markerHoverTimeoutRef.current = null;
-                    }, 200);
-                });
+                    marker.addTo(map.current!);
+                    markersRef.current.set(id, marker);
+                    popupsRef.current.set(id, popup);
 
-                // Popup hover logic (keep existing, but simpler timeout for closing)
-                popup.on('add', () => {
-                    const popupElement = popup.getElement();
-                     if (popupElement) {
-                         popupElement.addEventListener('mouseenter', () => {
-                             if (markerHoverTimeoutRef.current) {
-                                 clearTimeout(markerHoverTimeoutRef.current);
-                                 markerHoverTimeoutRef.current = null;
-                             }
-                         });
-                         popupElement.addEventListener('mouseleave', () => {
-                             markerHoverTimeoutRef.current = setTimeout(() => {
-                                 if (map.current) { // Check if map is still valid
-                                     marker.closePopup();
-                                 }
-                                 markerHoverTimeoutRef.current = null;
-                             }, 200);
-                         });
-                     }
-                });
-
-                marker.on('click', (e) => {
-                    L.DomEvent.stopPropagation(e);
-                    if (isCurrent) {
-                        if (map.current) map.current.flyTo([acc.lat, acc.lng], map.current.getZoom());
-                    } else {
-                        handleMarkerClick(acc.id);
-                        if (map.current) map.current.flyTo([acc.lat, acc.lng], FLY_TO_ZOOM);
-                    }
-                });
-                // --- END Event Listeners ---
-
-                marker.addTo(map.current!);
-                markersRef.current.set(acc.id, marker);
-
-            } catch (error) { console.error("Error creating Leaflet marker/popup:", acc.name, error); }
+                } catch (error) { console.error("Error creating Leaflet marker/popup:", acc.name, error); }
+            }
+            // --- Optional: Update existing marker if needed (e.g., icon change) ---
+            // else {
+            //    // console.log(`MapView: Marker exists for ${id}, potentially update`);
+            //    // Example: Update icon if score changed significantly (though less likely here)
+            //    // const newIconHtml = createCustomMarkerHTML(overallScore, isCurrent, hasCompleteData);
+            //    // const newIcon = L.divIcon({...});
+            //    // marker.setIcon(newIcon);
+            //
+            //    // Update popup content if necessary
+            //    // const newPopupContent = createPopupContent(acc);
+            //    // popup?.setContent(newPopupContent); // Use optional chaining
+            // }
         });
+
+        // 3. Remove Obsolete Markers
+        currentMarkerIds.forEach(id => {
+            if (!neededMarkerIds.has(id)) {
+                // console.log(`MapView: Removing obsolete marker for ${id}`);
+                const markerToRemove = markersRef.current.get(id);
+                const popupToRemove = popupsRef.current.get(id);
+                if (markerToRemove) {
+                    markerToRemove.off('mouseover mouseout click'); // Unbind events
+                    if (popupToRemove && map.current?.hasLayer(popupToRemove)) {
+                         map.current.closePopup(popupToRemove);
+                    }
+                    map.current?.removeLayer(markerToRemove);
+                    markersRef.current.delete(id);
+                    popupsRef.current.delete(id);
+                }
+            }
+        });
+
+        // console.log(`MapView: updateMarkers complete. Current markers: ${markersRef.current.size}`);
 
     }, [
         location,
@@ -344,11 +367,13 @@ export const MapView = ({
         similarAccommodations,
         createPopupContent,
         handleMarkerClick,
-        closeAllPopups
+        closeAllPopups,
+        isValidCurrentLocation // Include this derived state
     ]);
+    // --- END REVISED Marker Update Logic ---
 
 
-    // --- Effect for Map Initialization (Keep existing) ---
+    // --- Effect for Map Initialization ---
     useEffect(() => {
         // console.log("Map Init Effect (Leaflet): Checking conditions...");
         if (!mapTilerApiKey) {
@@ -380,7 +405,7 @@ export const MapView = ({
              }
 
             mapInstance = L.map(mapContainer.current, {
-                 zoomControl: false,
+                 // zoomControl: false, // REMOVED: Allow default zoom control
                  attributionControl: false,
             });
 
@@ -415,14 +440,8 @@ export const MapView = ({
             isInitialized.current = true;
             // console.log("Map Init Effect (Leaflet): Map initialized successfully.");
 
-            // --- ADDED: Delayed invalidateSize --- 
-            const timer = setTimeout(() => {
-                if (map.current) {
-                    console.log("Manually invalidating map size after delay.");
-                    map.current.invalidateSize();
-                }
-            }, 100); // 100ms delay, adjust if needed
-            // --- END ADDED --- 
+            // --- REMOVED: Delayed invalidateSize ---
+            // Rely on ResizeObserver for size invalidation
 
             const resizeObserver = new ResizeObserver(() => {
                  mapInstance?.invalidateSize();
@@ -433,7 +452,7 @@ export const MapView = ({
 
              return () => {
                  // console.log("Map Init Effect (Leaflet): Cleaning up map instance.");
-                 clearTimeout(timer); // Clear the timeout on cleanup
+                 // clearTimeout(timer); // No timer to clear anymore
                  resizeObserver.disconnect();
                  if (markerHoverTimeoutRef.current) clearTimeout(markerHoverTimeoutRef.current);
                  if (map.current) {
@@ -453,7 +472,7 @@ export const MapView = ({
         }
     }, []); // IMPORTANT: Empty dependency array
 
-    // --- REVISED Effect for Updating Markers & Bounds (Keep existing, dependency array simplified) ---
+    // --- REVISED Effect for Updating Markers & Bounds ---
     useEffect(() => {
         if (!map.current || !isInitialized.current) {
             // console.log("Marker/Bounds Effect (Leaflet): Skipping (Map not initialized yet).");
@@ -469,7 +488,7 @@ export const MapView = ({
             }
             // console.log("Marker/Bounds Effect (Leaflet): Running updates and fitting bounds...");
 
-            // 1. Update markers FIRST
+            // 1. Update markers FIRST (using the optimized function)
             updateMarkers();
 
             // 2. Determine valid locations for bounds calculation
@@ -525,7 +544,7 @@ export const MapView = ({
         location,
         currentAccommodation,
         similarAccommodations,
-        updateMarkers, // updateMarkers no longer depends on hover state
+        // updateMarkers, // REMOVED updateMarkers from dependencies
         isValidCurrentLocation
     ]); // Dependencies updated
 
@@ -541,6 +560,7 @@ export const MapView = ({
         return ( <div className="h-full flex items-center justify-center rounded-xl bg-gray-100 p-4 text-center"> <p className="text-gray-500">No valid locations to display on the map.</p> </div> )
     }
 
+    // Ensure the component returns JSX
     return (
         <div className="h-full relative">
             {/* Map Container */}
@@ -551,7 +571,7 @@ export const MapView = ({
                 aria-label={`Map showing accommodation safety scores`}
             />
 
-            {/* Styles - Removed hover-related transitions */}\
+            {/* Styles - Removed hover-related transitions */}
             <style jsx global>{`
                 /* Base Leaflet Container Style */
                 .leaflet-container {

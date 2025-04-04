@@ -1,6 +1,6 @@
 'use client'
 
-import { createContext, useContext, useEffect, useState, useCallback } from 'react'
+import React, { createContext, useContext, useEffect, useState, useCallback, useMemo } from 'react' // Import useMemo
 import { useRouter, usePathname } from 'next/navigation'
 import { User, Session, AuthChangeEvent, SupabaseClient } from '@supabase/supabase-js'
 import { createClient } from '@/lib/supabase/client' // Assuming this correctly creates a client-side Supabase instance
@@ -185,7 +185,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return () => {
       isMounted = false;
     };
-  }, [user, supabase]); // Re-run when user object changes
+  }, [user?.id, supabase]); // Re-run only when user ID changes (or user becomes null/defined)
 
   // Sign in with email and password
   const signIn = useCallback(async (email: string, password: string) => {
@@ -304,7 +304,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }, [supabase.auth])
 
-  const value = {
+  // Memoize the context value to prevent unnecessary re-renders of consumers
+  const value = useMemo(() => ({
     supabase,
     user,
     profile,
@@ -317,7 +318,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     signInWithGoogle,
     sendPasswordResetEmail,
     updatePassword,
-  }
+  }), [
+    supabase, user, profile, isSubscribed, loadingAuth, loadingProfile,
+    signIn, signUp, signOut, signInWithGoogle, sendPasswordResetEmail, updatePassword
+  ]);
 
   return (
     <AuthContext.Provider value={value}>
