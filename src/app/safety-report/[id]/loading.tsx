@@ -19,7 +19,7 @@ export default function Loading() {
     <div className="min-h-screen bg-gray-50">
       <AppNavbar />
 
-      {/* Centered container for the loading indicator */}
+      {/* Centered containedddr for the loading indicator */}
       <div className="flex items-center justify-center pt-20 pb-20">
          <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 w-full">
             <div className="mx-auto max-w-5xl">
