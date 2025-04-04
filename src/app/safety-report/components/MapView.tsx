@@ -1,7 +1,7 @@
 'use client'
 
 import * as React from 'react'
-import { useEffect, useRef, useCallback } from 'react'
+import { useEffect, useRef, useCallback, useMemo } from 'react' // Import useMemo for debouncing
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 import type { SimilarAccommodation } from '@/types/safety-report'
@@ -137,8 +137,30 @@ type MapViewProps = {
     // onMarkerHover: (id: string | null) => void; // REMOVED
 }
 
+// --- Debounce Utility ---
+// (Could also import from lodash.debounce if preferred)
+const debounce = <F extends (...args: any[]) => any>(func: F, waitFor: number) => {
+  let timeoutId: NodeJS.Timeout | null = null;
+
+  const debounced = (...args: Parameters<F>) => {
+    if (timeoutId !== null) {
+      clearTimeout(timeoutId);
+    }
+    timeoutId = setTimeout(() => func(...args), waitFor);
+  };
+
+  debounced.cancel = () => {
+    if (timeoutId !== null) {
+      clearTimeout(timeoutId);
+      timeoutId = null;
+    }
+  };
+
+  return debounced;
+};
+
 // --- Component ---
-export const MapView = ({
+const MapViewComponent = ({ // Rename original component
     location,
     currentAccommodation,
     similarAccommodations,
@@ -473,23 +495,18 @@ export const MapView = ({
     }, []); // IMPORTANT: Empty dependency array
 
     // --- REVISED Effect for Updating Markers & Bounds ---
-    useEffect(() => {
-        if (!map.current || !isInitialized.current) {
-            // console.log("Marker/Bounds Effect (Leaflet): Skipping (Map not initialized yet).");
-            return;
-        }
-        // console.log(`Marker/Bounds Effect (Leaflet): Running due to dependency change.`);
-
-        const runUpdatesAndFitBounds = () => {
-            // Add extra check here too, although whenReady should handle it
+    // --- Debounced Effect for Updating Markers & Bounds ---
+    // Memoize the debounced function itself to prevent recreation on every render
+    const debouncedMapUpdates = useMemo(() => {
+        const performMapUpdates = () => {
             if (!map.current || !mapContainer.current) {
-                // console.log("Marker/Bounds Effect (Leaflet): Skipping inside runUpdates (Map not ready).");
+                // console.log("MapView: Skipping debounced update (map not ready)");
                 return;
             }
-            // console.log("Marker/Bounds Effect (Leaflet): Running updates and fitting bounds...");
+            // console.log("MapView: Performing debounced map updates...");
 
             // 1. Update markers FIRST (using the optimized function)
-            updateMarkers();
+            updateMarkers(); // updateMarkers is already memoized with useCallback
 
             // 2. Determine valid locations for bounds calculation
             const locationsForBounds: L.LatLngExpression[] = [];
@@ -501,52 +518,45 @@ export const MapView = ({
                     locationsForBounds.push([acc.latitude, acc.longitude]);
                 }
             });
-            // console.log(`Marker/Bounds Effect (Leaflet): Using ${locationsForBounds.length} locations for bounds calculation.`);
 
             // 3. Fit bounds logic (Leaflet)
             if (locationsForBounds.length > 0) {
                  const bounds = L.latLngBounds(locationsForBounds);
-
                  if (bounds.isValid()) {
-                      // console.log("Marker/Bounds Effect (Leaflet): Fitting valid bounds:", bounds.toBBoxString());
-
-                      // --- ADDED CHECK before flyToBounds ---
                       if (map.current) {
                            map.current.flyToBounds(bounds, {
                                 padding: [60, 60],
                                 maxZoom: FIT_BOUNDS_MAX_ZOOM,
-                                duration: 0.8
+                                duration: 0.8,
+                                // Consider adding noMoveStart: true if flyToBounds triggers unwanted move events
                            });
-                      } else {
-                           console.warn("Marker/Bounds Effect (Leaflet): Map reference became null just before flyToBounds call.");
                       }
-                      // --- END ADDED CHECK ---
-
                  } else {
-                      // console.warn("Marker/Bounds Effect (Leaflet): Calculated bounds are invalid.");
-                      // --- ADDED CHECK before flyTo ---
                       if (locationsForBounds.length === 1 && map.current) {
                            map.current.flyTo(locationsForBounds[0], FLY_TO_ZOOM, { duration: 0.8 });
                       }
-                      // --- END ADDED CHECK ---
                  }
-            } else {
-                 // console.log("Marker/Bounds Effect (Leaflet): No valid coordinates to fit bounds.");
             }
+        };
+        // Debounce the actual map operations
+        return debounce(performMapUpdates, 300); // 300ms debounce interval
+    }, [location, currentAccommodation, similarAccommodations, updateMarkers, isValidCurrentLocation]); // Dependencies for recreating the debounced function
+
+    useEffect(() => {
+        if (!map.current || !isInitialized.current) {
+            return;
         }
 
-        // Use map.whenReady to ensure map is usable before calling updates/bounds
-        if (map.current) {
-             map.current.whenReady(runUpdatesAndFitBounds);
-        }
+        // Call the debounced function when dependencies change
+        map.current.whenReady(() => {
+            debouncedMapUpdates();
+        });
 
-    }, [ // Simplified dependency array
-        location,
-        currentAccommodation,
-        similarAccommodations,
-        // updateMarkers, // REMOVED updateMarkers from dependencies
-        isValidCurrentLocation
-    ]); // Dependencies updated
+        // Cleanup function to cancel any pending debounced call
+        return () => {
+            debouncedMapUpdates.cancel();
+        };
+    }, [debouncedMapUpdates]); // Effect runs when the debounced function itself changes (due to its dependencies)
 
 
     // --- Render Logic ---
@@ -705,4 +715,7 @@ export const MapView = ({
             `}</style>
         </div>
     )
-}
+};
+
+// Export the memoized version
+export const MapView = React.memo(MapViewComponent);

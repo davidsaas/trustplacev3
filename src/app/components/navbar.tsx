@@ -22,7 +22,7 @@ export function AppNavbar() {
   const [isLoading, setIsLoading] = useState(false)
   const pathname = usePathname()
   const router = useRouter()
-  const { user, signOut, supabase, loading } = useAuth()
+  const { user, signOut, supabase, loadingAuth } = useAuth()
 
   const isReportPage = pathname.startsWith('/safety-report/')
 
@@ -166,7 +166,7 @@ export function AppNavbar() {
                   )}
 
                   <div className="relative ml-5 shrink-0">
-                    {loading ? (
+                    {loadingAuth ? (
                       <div className="h-8 w-8 rounded-full bg-gray-200 animate-pulse"></div>
                     ) : user ? (
                       <Popover className="relative">
@@ -248,7 +248,7 @@ export function AppNavbar() {
               </div>
 
               <div className="border-t border-gray-200 pt-4 pb-3">
-                {loading ? (
+                {loadingAuth ? (
                    <div className="px-4 space-y-3 animate-pulse">
                       <div className="flex items-center gap-3">
                         <div className="h-10 w-10 rounded-full bg-gray-200"></div>
