@@ -1,4 +1,4 @@
-import { memo, useState, useEffect } from 'react'
+import { memo, useState, useEffect, Fragment } from 'react'
 import { CircularProgressbar, buildStyles } from 'react-circular-progressbar';
 import 'react-circular-progressbar/dist/styles.css';
 import { 
@@ -9,7 +9,8 @@ import {
   MapPin, 
   Home, 
   BedDouble 
-} from 'lucide-react'
+} from 'lucide-react';
+import Modal from '@/components/ui/modal'; // Import the Modal component
 import { PropertyMetrics } from './PropertyMetrics'
 import { getValidImageUrl, getRiskLevel } from '../utils'
 import type { PropertyHeaderProps, Location } from '@/types/safety-report'
@@ -46,6 +47,7 @@ export const PropertyHeader = memo(({
 }: ExtendedPropertyHeaderProps) => { // Use the extended interface
   // State to manage the score value for animation
   const [animatedScore, setAnimatedScore] = useState(0);
+  const [isScoreModalOpen, setIsScoreModalOpen] = useState(false); // State for modal visibility
 
   // Extract accommodation ID from the URL or use a fallback
   const extractAccommodationId = () => {
@@ -110,7 +112,8 @@ export const PropertyHeader = memo(({
   // ----------------------------
 
   return (
-    <div className="shadow-sm rounded-xl bg-white">
+    <Fragment> {/* Wrap in Fragment to allow Modal as sibling */}
+      <div className="shadow-sm rounded-xl bg-white">
       <div className="rounded-t-xl overflow-hidden">
         {getValidImageUrl(image_url) ? (
           <img
@@ -132,8 +135,16 @@ export const PropertyHeader = memo(({
       <div className="mx-auto px-4 pb-4 sm:px-6 lg:px-8 -mt-16 sm:mt-6">
         <div className="sm:flex sm:items-end sm:space-x-5">
           {/* Container for score circle and label */}
+          {/* Container for score circle, label, and click handler */}
           <div className="flex flex-col items-center">
-            <div className={`relative size-24 rounded-full bg-white ring-4 ring-white sm:size-32 flex items-center justify-center p-2 ${overallRisk.border}`}>
+            {/* Make the score display clickable */}
+            <button
+              type="button"
+              onClick={() => hasScore && setIsScoreModalOpen(true)} // Open modal only if there's a score
+              className={`relative size-24 rounded-full bg-white ring-4 ring-white sm:size-32 flex items-center justify-center p-2 transition-colors duration-150 ease-in-out ${overallRisk.border} ${hasScore ? 'hover:bg-gray-50 cursor-pointer' : 'cursor-default'}`}
+              aria-label={hasScore ? `Overall Safety Score: ${overall_score}. Click for details.` : 'Overall Safety Score: Not Available'}
+              disabled={!hasScore} // Disable button if no score
+            >
               {hasScore ? (
                 <CircularProgressbar
                   value={animatedScore}
@@ -152,11 +163,11 @@ export const PropertyHeader = memo(({
                 />
               ) : (
                 <div className="flex flex-col items-center justify-center text-center">
-                   <Shield className="size-10 text-gray-400" />
-                   <span className="mt-1 text-xs text-gray-500 font-medium">No Score</span>
+                  <Shield className="size-10 text-gray-400" />
+                  <span className="mt-1 text-xs text-gray-500 font-medium">No Score</span>
                 </div>
               )}
-            </div>
+            </button>
             {/* Risk Level Tag - Added Below Circle */}
             {hasScore && (
               <span
@@ -264,8 +275,57 @@ export const PropertyHeader = memo(({
           commentsCount={commentsCount} // Pass commentsCount down
         />
       </div>
-    </div>
-  )
-})
+      </div>
 
-PropertyHeader.displayName = 'PropertyHeader' 
+      {/* Score Calculation Modal - Placed outside the main div, but inside the Fragment */}
+      {hasScore && (
+          <Modal
+              open={isScoreModalOpen}
+              onClose={() => setIsScoreModalOpen(false)}
+              title="Overall Safety Score Explained"
+              icon={<Shield aria-hidden="true" className="size-6 text-blue-600" />}
+              iconBgColor="bg-blue-100"
+          >
+              {/* Modal Content */}
+              <div className="mt-2 space-y-3 text-sm text-gray-700">
+                  <p className="text-center">
+                      <span className="text-4xl font-bold" style={{ color: overallRisk.fill }}>
+                          {overall_score}
+                      </span>
+                      <span className="ml-1 text-lg text-gray-500">/ 100</span>
+                  </p>
+                  <p>
+                      This score represents the overall safety level of the area around the property, calculated on a scale from 0 to 100, where <strong className="font-semibold">100 is the safest</strong>.
+                  </p>
+                  <p>
+                      It's derived by averaging scores from several key safety categories:
+                  </p>
+                  <ul className="list-disc list-inside space-y-1 pl-2 text-gray-600">
+                      <li>Nighttime Safety</li>
+                      <li>Daytime Safety</li>
+                      <li>Vehicle-Related Crime Risk</li>
+                      <li>Public Transit Safety</li>
+                      <li>Safety Considerations for Women</li>
+                      <li>Property Crime Risk (Theft, Burglary)</li>
+                  </ul>
+                  <p>
+                      Each category score is based on recent incident data reported in the vicinity and nearby areas, weighted by factors like proximity and incident type. A higher score indicates fewer reported incidents and lower risk.
+                  </p>
+              </div>
+              {/* Modal Action Button */}
+              <div className="mt-5 sm:mt-6">
+                  <button
+                      type="button"
+                      onClick={() => setIsScoreModalOpen(false)}
+                      className="inline-flex w-full justify-center rounded-md bg-indigo-600 px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-indigo-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600"
+                  >
+                      Got it
+                  </button>
+              </div>
+          </Modal>
+      )}
+    </Fragment>
+  );
+});
+
+PropertyHeader.displayName = 'PropertyHeader'

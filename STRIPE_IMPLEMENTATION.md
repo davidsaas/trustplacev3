@@ -4,6 +4,18 @@ This document outlines the steps required to implement a Stripe subscription pay
 
 **Goal:** Replace the basic authentication check with a check for an active Stripe subscription.
 
+## 0. Environment Variables
+
+Ensure the following environment variables are set up correctly in your `.env.local` (for local development) and your deployment environment (e.g., Vercel, Supabase Secrets):
+
+-   `STRIPE_SECRET_KEY`: Your Stripe secret API key.
+-   `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY`: Your Stripe publishable API key.
+-   `STRIPE_WEBHOOK_SECRET`: Your Stripe webhook signing secret.
+-   `NEXT_PUBLIC_SUPABASE_URL`: Your Supabase project URL.
+-   `SUPABASE_SERVICE_ROLE_KEY`: Your Supabase service role key (for backend operations).
+-   `NEXT_PUBLIC_BASE_URL`: The base URL of your application (e.g., `http://localhost:3000` or your production domain).
+-   `YOUR_STRIPE_PRICE_ID`: The ID of the Stripe Price object for your subscription.
+
 ## 1. Backend Setup (Supabase & Stripe)
 
 -   [ ] **Stripe Account:**
@@ -28,7 +40,7 @@ This document outlines the steps required to implement a Stripe subscription pay
         -   `subscription_status` (TEXT, nullable - e.g., 'active', 'trialing', 'past_due', 'canceled', 'incomplete', 'incomplete_expired', 'unpaid')
         -   (Optional: Add other user profile fields as needed: `email`, `full_name` etc.)
     -   [ ] Set up Row Level Security (RLS) policies on the `profiles` table (e.g., users can only view/update their own profile).
-    -   [ ] Consider creating a database function or trigger to automatically create a profile entry when a new user signs up in `auth.users`.
+    -   [ ] **Implement** a database function or trigger to automatically create a profile entry when a new user signs up in `auth.users`. This ensures a profile exists when needed for Stripe operations.
 
 ## 2. Backend API Endpoints (Next.js API Routes)
 
@@ -58,7 +70,7 @@ This document outlines the steps required to implement a Stripe subscription pay
             -   Retrieve the full session object (`event.data.object`).
             -   Get the `supabase_user_id` from `session.metadata`.
             -   Get the `stripe_customer_id` and `stripe_subscription_id` from the session.
-            -   Update the corresponding user's `profiles` record with `stripe_customer_id`, `stripe_subscription_id`, set `subscription_status` based on session status (might need to wait for `invoice.paid` or `customer.subscription.created` for confirmation).
+            -   Update the corresponding user's `profiles` record with `stripe_customer_id` and `stripe_subscription_id`. **Note:** While this event confirms checkout, rely on `customer.subscription.updated` or `customer.subscription.created` (often triggered immediately after) for the definitive `subscription_status` ('active') and `stripe_current_period_end`.
         -   **`customer.subscription.updated`:**
             -   Retrieve the subscription object (`event.data.object`).
             -   Get the `stripe_customer_id`.
@@ -129,3 +141,4 @@ This document outlines the steps required to implement a Stripe subscription pay
 -   [ ] Test unsubscribed user state.
 -   [ ] Test non-authenticated user state.
 -   [ ] Test subscription cancellation via Customer Portal and webhook updates.
+-   [ ] **Implement and Test Robust Error Handling:** Ensure user-friendly feedback (e.g., toasts) for frontend API call failures and proper logging for backend errors (especially in webhooks).
