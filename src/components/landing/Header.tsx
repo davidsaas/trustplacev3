@@ -60,7 +60,7 @@ function MobileNavLink(
 }
 
 export function Header() {
-  const { user, signOut, loading, supabase } = useAuth()
+  const { user, signOut, loadingAuth, supabase } = useAuth()
   const [showUserDropdown, setShowUserDropdown] = useState(false)
   const [avatar, setAvatar] = useState<string | null>(null)
   const pathname = usePathname()
@@ -154,7 +154,7 @@ export function Header() {
                             <MobileNavLink href="/#faqs">FAQs</MobileNavLink>
                           </div>
                           <div className="mt-8">
-                            {loading ? (
+                            {loadingAuth ? (
                               <div className="space-y-4 animate-pulse">
                                 <div className="h-10 bg-gray-200 rounded"></div>
                                 <div className="h-10 bg-gray-300 rounded"></div>
@@ -199,7 +199,7 @@ export function Header() {
             </Popover>
             
             <div className="max-lg:hidden">
-              {loading ? (
+              {loadingAuth ? (
                 <div className="flex gap-x-4 animate-pulse">
                   <div className="h-9 w-20 bg-gray-200 rounded"></div>
                   <div className="h-9 w-20 bg-gray-300 rounded"></div>
