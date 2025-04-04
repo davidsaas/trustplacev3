@@ -213,9 +213,5 @@ export async function POST(req: Request) {
   return new NextResponse('Webhook received', { status: 200 });
 }
 
-// Disable Next.js body parsing for this route to get the raw body
-export const config = {
-  api: {
-    bodyParser: false,
-  },
-};
+// No config export needed for App Router Route Handlers
+// Body parsing is handled by how you read the request (e.g., req.text())
