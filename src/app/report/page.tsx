@@ -19,14 +19,14 @@ function ReportLoading() {
 
 // Client Component with authentication check
 function ReportContent() {
-  const { user, loading } = useAuth()
+  const { user, loadingAuth } = useAuth()
   const router = useRouter()
   const searchParams = useSearchParams()
   const listingId = searchParams.get('id')
   const [isChecking, setIsChecking] = useState(true)
 
   useEffect(() => {
-    if (!loading) {
+    if (!loadingAuth) {
       if (!user) {
         // Redirect to sign-in if user is not authenticated
         router.push('/auth/sign-in')
@@ -37,9 +37,9 @@ function ReportContent() {
         setIsChecking(false)
       }
     }
-  }, [user, loading, router, listingId])
+  }, [user, loadingAuth, router, listingId])
 
-  if (loading || isChecking) {
+  if (loadingAuth || isChecking) {
     return <ReportLoading />
   }
 
