@@ -19,7 +19,7 @@ import { OSMInsights } from '../components/OSMInsights'
 import type { OSMInsightsResponse } from '@/app/api/osm-insights/route'
 import { ImageOff, MessageSquare } from 'lucide-react'
 import { SaferAlternativesSection } from './components/SaferAlternativesSection';
-import { PaidContentGuard } from '@/app/components/billing/PaidContentGuard'; // Import the guard
+import PaidContentGuard from '@/app/components/billing/PaidContentGuard'; // Correct default import
 
 import type {
   SafetyReportProps,
@@ -905,7 +905,7 @@ export default function SafetyReportPage({ params }: SafetyReportProps) {
                 </div>
               </div>
             </div>
-            <PaidContentGuard featureName="Community Comments">
+            <PaidContentGuard>
               <CommunityOpinions
                 opinions={communityOpinions}
                 isLoading={false} // Keep existing props
@@ -1001,7 +1001,7 @@ export default function SafetyReportPage({ params }: SafetyReportProps) {
              </div>
              {/* Guarded Content */}
              <div className="bg-white rounded-b-xl shadow-sm p-4 sm:p-6">
-                 <PaidContentGuard featureName="Safer Alternatives">
+                 <PaidContentGuard>
                     <SaferAlternativesSection
                         alternatives={reportData.similar_accommodations}
                         currentScore={reportData.overall_score}

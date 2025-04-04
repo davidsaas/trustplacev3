@@ -1,133 +1,130 @@
 'use client';
 
 import React, { useState } from 'react';
-import { useAuth } from '@/components/shared/providers/auth-provider'; // Use the updated hook
+import { useRouter } from 'next/navigation';
+import { useAuth } from '@/components/shared/providers/auth-provider';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
-import { LockIcon, LogInIcon } from 'lucide-react';
-import { useRouter } from 'next/navigation';
+import { Alert, AlertDescription, AlertTitle, AlertBody, AlertActions } from "@/components/ui/alert"; // Import necessary parts
 import { ROUTES } from '@/lib/routes';
 
 interface PaidContentGuardProps {
   children: React.ReactNode;
-  featureName?: string; // Optional: Name of the feature being guarded
+  signInMessage?: string;
+  subscribeMessage?: string;
+  loadingComponent?: React.ReactNode;
+  showManageButton?: boolean;
 }
 
-export const PaidContentGuard: React.FC<PaidContentGuardProps> = ({
+const PaidContentGuard: React.FC<PaidContentGuardProps> = ({
   children,
-  featureName = 'this feature',
+  signInMessage = "Please sign in to access this content.",
+  subscribeMessage = "You need an active subscription to view this content.",
+  loadingComponent = <Skeleton className="h-20 w-full" />,
+  showManageButton = true,
 }) => {
-  const { user, isSubscribed, loadingAuth, loadingProfile } = useAuth();
-  const [isSubscribing, setIsSubscribing] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const { user, profile, loadingAuth, loadingProfile } = useAuth();
   const router = useRouter();
+  const [isRedirecting, setIsRedirecting] = useState(false);
 
-  const isLoading = loadingAuth || loadingProfile;
+  const isLoading = loadingAuth || loadingProfile || isRedirecting;
+  // Ensure profile exists before checking status
+  const isActiveSubscriber = profile ? (profile.subscription_status === 'active' || profile.subscription_status === 'trialing') : false;
 
-  const handleSubscribeClick = async () => {
-    setIsSubscribing(true);
-    setError(null);
+  const handleRedirect = async (apiUrl: string) => {
+    setIsRedirecting(true);
     try {
-      const response = await fetch('/api/stripe/create-checkout-session', {
-        method: 'POST',
-      });
-
+      const response = await fetch(apiUrl, { method: 'POST' });
       if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.message || 'Failed to create checkout session.');
+        const errorText = await response.text();
+        throw new Error(`Failed to initiate session: ${response.status} ${errorText}`);
       }
-
-      const { url: checkoutUrl } = await response.json();
-      if (!checkoutUrl) {
-        throw new Error('Checkout URL not found in response.');
+      const { url } = await response.json();
+      if (url) {
+        window.location.href = url;
+      } else {
+          throw new Error('No URL received from server.');
       }
-
-      // Redirect to Stripe Checkout
-      window.location.href = checkoutUrl;
-      // Note: No need to setIsSubscribing(false) here as the page navigates away
-    } catch (err) {
-      console.error('Subscription error:', err);
-      setError(err instanceof Error ? err.message : 'An unexpected error occurred.');
-      setIsSubscribing(false);
+    } catch (error) {
+      console.error('Error redirecting to Stripe:', error);
+      alert(`Error: ${error instanceof Error ? error.message : 'Could not connect to billing.'}`);
+      setIsRedirecting(false);
     }
   };
 
-  const handleSignInClick = () => {
-    // Redirect to sign-in, passing the current path to return to
-    const currentPath = window.location.pathname + window.location.search;
-    router.push(`${ROUTES.SIGN_IN}?next=${encodeURIComponent(currentPath)}`);
+  const handleSubscribe = () => {
+    handleRedirect('/api/stripe/create-checkout-session');
   };
 
-  // --- Loading State ---
+  const handleManageSubscription = () => {
+    handleRedirect('/api/stripe/create-portal-session');
+  };
+
+  const handleSignIn = () => {
+    router.push(ROUTES.SIGN_IN); // Corrected route usage
+  };
+
+  // --- Render Logic ---
+
   if (isLoading) {
+    return <>{loadingComponent}</>;
+  }
+
+  if (!user) {
+    // Use Alert components correctly
     return (
-      <div className="relative w-full min-h-[200px]">
-        <Skeleton className="absolute inset-0 w-full h-full" />
-        <div className="absolute inset-0 bg-white/50 backdrop-blur-sm flex items-center justify-center">
-          <p className="text-gray-600 font-medium">Loading access...</p>
-        </div>
-      </div>
+      <Alert open={true} onClose={() => {}} className="my-4 border border-red-500 bg-red-50 p-4 rounded-md sm:max-w-lg">
+         <AlertTitle>Authentication Required</AlertTitle>
+         <AlertDescription>
+           {signInMessage}
+         </AlertDescription>
+         <AlertBody> {/* Optional: Add more body content if needed */}
+         </AlertBody>
+         <AlertActions>
+            <Button onClick={handleSignIn}>Sign In</Button>
+            {/* Add a close button if the Alert component requires it */}
+            {/* <Button plain onClick={() => {}}>Cancel</Button> */}
+         </AlertActions>
+       </Alert>
     );
   }
 
-  // --- Authenticated & Subscribed: Show Content ---
-  if (user && isSubscribed) {
-    return <>{children}</>;
+  if (!isActiveSubscriber) {
+     // Use Alert components correctly
+    return (
+       <Alert open={true} onClose={() => {}} className="my-4 border border-blue-500 bg-blue-50 p-4 rounded-md sm:max-w-lg">
+         <AlertTitle>Subscription Required</AlertTitle>
+         <AlertDescription>
+           {subscribeMessage}
+         </AlertDescription>
+         <AlertBody>
+         </AlertBody>
+         <AlertActions>
+           <Button onClick={handleSubscribe} disabled={isRedirecting}>
+             {isRedirecting ? 'Redirecting...' : 'Subscribe Now'}
+           </Button>
+            {/* <Button plain onClick={() => {}}>Cancel</Button> */}
+         </AlertActions>
+       </Alert>
+    );
   }
 
-  // --- Blurred Content + Overlay ---
-  const Overlay = ({ children: overlayChildren }: { children: React.ReactNode }) => (
-    <div className="relative w-full">
-      {/* Blurred Background Content */}
-      <div className="blur-md select-none pointer-events-none" aria-hidden="true">
-        {children}
-      </div>
-      {/* Overlay */}
-      <div className="absolute inset-0 bg-gradient-to-t from-white via-white/80 to-white/50 flex items-center justify-center p-6 rounded-lg">
-        <div className="text-center bg-white p-6 rounded-lg shadow-lg border border-gray-200 max-w-sm">
-          {overlayChildren}
-          {error && <p className="mt-3 text-sm text-red-600">{error}</p>}
-        </div>
-      </div>
+  // User is logged in and has an active subscription
+  return (
+    <div>
+      {children}
+      {showManageButton && (
+         <div className="mt-4 text-right">
+           {/* Button variant error will be fixed after reading button.tsx */}
+           {/* Use the 'outline' boolean prop instead of 'variant' */}
+           {/* Remove the 'size' prop as it's not supported by this Button component */}
+           <Button outline onClick={handleManageSubscription} disabled={isRedirecting}>
+             {isRedirecting ? 'Redirecting...' : 'Manage Subscription'}
+           </Button>
+         </div>
+       )}
     </div>
   );
-
-  // --- Authenticated but NOT Subscribed: Show Subscribe Prompt ---
-  if (user && !isSubscribed) {
-    return (
-      <Overlay>
-        <LockIcon className="h-8 w-8 text-yellow-500 mx-auto mb-3" />
-        <h3 className="text-lg font-semibold text-gray-800 mb-1">Unlock Premium Feature</h3>
-        <p className="text-sm text-gray-600 mb-4">
-          Subscribe to access {featureName} and other exclusive content.
-        </p>
-        <Button
-          onClick={handleSubscribeClick}
-          disabled={isSubscribing}
-          className="w-full"
-        >
-          {isSubscribing ? 'Processing...' : 'Unlock for $4.99 USD/month'}
-        </Button>
-      </Overlay>
-    );
-  }
-
-  // --- NOT Authenticated: Show Sign In Prompt ---
-  if (!user) {
-    return (
-      <Overlay>
-        <LogInIcon className="h-8 w-8 text-blue-500 mx-auto mb-3" />
-        <h3 className="text-lg font-semibold text-gray-800 mb-1">Sign In Required</h3>
-        <p className="text-sm text-gray-600 mb-4">
-          Please sign in or create an account to subscribe and access {featureName}.
-        </p>
-        <Button onClick={handleSignInClick} className="w-full">
-          Sign In / Sign Up
-        </Button>
-      </Overlay>
-    );
-  }
-
-  // Fallback (shouldn't be reached)
-  return null;
 };
+
+export default PaidContentGuard;

@@ -1,131 +1,127 @@
 import { NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
-// @ts-expect-error - TS checker seems unable to find this export despite it existing
-import { createRouteHandlerClient } from '@supabase/ssr';
-import { stripe } from '@/lib/stripe/server'; // We'll create this Stripe client next
-import { getURL } from '@/lib/utils/helpers'; // Revert back to alias
-import type { Database } from '@/lib/supabase/database.types'; // Import generated types
+import { createRouteHandlerClient } from '@supabase/auth-helpers-nextjs';
+import Stripe from 'stripe';
+import { getURL } from '@/lib/utils/helpers'; // Use the correct helper function name
+import type { Database } from '@/lib/supabase/database.types';
 
-// Ensure environment variables are loaded (consider using a validation library like Zod)
-const STRIPE_PRICE_ID = process.env.YOUR_STRIPE_PRICE_ID;
-const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
+// Initialize Stripe (ensure STRIPE_SECRET_KEY is in your .env)
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
+  apiVersion: '2025-03-31.basil', // Use the expected API version
+  typescript: true,
+});
 
-if (!STRIPE_PRICE_ID) {
-  console.error('Missing environment variable: YOUR_STRIPE_PRICE_ID');
-  // Optionally throw an error during build or startup
-}
-if (!SUPABASE_SERVICE_ROLE_KEY) {
-    console.error('Missing environment variable: SUPABASE_SERVICE_ROLE_KEY');
-    // Optionally throw an error during build or startup
-}
+const priceId = process.env.YOUR_STRIPE_PRICE_ID; // Ensure this is set in .env
 
-
-export async function POST(req: Request) {
+export async function POST(request: Request) {
   const cookieStore = cookies();
-  // Use service role client for backend operations like querying/updating profiles
-  const supabaseAdmin = createRouteHandlerClient<Database>(
-    { cookies: () => cookieStore },
-    { supabaseKey: SUPABASE_SERVICE_ROLE_KEY } // Use service role key
-  );
+  const supabase = createRouteHandlerClient<Database>({ cookies: () => cookieStore });
 
   try {
-    // 1. Get User
-    const { data: { user }, error: userError } = await supabaseAdmin.auth.getUser();
+    // 1. Get User Session
+    const { data: { user }, error: userError } = await supabase.auth.getUser();
 
     if (userError || !user) {
-      console.error('Error getting user or no user found:', userError);
+      console.error('Unauthorized: No user session found.');
       return new NextResponse('Unauthorized', { status: 401 });
     }
 
-    // 2. Retrieve or Create Stripe Customer
-    let customerId: string;
-
-    // Check if user profile exists and has a stripe_customer_id
-    const { data: profile, error: profileError } = await supabaseAdmin
+    // 2. Fetch User's Profile (including stripe_customer_id)
+    const { data: profile, error: profileError } = await supabase
       .from('profiles')
       .select('stripe_customer_id')
       .eq('id', user.id)
       .single();
 
-    if (profileError && profileError.code !== 'PGRST116') { // PGRST116 = 'No rows found'
-      console.error('Error fetching profile:', profileError);
-      throw new Error('Could not fetch user profile.');
+    // Handle profile fetch errors (excluding 'not found' which is handled below)
+    if (profileError && profileError.code !== 'PGRST116') { // PGRST116 = 'Row not found'
+      console.error(`Error fetching profile for user ${user.id}:`, profileError);
+      return new NextResponse('Internal Server Error fetching profile', { status: 500 });
     }
 
-    if (profile?.stripe_customer_id) {
-      customerId = profile.stripe_customer_id;
-      console.log(`Found existing Stripe Customer ID: ${customerId} for user ${user.id}`);
-    } else {
-      console.log(`No Stripe Customer ID found for user ${user.id}. Creating new customer...`);
-      // Create a new Stripe customer
-      const customer = await stripe.customers.create({
-        email: user.email,
-        metadata: {
-          supabase_user_id: user.id, // Link Stripe customer to Supabase user
-        },
-      });
-      customerId = customer.id;
-      console.log(`Created new Stripe Customer ID: ${customerId} for user ${user.id}`);
+    // 3. Get or Create Stripe Customer ID
+    let customerId = profile?.stripe_customer_id;
 
-      // Update the user's profile in Supabase with the new Stripe Customer ID
-      const { error: updateError } = await supabaseAdmin
-        .from('profiles')
-        .update({ stripe_customer_id: customerId })
-        .eq('id', user.id);
+    if (!customerId) {
+      console.log(`No Stripe customer ID found for user ${user.id}. Creating new customer...`);
+      try {
+        const newCustomer = await stripe.customers.create({
+          email: user.email,
+          // Add metadata if needed, e.g., name
+          metadata: {
+            supabase_user_id: user.id,
+          },
+        });
+        customerId = newCustomer.id;
+        console.log(`Created Stripe customer ${customerId} for user ${user.id}.`);
 
-      if (updateError) {
-        console.error('Error updating profile with Stripe Customer ID:', updateError);
-        // Consider how to handle this - maybe retry or log for manual intervention
-        throw new Error('Failed to update user profile with Stripe ID.');
+        // Update Supabase profile with the new customer ID
+        const { error: updateError } = await supabase
+          .from('profiles')
+          .update({ stripe_customer_id: customerId })
+          .eq('id', user.id);
+
+        if (updateError) {
+          console.error(`Failed to update profile for user ${user.id} with Stripe customer ID ${customerId}:`, updateError);
+          // Decide if this is critical enough to stop the checkout process
+          return new NextResponse('Failed to update user profile', { status: 500 });
+        }
+         console.log(`Successfully updated profile for user ${user.id} with Stripe customer ID.`);
+      } catch (customerError) {
+        console.error(`Error creating Stripe customer or updating profile for user ${user.id}:`, customerError);
+        return new NextResponse('Internal Server Error creating customer', { status: 500 });
       }
-       console.log(`Successfully updated profile for user ${user.id} with Stripe Customer ID.`);
+    } else {
+       console.log(`Found existing Stripe customer ID ${customerId} for user ${user.id}.`);
     }
 
-    // 3. Create Stripe Checkout Session
-    if (!STRIPE_PRICE_ID) {
-        throw new Error('Stripe Price ID is not configured.');
+    if (!priceId) {
+        console.error('Stripe Price ID (YOUR_STRIPE_PRICE_ID) is not set in environment variables.');
+        return new NextResponse('Internal Server Error: Missing configuration', { status: 500 });
     }
 
-    const baseUrl = getURL(); // Helper function to get your site's base URL
-    // Construct success/cancel URLs relative to the current request or base URL
-    // Important: Use the actual report ID if needed in the URL
-    // For now, using a placeholder - you might need to pass the report ID from the frontend request
-    const reportIdPlaceholder = 'some-report-id'; // Replace with actual ID logic if needed
-    const successUrl = `${baseUrl}/safety-report/${reportIdPlaceholder}?session_id={CHECKOUT_SESSION_ID}`;
-    const cancelUrl = `${baseUrl}/safety-report/${reportIdPlaceholder}`;
+    // 4. Create Stripe Checkout Session
+    const baseUrl = getURL(); // Use the correct helper function name
+    const successUrl = `${baseUrl}/payment/success?session_id={CHECKOUT_SESSION_ID}`;
+    const cancelUrl = `${baseUrl}/payment/cancel`; // Or redirect to a specific page like /subscribe
 
-
-    const session = await stripe.checkout.sessions.create({
-      payment_method_types: ['card'],
-      mode: 'subscription',
-      customer: customerId,
-      line_items: [
-        {
-          price: STRIPE_PRICE_ID,
-          quantity: 1,
+    try {
+      const session = await stripe.checkout.sessions.create({
+        customer: customerId,
+        payment_method_types: ['card'],
+        line_items: [
+          {
+            price: priceId,
+            quantity: 1,
+          },
+        ],
+        mode: 'subscription',
+        success_url: successUrl,
+        cancel_url: cancelUrl,
+        // Add metadata to link session back to Supabase user if needed (webhook already uses customer ID)
+        metadata: {
+          supabase_user_id: user.id, // Useful for webhook verification/logging
         },
-      ],
-      allow_promotion_codes: true, // Optional
-      success_url: successUrl,
-      cancel_url: cancelUrl,
-      // Add metadata to link the session back to your Supabase user in webhooks
-      metadata: {
-        supabase_user_id: user.id,
-      },
-    });
+        // Optional: Allow promotion codes
+        // allow_promotion_codes: true,
+      });
 
-    if (!session.url) {
-        console.error('Stripe session creation failed: No URL returned.');
-        throw new Error('Could not create Stripe Checkout Session.');
+      if (!session.url) {
+        console.error('Stripe session created but missing URL.');
+        return new NextResponse('Internal Server Error: Failed to create checkout session URL', { status: 500 });
+      }
+
+      // 5. Return Session URL
+      console.log(`Created Stripe Checkout session ${session.id} for user ${user.id}. Redirecting...`);
+      return NextResponse.json({ url: session.url });
+
+    } catch (sessionError) {
+      console.error(`Error creating Stripe Checkout session for customer ${customerId}:`, sessionError);
+      return new NextResponse('Internal Server Error creating checkout session', { status: 500 });
     }
-
-    // 4. Return the session URL
-    return NextResponse.json({ url: session.url });
 
   } catch (error) {
-    console.error('Error creating Stripe Checkout session:', error);
-    const errorMessage = error instanceof Error ? error.message : 'Internal Server Error';
-    // Return a generic error message to the client for security
-    return new NextResponse(`Error creating checkout session: ${errorMessage}`, { status: 500 });
+    console.error('Unexpected error in /api/stripe/create-checkout-session:', error);
+    return new NextResponse('Internal Server Error', { status: 500 });
   }
 }
